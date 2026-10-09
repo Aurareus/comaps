@@ -1,0 +1,90 @@
+{
+ "started_at": 1791568006,
+ "duration_s": 1800.0,
+ "results": [
+  {
+   "url": "wss://nos.lol",
+   "sent": 360,
+   "accepted": 360,
+   "refused": 0,
+   "refused_msgs": [],
+   "missed_live_5s": 1,
+   "pub_disconnects": 2,
+   "sub_disconnects": 2,
+   "p50_ms": 231,
+   "p95_ms": 269,
+   "p99_ms": 299,
+   "max_ms": 346
+  },
+  {
+   "url": "wss://nostr.mom",
+   "sent": 360,
+   "accepted": 360,
+   "refused": 0,
+   "refused_msgs": [],
+   "missed_live_5s": 3,
+   "pub_disconnects": 1,
+   "sub_disconnects": 2,
+   "p50_ms": 240,
+   "p95_ms": 276,
+   "p99_ms": 300,
+   "max_ms": 307
+  },
+  {
+   "url": "wss://relay.primal.net",
+   "sent": 360,
+   "accepted": 360,
+   "refused": 0,
+   "refused_msgs": [],
+   "missed_live_5s": 0,
+   "pub_disconnects": 1,
+   "sub_disconnects": 0,
+   "p50_ms": 230,
+   "p95_ms": 3248,
+   "p99_ms": 4010,
+   "max_ms": 5347
+  },
+  {
+   "url": "wss://relay.nostr.net",
+   "sent": 360,
+   "accepted": 360,
+   "refused": 0,
+   "refused_msgs": [],
+   "missed_live_5s": 0,
+   "pub_disconnects": 0,
+   "sub_disconnects": 0,
+   "p50_ms": 267,
+   "p95_ms": 322,
+   "p99_ms": 374,
+   "max_ms": 880
+  },
+  {
+   "url": "wss://nostr.data.haus",
+   "sent": 359,
+   "accepted": 359,
+   "refused": 0,
+   "refused_msgs": [],
+   "missed_live_5s": 1,
+   "pub_disconnects": 0,
+   "sub_disconnects": 0,
+   "p50_ms": 258,
+   "p95_ms": 1609,
+   "p99_ms": 3276,
+   "max_ms": 6255
+  },
+  {
+   "url": "wss://relay.snort.social",
+   "sent": 360,
+   "accepted": 360,
+   "refused": 0,
+   "refused_msgs": [],
+   "missed_live_5s": 1,
+   "pub_disconnects": 2,
+   "sub_disconnects": 1,
+   "p50_ms": 142,
+   "p95_ms": 164,
+   "p99_ms": 186,
+   "max_ms": 204
+  }
+ ]
+}

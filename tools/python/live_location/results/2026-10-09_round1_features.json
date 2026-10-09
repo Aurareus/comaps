@@ -1,0 +1,1664 @@
+{
+ "probed_at": 1791567462,
+ "results": [
+  {
+   "url": "wss://relay.damus.io",
+   "info": {
+    "error": "<HTTPError 403: 'Forbidden'>"
+   },
+   "connect_error": "InvalidStatus(Response(status_code=503, reason_phrase='Service Unavailable', headers=Headers([('Date', 'Fri, 09 Oct 2026 17:36:43 GMT'), ('Content-Length', '0'), ('Connection', 'keep-alive'), ('Server', 'cloudflare'), ('Cache-Control', 'private, no-store'), ('Nel', '{\"report_to\":\"cf-nel\",\"success_fr"
+  },
+  {
+   "url": "wss://nos.lol",
+   "info": {
+    "software": "git+https://github.com/hoytech/strfry.git",
+    "version": "1.1.3",
+    "supported_nips": [
+     1,
+     2,
+     4,
+     9,
+     11,
+     28,
+     40,
+     45,
+     70
+    ],
+    "auth_required": null,
+    "payment_required": null,
+    "restricted_writes": null,
+    "min_pow_difficulty": null,
+    "max_message_length": 131072,
+    "max_subscriptions": 20,
+    "max_limit": 500,
+    "max_event_tags": null,
+    "created_at_lower_limit": null,
+    "created_at_upper_limit": null,
+    "retention": null
+   },
+   "connect_ms": 1030,
+   "addr": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 147
+   },
+   "stored": {
+    "served": true,
+    "n": 1,
+    "err": null
+   },
+   "replace_publish": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 147
+   },
+   "live": {
+    "forwarded": true,
+    "latency_ms": 191
+   },
+   "replace": {
+    "latest_only": true,
+    "ids_served": 1,
+    "err": null,
+    "old_served_by_id": false
+   },
+   "eph_live": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 142
+    },
+    "forwarded": true,
+    "latency_ms": 182,
+    "served_from_storage_after": true
+   },
+   "eph_mute": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 146
+   },
+   "exp_short": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 149
+    },
+    "served_after_expiry": true,
+    "err": null
+   },
+   "exp_past": {
+    "ok": false,
+    "msg": "invalid: event expired",
+    "latency_ms": 139
+   },
+   "del_a": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 150
+    },
+    "still_served": false,
+    "deletion_event_served": true
+   },
+   "authors50": {
+    "accepted": true,
+    "err": null
+   },
+   "rate_1s": {
+    "sent": 10,
+    "refused": 0,
+    "first_refused_at": null,
+    "messages": []
+   },
+   "rate_200ms": {
+    "sent": 10,
+    "refused": 0,
+    "first_refused_at": null,
+    "messages": []
+   },
+   "auth_challenge": false,
+   "notices": []
+  },
+  {
+   "url": "wss://relay.primal.net",
+   "info": {
+    "error": "<HTTPError 403: 'Forbidden'>"
+   },
+   "connect_ms": 1073,
+   "addr": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 173
+   },
+   "stored": {
+    "served": true,
+    "n": 1,
+    "err": null
+   },
+   "replace_publish": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 165
+   },
+   "live": {
+    "forwarded": true,
+    "latency_ms": 218
+   },
+   "replace": {
+    "latest_only": true,
+    "ids_served": 1,
+    "err": null,
+    "old_served_by_id": false
+   },
+   "eph_live": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 162
+    },
+    "forwarded": true,
+    "latency_ms": 243,
+    "served_from_storage_after": true
+   },
+   "eph_mute": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 162
+   },
+   "exp_short": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 160
+    },
+    "served_after_expiry": false,
+    "err": null
+   },
+   "exp_past": {
+    "ok": false,
+    "msg": "invalid: event expired",
+    "latency_ms": 151
+   },
+   "del_a": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 154
+    },
+    "still_served": false,
+    "deletion_event_served": true
+   },
+   "authors50": {
+    "accepted": true,
+    "err": null
+   },
+   "rate_1s": {
+    "sent": 10,
+    "refused": 0,
+    "first_refused_at": null,
+    "messages": []
+   },
+   "rate_200ms": {
+    "sent": 10,
+    "refused": 0,
+    "first_refused_at": null,
+    "messages": []
+   },
+   "auth_challenge": false,
+   "notices": []
+  },
+  {
+   "url": "wss://relay.nostr.band",
+   "info": {
+    "error": "URLError(TimeoutError('_ssl.c:1015: The handshake operation timed out'))"
+   },
+   "connect_error": "TimeoutError('timed out during opening handshake')"
+  },
+  {
+   "url": "wss://nostr.mom",
+   "info": {
+    "software": "git+https://github.com/hoytech/strfry.git",
+    "version": "1.1.3",
+    "supported_nips": [
+     1,
+     2,
+     4,
+     9,
+     11,
+     28,
+     40,
+     45,
+     70
+    ],
+    "auth_required": null,
+    "payment_required": null,
+    "restricted_writes": null,
+    "min_pow_difficulty": null,
+    "max_message_length": 131072,
+    "max_subscriptions": 50,
+    "max_limit": 500,
+    "max_event_tags": null,
+    "created_at_lower_limit": null,
+    "created_at_upper_limit": null,
+    "retention": null
+   },
+   "connect_ms": 924,
+   "addr": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 187
+   },
+   "stored": {
+    "served": true,
+    "n": 1,
+    "err": null
+   },
+   "replace_publish": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 151
+   },
+   "live": {
+    "forwarded": true,
+    "latency_ms": 242
+   },
+   "replace": {
+    "latest_only": true,
+    "ids_served": 1,
+    "err": null,
+    "old_served_by_id": false
+   },
+   "eph_live": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 161
+    },
+    "forwarded": true,
+    "latency_ms": 266,
+    "served_from_storage_after": true
+   },
+   "eph_mute": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 145
+   },
+   "exp_short": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 154
+    },
+    "served_after_expiry": false,
+    "err": null
+   },
+   "exp_past": {
+    "ok": false,
+    "msg": "invalid: event expired",
+    "latency_ms": 148
+   },
+   "del_a": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 156
+    },
+    "still_served": false,
+    "deletion_event_served": true
+   },
+   "authors50": {
+    "accepted": true,
+    "err": null
+   },
+   "rate_1s": {
+    "sent": 10,
+    "refused": 0,
+    "first_refused_at": null,
+    "messages": []
+   },
+   "rate_200ms": {
+    "sent": 10,
+    "refused": 0,
+    "first_refused_at": null,
+    "messages": []
+   },
+   "auth_challenge": false,
+   "notices": []
+  },
+  {
+   "url": "wss://relay.snort.social",
+   "info": {
+    "software": "https://github.com/v0l/memlay",
+    "version": "0.2.0",
+    "supported_nips": [
+     1,
+     9,
+     11
+    ],
+    "auth_required": null,
+    "payment_required": null,
+    "restricted_writes": null,
+    "min_pow_difficulty": null,
+    "max_message_length": 524288,
+    "max_subscriptions": 300,
+    "max_limit": 5000,
+    "max_event_tags": null,
+    "created_at_lower_limit": null,
+    "created_at_upper_limit": null,
+    "retention": null
+   },
+   "connect_ms": 1106,
+   "addr": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 139
+   },
+   "stored": {
+    "served": true,
+    "n": 1,
+    "err": null
+   },
+   "replace_publish": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 136
+   },
+   "live": {
+    "forwarded": true,
+    "latency_ms": 139
+   },
+   "replace": {
+    "latest_only": true,
+    "ids_served": 1,
+    "err": null,
+    "old_served_by_id": false
+   },
+   "eph_live": {
+    "publish": {
+     "ok": true,
+     "msg": "ephemeral: will not be stored",
+     "latency_ms": 145
+    },
+    "forwarded": true,
+    "latency_ms": 147,
+    "served_from_storage_after": false
+   },
+   "eph_mute": {
+    "ok": true,
+    "msg": "ephemeral: will not be stored",
+    "latency_ms": 169
+   },
+   "exp_short": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 139
+    },
+    "served_after_expiry": true,
+    "err": null
+   },
+   "exp_past": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 139
+   },
+   "del_a": {
+    "publish": {
+     "ok": true,
+     "msg": "deleted 0 event(s)",
+     "latency_ms": 141
+    },
+    "still_served": true,
+    "deletion_event_served": true
+   },
+   "authors50": {
+    "accepted": true,
+    "err": null
+   },
+   "rate_1s": {
+    "sent": 10,
+    "refused": 0,
+    "first_refused_at": null,
+    "messages": []
+   },
+   "rate_200ms": {
+    "sent": 10,
+    "refused": 0,
+    "first_refused_at": null,
+    "messages": []
+   },
+   "auth_challenge": false,
+   "notices": []
+  },
+  {
+   "url": "wss://offchain.pub",
+   "info": {
+    "software": "git+https://github.com/hoytech/strfry.git",
+    "version": "1.1.0",
+    "supported_nips": [
+     1,
+     2,
+     4,
+     9,
+     11,
+     28,
+     40,
+     45,
+     70,
+     77
+    ],
+    "auth_required": null,
+    "payment_required": null,
+    "restricted_writes": null,
+    "min_pow_difficulty": null,
+    "max_message_length": 131072,
+    "max_subscriptions": 20,
+    "max_limit": 500,
+    "max_event_tags": null,
+    "created_at_lower_limit": null,
+    "created_at_upper_limit": null,
+    "retention": null
+   },
+   "connect_ms": 683,
+   "addr": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 190
+   },
+   "stored": {
+    "served": true,
+    "n": 1,
+    "err": null
+   },
+   "replace_publish": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 75
+   },
+   "live": {
+    "forwarded": true,
+    "latency_ms": 218
+   },
+   "replace": {
+    "latest_only": true,
+    "ids_served": 1,
+    "err": null,
+    "old_served_by_id": false
+   },
+   "eph_live": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 358
+    },
+    "forwarded": true,
+    "latency_ms": 458,
+    "served_from_storage_after": true
+   },
+   "eph_mute": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 119
+   },
+   "exp_short": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 97
+    },
+    "served_after_expiry": false,
+    "err": null
+   },
+   "exp_past": {
+    "ok": false,
+    "msg": "invalid: event expired",
+    "latency_ms": 70
+   },
+   "del_a": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 115
+    },
+    "still_served": false,
+    "deletion_event_served": true
+   },
+   "authors50": {
+    "accepted": true,
+    "err": null
+   },
+   "rate_1s": {
+    "sent": 10,
+    "refused": 1,
+    "first_refused_at": 9,
+    "messages": [
+     "Policy violated and pubkey is not in our web of trust."
+    ]
+   },
+   "rate_200ms": {
+    "sent": 10,
+    "refused": 10,
+    "first_refused_at": 0,
+    "messages": [
+     "Policy violated and pubkey is not in our web of trust."
+    ]
+   },
+   "auth_challenge": false,
+   "notices": []
+  },
+  {
+   "url": "wss://relay.nostr.net",
+   "info": {
+    "error": "<HTTPError 403: 'Forbidden'>"
+   },
+   "connect_ms": 1216,
+   "addr": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 154
+   },
+   "stored": {
+    "served": true,
+    "n": 1,
+    "err": null
+   },
+   "replace_publish": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 152
+   },
+   "live": {
+    "forwarded": true,
+    "latency_ms": 247
+   },
+   "replace": {
+    "latest_only": true,
+    "ids_served": 1,
+    "err": null,
+    "old_served_by_id": false
+   },
+   "eph_live": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 152
+    },
+    "forwarded": true,
+    "latency_ms": 249,
+    "served_from_storage_after": true
+   },
+   "eph_mute": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 153
+   },
+   "exp_short": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 152
+    },
+    "served_after_expiry": true,
+    "err": null
+   },
+   "exp_past": {
+    "ok": false,
+    "msg": "invalid: event expired",
+    "latency_ms": 150
+   },
+   "del_a": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 153
+    },
+    "still_served": false,
+    "deletion_event_served": true
+   },
+   "authors50": {
+    "accepted": true,
+    "err": null
+   },
+   "rate_1s": {
+    "sent": 10,
+    "refused": 0,
+    "first_refused_at": null,
+    "messages": []
+   },
+   "rate_200ms": {
+    "sent": 10,
+    "refused": 0,
+    "first_refused_at": null,
+    "messages": []
+   },
+   "auth_challenge": false,
+   "notices": []
+  },
+  {
+   "url": "wss://nostr.oxtr.dev",
+   "info": {
+    "software": "git+https://github.com/hoytech/strfry.git",
+    "version": "1.0.4",
+    "supported_nips": [
+     1,
+     2,
+     4,
+     9,
+     11,
+     22,
+     28,
+     40,
+     70,
+     77
+    ],
+    "auth_required": null,
+    "payment_required": null,
+    "restricted_writes": null,
+    "min_pow_difficulty": null,
+    "max_message_length": 131072,
+    "max_subscriptions": 40,
+    "max_limit": 500,
+    "max_event_tags": null,
+    "created_at_lower_limit": null,
+    "created_at_upper_limit": null,
+    "retention": null
+   },
+   "connect_ms": 965,
+   "addr": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 153
+   },
+   "stored": {
+    "served": true,
+    "n": 1,
+    "err": null
+   },
+   "replace_publish": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 180
+   },
+   "live": {
+    "forwarded": true,
+    "latency_ms": 283
+   },
+   "replace": {
+    "latest_only": true,
+    "ids_served": 1,
+    "err": null,
+    "old_served_by_id": false
+   },
+   "eph_live": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 155
+    },
+    "forwarded": true,
+    "latency_ms": 239,
+    "served_from_storage_after": true
+   },
+   "eph_mute": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 253
+   },
+   "exp_short": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 146
+    },
+    "served_after_expiry": false,
+    "err": null
+   },
+   "exp_past": {
+    "ok": false,
+    "msg": "invalid: event expired",
+    "latency_ms": 141
+   },
+   "del_a": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 153
+    },
+    "still_served": true,
+    "deletion_event_served": true
+   },
+   "authors50": {
+    "accepted": true,
+    "err": null
+   },
+   "rate_1s": {
+    "sent": 10,
+    "refused": 0,
+    "first_refused_at": null,
+    "messages": []
+   },
+   "rate_200ms": {
+    "sent": 10,
+    "refused": 0,
+    "first_refused_at": null,
+    "messages": []
+   },
+   "auth_challenge": false,
+   "notices": []
+  },
+  {
+   "url": "wss://relay.nostr.bg",
+   "info": {
+    "error": "URLError(OSError('Tunnel connection failed: 502 Bad Gateway'))"
+   },
+   "connect_error": "InvalidProxyStatus(Response(status_code=502, reason_phrase='Bad Gateway', headers=Headers([('Content-Type', 'text/plain; charset=utf-8'), ('X-Content-Type-Options', 'nosniff'), ('Content-Length', '20'), ('Connection', 'close')]), body=b'', _exception=None))"
+  },
+  {
+   "url": "wss://nostr-pub.wellorder.net",
+   "info": {
+    "software": "https://git.sr.ht/~gheartsfield/nostr-rs-relay",
+    "version": "0.9.0",
+    "supported_nips": [
+     1,
+     2,
+     9,
+     11,
+     12,
+     15,
+     16,
+     20,
+     22,
+     33,
+     40
+    ],
+    "auth_required": null,
+    "payment_required": false,
+    "restricted_writes": false,
+    "min_pow_difficulty": null,
+    "max_message_length": null,
+    "max_subscriptions": null,
+    "max_limit": null,
+    "max_event_tags": null,
+    "created_at_lower_limit": null,
+    "created_at_upper_limit": null,
+    "retention": null
+   },
+   "connect_ms": 1023,
+   "addr": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 156
+   },
+   "stored": {
+    "served": true,
+    "n": 1,
+    "err": null
+   },
+   "replace_publish": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 138
+   },
+   "live": {
+    "forwarded": true,
+    "latency_ms": 131
+   },
+   "replace": {
+    "latest_only": true,
+    "ids_served": 1,
+    "err": null,
+    "old_served_by_id": false
+   },
+   "eph_live": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 123
+    },
+    "forwarded": true,
+    "latency_ms": 121,
+    "served_from_storage_after": false
+   },
+   "eph_mute": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 139
+   },
+   "exp_short": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 133
+    },
+    "served_after_expiry": false,
+    "err": null
+   },
+   "exp_past": {
+    "ok": false,
+    "msg": "invalid: The event has already expired",
+    "latency_ms": 137
+   },
+   "del_a": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 122
+    },
+    "still_served": false,
+    "deletion_event_served": false
+   },
+   "authors50": {
+    "accepted": false,
+    "err": "timeout"
+   },
+   "rate_1s": {
+    "sent": 10,
+    "refused": 0,
+    "first_refused_at": null,
+    "messages": []
+   },
+   "rate_200ms": {
+    "sent": 10,
+    "refused": 0,
+    "first_refused_at": null,
+    "messages": []
+   },
+   "auth_challenge": false,
+   "notices": []
+  },
+  {
+   "url": "wss://nostr.wine",
+   "info": {
+    "error": "<HTTPError 403: 'Forbidden'>"
+   },
+   "connect_ms": 835,
+   "addr": {
+    "ok": false,
+    "msg": "restricted: sign up at https://nostr.wine to write events to this relay",
+    "latency_ms": 445
+   },
+   "stored": {
+    "served": false,
+    "n": 0,
+    "err": null
+   },
+   "replace_publish": {
+    "ok": false,
+    "msg": "restricted: sign up at https://nostr.wine to write events to this relay",
+    "latency_ms": 299
+   },
+   "live": {
+    "forwarded": false,
+    "latency_ms": null
+   },
+   "replace": {
+    "latest_only": false,
+    "ids_served": 0,
+    "err": null,
+    "old_served_by_id": false
+   },
+   "eph_live": {
+    "publish": {
+     "ok": false,
+     "msg": "restricted: sign up at https://nostr.wine to write events to this relay",
+     "latency_ms": 303
+    },
+    "forwarded": false,
+    "latency_ms": null,
+    "served_from_storage_after": false
+   },
+   "eph_mute": {
+    "ok": false,
+    "msg": "restricted: sign up at https://nostr.wine to write events to this relay",
+    "latency_ms": 277
+   },
+   "exp_short": {
+    "publish": {
+     "ok": false,
+     "msg": "restricted: sign up at https://nostr.wine to write events to this relay",
+     "latency_ms": 310
+    },
+    "served_after_expiry": false,
+    "err": null
+   },
+   "exp_past": {
+    "ok": false,
+    "msg": "invalid: event expired",
+    "latency_ms": 69
+   },
+   "del_a": {
+    "publish": {
+     "ok": false,
+     "msg": "restricted: sign up at https://nostr.wine to write events to this relay",
+     "latency_ms": 268
+    },
+    "still_served": false,
+    "deletion_event_served": false
+   },
+   "authors50": {
+    "accepted": true,
+    "err": null
+   },
+   "rate_1s": {
+    "sent": 10,
+    "refused": 10,
+    "first_refused_at": 0,
+    "messages": [
+     "restricted: sign up at https://nostr.wine to write events to this relay"
+    ]
+   },
+   "rate_200ms": {
+    "sent": 10,
+    "refused": 10,
+    "first_refused_at": 0,
+    "messages": [
+     "restricted: sign up at https://nostr.wine to write events to this relay"
+    ]
+   },
+   "auth_challenge": false,
+   "notices": []
+  },
+  {
+   "url": "wss://relay.0xchat.com",
+   "info": {
+    "error": "URLError(OSError('Tunnel connection failed: 502 Bad Gateway'))"
+   },
+   "connect_error": "InvalidProxyStatus(Response(status_code=502, reason_phrase='Bad Gateway', headers=Headers([('Content-Type', 'text/plain; charset=utf-8'), ('X-Content-Type-Options', 'nosniff'), ('Content-Length', '20'), ('Connection', 'close')]), body=b'', _exception=None))"
+  },
+  {
+   "url": "wss://nostr.bitcoiner.social",
+   "info": {
+    "software": "git+https://github.com/hoytech/strfry.git",
+    "version": "1.1.0",
+    "supported_nips": [
+     1,
+     2,
+     4,
+     9,
+     11,
+     28,
+     40,
+     45,
+     70,
+     77
+    ],
+    "auth_required": null,
+    "payment_required": null,
+    "restricted_writes": null,
+    "min_pow_difficulty": null,
+    "max_message_length": 131072,
+    "max_subscriptions": 20,
+    "max_limit": 500,
+    "max_event_tags": null,
+    "created_at_lower_limit": null,
+    "created_at_upper_limit": null,
+    "retention": null
+   },
+   "connect_ms": 854,
+   "addr": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 158
+   },
+   "stored": {
+    "served": true,
+    "n": 1,
+    "err": null
+   },
+   "replace_publish": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 139
+   },
+   "live": {
+    "forwarded": true,
+    "latency_ms": 215
+   },
+   "replace": {
+    "latest_only": true,
+    "ids_served": 1,
+    "err": null,
+    "old_served_by_id": false
+   },
+   "eph_live": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 170
+    },
+    "forwarded": true,
+    "latency_ms": 251,
+    "served_from_storage_after": true
+   },
+   "eph_mute": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 126
+   },
+   "exp_short": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 142
+    },
+    "served_after_expiry": true,
+    "err": null
+   },
+   "exp_past": {
+    "ok": false,
+    "msg": "invalid: event expired",
+    "latency_ms": 115
+   },
+   "del_a": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 141
+    },
+    "still_served": false,
+    "deletion_event_served": true
+   },
+   "authors50": {
+    "accepted": true,
+    "err": null
+   },
+   "rate_1s": {
+    "sent": 10,
+    "refused": 1,
+    "first_refused_at": 9,
+    "messages": [
+     "Policy violated and pubkey is not in our web of trust."
+    ]
+   },
+   "rate_200ms": {
+    "sent": 10,
+    "refused": 10,
+    "first_refused_at": 0,
+    "messages": [
+     "Policy violated and pubkey is not in our web of trust."
+    ]
+   },
+   "auth_challenge": false,
+   "notices": []
+  },
+  {
+   "url": "wss://relay.nos.social",
+   "info": {
+    "software": "git+https://github.com/hoytech/strfry.git",
+    "version": "1.0.3",
+    "supported_nips": [
+     1,
+     2,
+     4,
+     9,
+     11,
+     12,
+     16,
+     20,
+     22,
+     28,
+     33,
+     40,
+     62
+    ],
+    "auth_required": null,
+    "payment_required": null,
+    "restricted_writes": null,
+    "min_pow_difficulty": null,
+    "max_message_length": 262144,
+    "max_subscriptions": 100,
+    "max_limit": 500,
+    "max_event_tags": null,
+    "created_at_lower_limit": null,
+    "created_at_upper_limit": null,
+    "retention": null
+   },
+   "connect_ms": 832,
+   "addr": {
+    "ok": false,
+    "msg": "blocked: kind not allowed",
+    "latency_ms": 50
+   },
+   "stored": {
+    "served": false,
+    "n": 0,
+    "err": null
+   },
+   "replace_publish": {
+    "ok": false,
+    "msg": "blocked: kind not allowed",
+    "latency_ms": 49
+   },
+   "live": {
+    "forwarded": false,
+    "latency_ms": null
+   },
+   "replace": {
+    "latest_only": false,
+    "ids_served": 0,
+    "err": null,
+    "old_served_by_id": false
+   },
+   "eph_live": {
+    "publish": {
+     "ok": false,
+     "msg": "blocked: kind not allowed",
+     "latency_ms": 56
+    },
+    "forwarded": false,
+    "latency_ms": null,
+    "served_from_storage_after": false
+   },
+   "eph_mute": {
+    "ok": false,
+    "msg": "blocked: kind not allowed",
+    "latency_ms": 62
+   },
+   "exp_short": {
+    "publish": {
+     "ok": false,
+     "msg": "blocked: kind not allowed",
+     "latency_ms": 50
+    },
+    "served_after_expiry": false,
+    "err": null
+   },
+   "exp_past": {
+    "ok": false,
+    "msg": "invalid: event expired",
+    "latency_ms": 142
+   },
+   "del_a": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 117
+    },
+    "still_served": false,
+    "deletion_event_served": true
+   },
+   "authors50": {
+    "accepted": true,
+    "err": null
+   },
+   "rate_1s": {
+    "sent": 10,
+    "refused": 10,
+    "first_refused_at": 0,
+    "messages": [
+     "blocked: kind not allowed"
+    ]
+   },
+   "rate_200ms": {
+    "sent": 10,
+    "refused": 10,
+    "first_refused_at": 0,
+    "messages": [
+     "blocked: kind not allowed"
+    ]
+   },
+   "auth_challenge": false,
+   "notices": []
+  },
+  {
+   "url": "wss://purplepag.es",
+   "info": {
+    "software": "https://github.com/pablof7z/purplepag.es",
+    "version": "0.2.0",
+    "supported_nips": [
+     1,
+     11,
+     42,
+     70,
+     86,
+     51,
+     77,
+     9
+    ],
+    "auth_required": false,
+    "payment_required": false,
+    "restricted_writes": false,
+    "min_pow_difficulty": null,
+    "max_message_length": null,
+    "max_subscriptions": 50,
+    "max_limit": 500,
+    "max_event_tags": 2000,
+    "created_at_lower_limit": 0,
+    "created_at_upper_limit": 0,
+    "retention": null
+   },
+   "connect_ms": 1015,
+   "addr": {
+    "ok": false,
+    "msg": "blocked: kind 30484 is not allowed",
+    "latency_ms": 147
+   },
+   "stored": {
+    "served": false,
+    "n": 0,
+    "err": null
+   },
+   "replace_publish": {
+    "ok": false,
+    "msg": "blocked: kind 30484 is not allowed",
+    "latency_ms": 150
+   },
+   "live": {
+    "forwarded": false,
+    "latency_ms": null
+   },
+   "replace": {
+    "latest_only": false,
+    "ids_served": 0,
+    "err": null,
+    "old_served_by_id": false
+   },
+   "eph_live": {
+    "publish": {
+     "ok": false,
+     "msg": "blocked: kind 20484 is not allowed",
+     "latency_ms": 152
+    },
+    "forwarded": false,
+    "latency_ms": null,
+    "served_from_storage_after": false
+   },
+   "eph_mute": {
+    "ok": false,
+    "msg": "blocked: kind 20484 is not allowed",
+    "latency_ms": 147
+   },
+   "exp_short": {
+    "publish": {
+     "ok": false,
+     "msg": "blocked: kind 30484 is not allowed",
+     "latency_ms": 190
+    },
+    "served_after_expiry": false,
+    "err": null
+   },
+   "exp_past": {
+    "ok": false,
+    "msg": "blocked: kind 30484 is not allowed",
+    "latency_ms": 183
+   },
+   "del_a": {
+    "publish": {
+     "ok": false,
+     "msg": "blocked: kind 5 is not allowed",
+     "latency_ms": 150
+    },
+    "still_served": false,
+    "deletion_event_served": false
+   },
+   "authors50": {
+    "accepted": true,
+    "err": null
+   },
+   "rate_1s": {
+    "sent": 10,
+    "refused": 10,
+    "first_refused_at": 0,
+    "messages": [
+     "blocked: kind 30484 is not allowed"
+    ]
+   },
+   "rate_200ms": {
+    "sent": 10,
+    "refused": 10,
+    "first_refused_at": 0,
+    "messages": [
+     "blocked: kind 30484 is not allowed"
+    ]
+   },
+   "auth_challenge": false,
+   "notices": []
+  },
+  {
+   "url": "wss://relay.mostr.pub",
+   "info": {
+    "error": "<HTTPError 403: 'Forbidden'>"
+   },
+   "connect_error": "InvalidURI('https://relay.ditto.pub/', \"scheme isn't ws or wss\")"
+  },
+  {
+   "url": "wss://nostr21.com",
+   "info": {
+    "software": "git+https://github.com/hoytech/strfry.git",
+    "version": "strfry v315-3cff8c9",
+    "supported_nips": [
+     1,
+     2,
+     4,
+     9,
+     11,
+     12,
+     16,
+     20,
+     22,
+     28,
+     33,
+     40,
+     17,
+     86,
+     77
+    ],
+    "auth_required": false,
+    "payment_required": true,
+    "restricted_writes": null,
+    "min_pow_difficulty": 0,
+    "max_message_length": 262200,
+    "max_subscriptions": 80,
+    "max_limit": 10000,
+    "max_event_tags": 10000,
+    "created_at_lower_limit": 94608000,
+    "created_at_upper_limit": 900,
+    "retention": null
+   },
+   "connect_ms": 572,
+   "addr": {
+    "ok": false,
+    "msg": "",
+    "latency_ms": 64
+   },
+   "stored": {
+    "served": false,
+    "n": 0,
+    "err": null
+   },
+   "replace_publish": {
+    "ok": false,
+    "msg": "",
+    "latency_ms": 62
+   },
+   "live": {
+    "forwarded": false,
+    "latency_ms": null
+   },
+   "replace": {
+    "latest_only": false,
+    "ids_served": 0,
+    "err": null,
+    "old_served_by_id": false
+   },
+   "eph_live": {
+    "publish": {
+     "ok": false,
+     "msg": "",
+     "latency_ms": 63
+    },
+    "forwarded": false,
+    "latency_ms": null,
+    "served_from_storage_after": false
+   },
+   "eph_mute": {
+    "ok": false,
+    "msg": "",
+    "latency_ms": 69
+   },
+   "exp_short": {
+    "publish": {
+     "ok": false,
+     "msg": "",
+     "latency_ms": 77
+    },
+    "served_after_expiry": false,
+    "err": null
+   },
+   "exp_past": {
+    "ok": false,
+    "msg": "invalid: event expired",
+    "latency_ms": 71
+   },
+   "del_a": {
+    "publish": {
+     "ok": false,
+     "msg": "",
+     "latency_ms": 70
+    },
+    "still_served": false,
+    "deletion_event_served": false
+   },
+   "authors50": {
+    "accepted": true,
+    "err": null
+   },
+   "rate_1s": {
+    "sent": 10,
+    "refused": 10,
+    "first_refused_at": 0,
+    "messages": [
+     ""
+    ]
+   },
+   "rate_200ms": {
+    "sent": 10,
+    "refused": 10,
+    "first_refused_at": 0,
+    "messages": [
+     ""
+    ]
+   },
+   "auth_challenge": false,
+   "notices": []
+  },
+  {
+   "url": "wss://nostr.land",
+   "info": {
+    "software": "NFDB",
+    "version": "2.0 \u03b35",
+    "supported_nips": [],
+    "auth_required": false,
+    "payment_required": true,
+    "restricted_writes": null,
+    "min_pow_difficulty": null,
+    "max_message_length": 65535,
+    "max_subscriptions": 200,
+    "max_limit": null,
+    "max_event_tags": 2000,
+    "created_at_lower_limit": null,
+    "created_at_upper_limit": null,
+    "retention": null
+   },
+   "connect_ms": 867,
+   "addr": {
+    "ok": false,
+    "msg": "restricted: Pay on https://nostr.land for access.",
+    "latency_ms": 170
+   },
+   "stored": {
+    "served": false,
+    "n": 0,
+    "err": null
+   },
+   "replace_publish": {
+    "ok": false,
+    "msg": "restricted: Pay on https://nostr.land for access.",
+    "latency_ms": 151
+   },
+   "live": {
+    "forwarded": false,
+    "latency_ms": null
+   },
+   "replace": {
+    "latest_only": false,
+    "ids_served": 0,
+    "err": null,
+    "old_served_by_id": false
+   },
+   "eph_live": {
+    "publish": {
+     "ok": false,
+     "msg": "restricted: Pay on https://nostr.land for access.",
+     "latency_ms": 149
+    },
+    "forwarded": false,
+    "latency_ms": null,
+    "served_from_storage_after": false
+   },
+   "eph_mute": {
+    "ok": false,
+    "msg": "restricted: Pay on https://nostr.land for access.",
+    "latency_ms": 147
+   },
+   "exp_short": {
+    "publish": {
+     "ok": false,
+     "msg": "restricted: Pay on https://nostr.land for access.",
+     "latency_ms": 150
+    },
+    "served_after_expiry": false,
+    "err": null
+   },
+   "exp_past": {
+    "ok": false,
+    "msg": "restricted: Pay on https://nostr.land for access.",
+    "latency_ms": 179
+   },
+   "del_a": {
+    "publish": {
+     "ok": false,
+     "msg": "restricted: Pay on https://nostr.land for access.",
+     "latency_ms": 152
+    },
+    "still_served": false,
+    "deletion_event_served": false
+   },
+   "authors50": {
+    "accepted": true,
+    "err": null
+   },
+   "rate_1s": {
+    "sent": 10,
+    "refused": 10,
+    "first_refused_at": 0,
+    "messages": [
+     "restricted: Pay on https://nostr.land for access."
+    ]
+   },
+   "rate_200ms": {
+    "sent": 10,
+    "refused": 10,
+    "first_refused_at": 0,
+    "messages": [
+     "restricted: Pay on https://nostr.land for access."
+    ]
+   },
+   "auth_challenge": true,
+   "notices": []
+  },
+  {
+   "url": "wss://relay.wellorder.net",
+   "info": {
+    "software": "https://git.sr.ht/~gheartsfield/nostr-rs-relay",
+    "version": "0.9.0",
+    "supported_nips": [
+     1,
+     2,
+     9,
+     11,
+     12,
+     15,
+     16,
+     20,
+     22,
+     33,
+     40
+    ],
+    "auth_required": null,
+    "payment_required": false,
+    "restricted_writes": false,
+    "min_pow_difficulty": null,
+    "max_message_length": null,
+    "max_subscriptions": null,
+    "max_limit": null,
+    "max_event_tags": null,
+    "created_at_lower_limit": null,
+    "created_at_upper_limit": null,
+    "retention": null
+   },
+   "connect_ms": 876,
+   "addr": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 129
+   },
+   "stored": {
+    "served": true,
+    "n": 1,
+    "err": null
+   },
+   "replace_publish": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 123
+   },
+   "live": {
+    "forwarded": true,
+    "latency_ms": 123
+   },
+   "replace": {
+    "latest_only": true,
+    "ids_served": 1,
+    "err": null,
+    "old_served_by_id": false
+   },
+   "eph_live": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 145
+    },
+    "forwarded": true,
+    "latency_ms": 140,
+    "served_from_storage_after": false
+   },
+   "eph_mute": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 110
+   },
+   "exp_short": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 126
+    },
+    "served_after_expiry": false,
+    "err": null
+   },
+   "exp_past": {
+    "ok": false,
+    "msg": "invalid: The event has already expired",
+    "latency_ms": 107
+   },
+   "del_a": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 116
+    },
+    "still_served": false,
+    "deletion_event_served": false
+   },
+   "authors50": {
+    "accepted": false,
+    "err": "timeout"
+   },
+   "rate_1s": {
+    "sent": 10,
+    "refused": 0,
+    "first_refused_at": null,
+    "messages": []
+   },
+   "rate_200ms": {
+    "sent": 10,
+    "refused": 0,
+    "first_refused_at": null,
+    "messages": []
+   },
+   "auth_challenge": false,
+   "notices": []
+  }
+ ]
+}

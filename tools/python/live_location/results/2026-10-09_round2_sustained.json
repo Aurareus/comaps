@@ -1,0 +1,344 @@
+{
+ "probed_at": 1791567964,
+ "duration_s": 180.0,
+ "results": [
+  {
+   "url": "wss://relay.damus.io",
+   "connect_ms": 1419,
+   "connect_error": "InvalidStatus(Response(status_code=503, reason_phrase='Service Unavailable', headers=Headers([('Date', 'Fri, 09 Oct 2026 17:42:05 GMT'), ('Content-Length', '0'), ('Connection', 'keep-alive'), ('Server', 'cloudflare'), ('Cache-Control', 'private, no-store'), ('Nel', '{\"report_to\":\"cf-nel\",\"success_fr"
+  },
+  {
+   "url": "wss://nos.lol",
+   "connect_ms": 1322,
+   "authors_cap": {
+    "10": "ok",
+    "20": "ok",
+    "21": "ok",
+    "30": "ok",
+    "50": "ok",
+    "100": "ok"
+   },
+   "expiry_lag": {
+    "publish": true,
+    "msg": "",
+    "served_5s_after": false,
+    "served_15s_after": false,
+    "served_40s_after": false
+   },
+   "sustained_5s": {
+    "sent": 36,
+    "refused": 0,
+    "refused_msgs": [],
+    "missed_live": 0,
+    "p50_ms": 244,
+    "p95_ms": 280,
+    "max_ms": 348
+   },
+   "idle": {
+    "closed": false,
+    "after_s": null,
+    "msg": null
+   }
+  },
+  {
+   "url": "wss://relay.primal.net",
+   "connect_ms": 1372,
+   "authors_cap": {
+    "10": "ok",
+    "20": "ok",
+    "21": "ok",
+    "30": "ok",
+    "50": "ok",
+    "100": "ok"
+   },
+   "expiry_lag": {
+    "publish": true,
+    "msg": "",
+    "served_5s_after": true,
+    "served_15s_after": false,
+    "served_40s_after": false
+   },
+   "sustained_5s": {
+    "sent": 36,
+    "refused": 0,
+    "refused_msgs": [],
+    "missed_live": 0,
+    "p50_ms": 236,
+    "p95_ms": 2094,
+    "max_ms": 2452
+   },
+   "idle": {
+    "closed": false,
+    "after_s": null,
+    "msg": null
+   }
+  },
+  {
+   "url": "wss://nostr.mom",
+   "connect_ms": 1181,
+   "authors_cap": {
+    "10": "ok",
+    "20": "ok",
+    "21": "ok",
+    "30": "ok",
+    "50": "ok",
+    "100": "ok"
+   },
+   "expiry_lag": {
+    "publish": true,
+    "msg": "",
+    "served_5s_after": false,
+    "served_15s_after": false,
+    "served_40s_after": false
+   },
+   "sustained_5s": {
+    "sent": 36,
+    "refused": 0,
+    "refused_msgs": [],
+    "missed_live": 0,
+    "p50_ms": 242,
+    "p95_ms": 260,
+    "max_ms": 266
+   },
+   "idle": {
+    "closed": false,
+    "after_s": null,
+    "msg": null
+   }
+  },
+  {
+   "url": "wss://relay.snort.social",
+   "connect_ms": 1495,
+   "authors_cap": {
+    "10": "ok",
+    "20": "ok",
+    "21": "ok",
+    "30": "ok",
+    "50": "ok",
+    "100": "ok"
+   },
+   "expiry_lag": {
+    "publish": true,
+    "msg": "",
+    "served_5s_after": true,
+    "served_15s_after": true,
+    "served_40s_after": true
+   },
+   "sustained_5s": {
+    "sent": 36,
+    "refused": 0,
+    "refused_msgs": [],
+    "missed_live": 0,
+    "p50_ms": 142,
+    "p95_ms": 166,
+    "max_ms": 201
+   },
+   "idle": {
+    "closed": false,
+    "after_s": null,
+    "msg": null
+   }
+  },
+  {
+   "url": "wss://relay.nostr.net",
+   "connect_ms": 1395,
+   "authors_cap": {
+    "10": "ok",
+    "20": "ok",
+    "21": "ok",
+    "30": "ok",
+    "50": "ok",
+    "100": "ok"
+   },
+   "expiry_lag": {
+    "publish": true,
+    "msg": "",
+    "served_5s_after": true,
+    "served_15s_after": false,
+    "served_40s_after": false
+   },
+   "sustained_5s": {
+    "sent": 36,
+    "refused": 0,
+    "refused_msgs": [],
+    "missed_live": 0,
+    "p50_ms": 255,
+    "p95_ms": 290,
+    "max_ms": 317
+   },
+   "idle": {
+    "closed": false,
+    "after_s": null,
+    "msg": null
+   }
+  },
+  {
+   "url": "wss://nostr.oxtr.dev",
+   "connect_ms": 1231,
+   "authors_cap": {
+    "10": "ok",
+    "20": "ok",
+    "21": "ok",
+    "30": "ok",
+    "50": "ok",
+    "100": "ok"
+   },
+   "expiry_lag": {
+    "publish": true,
+    "msg": "",
+    "served_5s_after": true,
+    "served_15s_after": false,
+    "served_40s_after": false
+   },
+   "error": "ConnectionClosedError(None, None, None)"
+  },
+  {
+   "url": "wss://nostr-pub.wellorder.net",
+   "connect_ms": 933,
+   "authors_cap": {
+    "10": "ok",
+    "20": "ok",
+    "21": "ok",
+    "30": "ok",
+    "50": "ok",
+    "100": "timeout"
+   },
+   "expiry_lag": {
+    "publish": true,
+    "msg": "",
+    "served_5s_after": false,
+    "served_15s_after": false,
+    "served_40s_after": false
+   },
+   "error": "ConnectionClosedError(None, None, None)"
+  },
+  {
+   "url": "wss://relay.wellorder.net",
+   "connect_ms": 813,
+   "authors_cap": {
+    "10": "ok",
+    "20": "ok",
+    "21": "ok",
+    "30": "ok",
+    "50": "ok",
+    "100": "timeout"
+   },
+   "expiry_lag": {
+    "publish": true,
+    "msg": "",
+    "served_5s_after": false,
+    "served_15s_after": false,
+    "served_40s_after": false
+   },
+   "error": "ConnectionClosedError(None, None, None)"
+  },
+  {
+   "url": "wss://nostr.einundzwanzig.space",
+   "connect_ms": 1157,
+   "authors_cap": {
+    "10": "ok",
+    "20": "ok",
+    "21": "ok",
+    "30": "ok",
+    "50": "ok",
+    "100": "ok"
+   },
+   "expiry_lag": {
+    "publish": false,
+    "msg": "blocked: NIP-05 verification needed to publish events",
+    "served_5s_after": false,
+    "served_15s_after": false,
+    "served_40s_after": false
+   },
+   "sustained_5s": {
+    "sent": 36,
+    "refused": 36,
+    "refused_msgs": [
+     "blocked: NIP-05 verification needed to publish events"
+    ],
+    "missed_live": 36,
+    "p50_ms": null,
+    "p95_ms": null,
+    "max_ms": null
+   },
+   "idle": {
+    "closed": true,
+    "after_s": 180,
+    "msg": [
+     "__CLOSED__",
+     "ConnectionClosedError(None, None, None)"
+    ]
+   }
+  },
+  {
+   "url": "wss://relay.nostr.wirednet.jp",
+   "connect_ms": 1447,
+   "authors_cap": {
+    "10": "ok",
+    "20": "ok",
+    "21": "ok",
+    "30": "ok",
+    "50": "ok",
+    "100": "ok"
+   },
+   "expiry_lag": {
+    "publish": true,
+    "msg": "",
+    "served_5s_after": false,
+    "served_15s_after": false,
+    "served_40s_after": false
+   },
+   "sustained_5s": {
+    "sent": 36,
+    "refused": 0,
+    "refused_msgs": [],
+    "missed_live": 0,
+    "p50_ms": 369,
+    "p95_ms": 1060,
+    "max_ms": 1385
+   },
+   "idle": {
+    "closed": false,
+    "after_s": null,
+    "msg": null
+   }
+  },
+  {
+   "url": "wss://nostr.data.haus",
+   "connect_ms": 1818,
+   "authors_cap": {
+    "10": "ok",
+    "20": "ok",
+    "21": "ok",
+    "30": "ok",
+    "50": "ok",
+    "100": "ok"
+   },
+   "expiry_lag": {
+    "publish": true,
+    "msg": "",
+    "served_5s_after": true,
+    "served_15s_after": false,
+    "served_40s_after": false
+   },
+   "sustained_5s": {
+    "sent": 36,
+    "refused": 0,
+    "refused_msgs": [],
+    "missed_live": 0,
+    "p50_ms": 251,
+    "p95_ms": 429,
+    "max_ms": 1914
+   },
+   "idle": {
+    "closed": false,
+    "after_s": null,
+    "msg": null
+   }
+  },
+  {
+   "url": "wss://relay.nostrich.land",
+   "connect_error": "InvalidProxyStatus(Response(status_code=502, reason_phrase='Bad Gateway', headers=Headers([('Content-Type', 'text/plain; charset=utf-8'), ('X-Content-Type-Options', 'nosniff'), ('Content-Length', '20'), ('Connection', 'close')]), body=b'', _exception=None))"
+  }
+ ]
+}
