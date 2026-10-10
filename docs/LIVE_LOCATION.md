@@ -1,10 +1,13 @@
-# Live location sharing: design (Phase 1, for review)
+# Live location sharing: design
 
-Status: **draft for review**, 2026-10-09. No feature code has been written. The normative protocol
-is in [LIVE_LOCATION_PROTOCOL.md](LIVE_LOCATION_PROTOCOL.md) ("NLL v1"). The reference implementation,
-test vectors and the relay test harness are in
-[`tools/python/live_location/`](../tools/python/live_location/). The decisions that need your
-sign-off are collected in [§14](#14-decisions-to-sign-off).
+Status: **approved for implementation**, 2026-10-10. You reviewed the 2026-10-09 draft and approved
+D1–D14 together with a list of fixes. [§16](#16-review-changes-2026-10-10) says what changed for
+each point and where. The fixes raised three new decisions, D15–D17, which are open
+([§14](#14-decisions)). No feature code has been written yet.
+
+The normative protocol is in [LIVE_LOCATION_PROTOCOL.md](LIVE_LOCATION_PROTOCOL.md) ("NLL v1"). The
+reference implementation, test vectors and the relay test harness are in
+[`tools/python/live_location/`](../tools/python/live_location/).
 
 ## Contents
 
@@ -22,8 +25,9 @@ sign-off are collected in [§14](#14-decisions-to-sign-off).
 11. [UX flows](#11-ux-flows)
 12. [Test plan](#12-test-plan)
 13. [Risks](#13-risks)
-14. [Decisions to sign off](#14-decisions-to-sign-off)
+14. [Decisions](#14-decisions)
 15. [Answers to the Phase 1 questions](#15-answers-to-the-phase-1-questions)
+16. [Review changes (2026-10-10)](#16-review-changes-2026-10-10)
 
 ## 0. Summary
 
@@ -33,18 +37,22 @@ sign-off are collected in [§14](#14-decisions-to-sign-off).
 - **Transport.** Ordinary public Nostr relays (or your own), used as dumb, untrusted, interchangeable
   pipes. Every event goes to all of a user's relays (default: three), so any single relay, or any two
   of three, can fail.
-- **Privacy.** Relays never see positions, names, contact lists or any long-lived identifier.
+- **Privacy.** Relays never see positions, names or any long-lived identifier.
   - There are **no identity keys at all**. Every event is signed by a pseudonymous key: per invite,
     per contact-direction per day, or per share stream.
   - Every payload of a class is padded to the same size.
-  - What remains visible to relays is network metadata (IP addresses, timing, volume), documented in
-    [§3](#3-threat-model).
-- **Retention.** Relays hold only the *latest* position of an active share (an addressable event).
-  It expires 15 minutes after publication, or sooner when the share ends. Viewers keep only each
-  contact's latest position.
-- **Revocation.** Each share uses a random stream key. Removing a recipient (or a share expiring)
-  starts a new stream that only the remaining recipients are told about. The removed person can
-  neither find nor decrypt anything after that.
+  - What relays do see is network metadata: IP addresses, timing, volume, and which keys one
+    connection uses within a day. From that, a relay can work out which phones (by IP address)
+    follow a share. [§3](#3-threat-model) lists what each party can learn.
+- **Retention.** Relays that follow the protocol hold only the *latest* position of an active share
+  (an addressable event). It expires 15 minutes after publication, or sooner when the share ends.
+  Viewers keep each contact's latest position in memory only. Anyone can copy the encrypted events;
+  what protects such copies is that both ends erase their keys within about a day (§5).
+- **Revocation.** Each share uses a random stream key. Removing a recipient (or its time limit
+  passing) starts a new stream that only the remaining recipients are told about. The removed
+  person cannot decrypt anything after that. What it receives looks exactly like you stopping
+  altogether; at most, it can guess from traffic timing that a new stream started on your relays
+  (T4).
 - **Crypto.** Only standard parts are used: a hash commitment plus Noise `NNpsk0` for pairing;
   HKDF-SHA256 chains, ratcheted daily for forward secrecy; NIP-44 v2 for payloads; BIP-340 Schnorr for Nostr events.
   Every primitive is checked against its published vectors (200 checks pass), and the protocol has
@@ -55,11 +63,13 @@ sign-off are collected in [§14](#14-decisions-to-sign-off).
   - Mainstream relays accept this traffic with no account, PoW or payment.
   - Over 30 minutes at one update per 5 s: no refusals, p50 about 250 ms, and p99 ≤ 374 ms on the
     recommended relays.
-- **Needs you.** The decisions in [§14](#14-decisions-to-sign-off). The big ones:
-  - D2: protocol structure.
-  - D3: latest-position retention.
-  - D4: viewer-driven update rate, which trades a little metadata for a lot of battery.
-  - D11: when a viewer goes online.
+  - Idle connections: two of the three default relays send a keep-alive ping every 240 s, the third
+    every 55 s. This shapes the battery policy (§10.3).
+- **Needs you.** D1–D14 are signed off ([§14](#14-decisions)). Open:
+  - D15: device-credential confirmation before pairing and sharing (I recommend not in v1).
+  - D16: a daily local ratchet while the app is idle (recommended).
+  - D17: a single listening connection while nobody watches a share (recommended).
+  - D8: your two-minute stock-camera test, with the QR image I sent.
   - Device testing will be yours, because this environment cannot run an emulator.
 
 ## 1. Phase 0 report
@@ -95,7 +105,7 @@ Code paths traced (all verified in source):
   tree.
 - **Key storage.** Android
   [`SecureStorage`](../android/sdk/src/main/java/app/organicmaps/sdk/util/SecureStorage.java) is
-  plain `SharedPreferences` (not encrypted), see [§10.4](#104-key-storage-at-rest).
+  plain `SharedPreferences` (not encrypted), see [§10.4](#104-key-storage-at-rest-question-5).
   - Backups are include-only (`bookmarks/`, `settings.ini`), so new files are excluded by default.
   - Secrets must never go into `settings.ini`.
 - **Networking.** `HttpClient` (Android: `HttpURLConnection` via JNI) and a legacy TLS
@@ -111,12 +121,12 @@ Code paths traced (all verified in source):
 
 | # | Requirement | How it is met |
 |---|---|---|
-| 1 | Consent and visibility | Off by default behind a feature flag. Sharing starts only from the share sheet, with explicit recipients and duration. A foreground-service notification (with Stop) and an in-app indicator are shown while sharing. No silent mode exists. Recipients have no message that could start, extend or alter a share; the protocol has no such message type at all. |
+| 1 | Consent and visibility | Off by default behind a feature flag. Sharing starts only from the share sheet, with explicit recipients and duration. A foreground-service notification (with Stop) and an in-app indicator are shown while sharing. No silent mode exists: sharing refuses to start, and stops, while notifications for the app or its sharing channel are off, and a dismissed notification comes straight back (§11.3). Recipients have no message that could start, extend or alter a share; the protocol has no such message type at all. |
 | 2 | Recipient control | Per-recipient `until`, Stop per recipient or all. Every membership change rotates the stream, so revocation is cryptographic and immediate (§4.4). |
-| 3 | Confidentiality incl. metadata | No identity keys. Event keys are pseudonyms rotated per invite, per day or per stream. No `p` or `g` tags. Payloads are padded per class. What remains (IP, timing, volume) is analysed in [§3](#3-threat-model). |
+| 3 | Confidentiality incl. metadata | No identity keys. Event keys are pseudonyms rotated per invite, per day or per stream, and no connection spans two days. No `p` or `g` tags. Payloads are padded per class, and inbox subscriptions are padded with decoys. What remains (IP addresses, timing, volume, keys used together within a day) is analysed in [§3](#3-threat-model). |
 | 4 | Decentralisation | No server of ours. Any NIP-01 relay works. Publishing goes to all (default 3) relays, and the list is user-configurable, including self-hosted relays. Measured in [§6](#6-transport-evaluation-and-relay-test-results). |
-| 5 | Minimal retention | Addressable "latest only" events with NIP-40 expiry: 15 min for positions, end of day + 1 h for channel state. No NIP-09 deletion requests, because relays keep those forever (§6.3). Viewers store only the latest position per contact. |
-| 6 | Inert unless used | No initialisation without the flag. No connection without a paired contact. Then connections only while sharing, while pairing, or while the app is in the foreground and has contacts (decision D11). |
+| 5 | Minimal retention | Addressable "latest only" events with NIP-40 expiry: 15 min for positions, end of day + 1 h for channel state. No NIP-09 deletion requests, because relays keep those forever (§6.3). Viewers keep only the latest position per contact, in memory. Both ends erase keys, so copies of the ciphertext stay unreadable (§8.5). |
+| 6 | Inert unless used | No initialisation without the flag. No connection without a paired contact. Then connections only while sharing, while pairing, or while the app is in the foreground and has contacts (decision D11). An unwatched share holds one connection (D17). The only background work without a share is a local daily ratchet that sends nothing (D16). |
 | 7 | FOSS, de-Googled | All new dependencies are MIT, BSD or Apache-2.0. Location comes from the existing `LocationHelper` (native provider without Play services). No FCM: background receiving is out of scope. |
 | 8 | Vetted crypto | Noise, HKDF, NIP-44 v2 (audited) and BIP-340 via libsecp256k1. No home-made primitives. Written spec plus test vectors. |
 | 9 | Rebase-friendly | New library, new Java packages and new files. About a dozen small, marked hooks ([§8.3](#83-hooks-into-existing-code)). |
@@ -133,16 +143,16 @@ Code paths traced (all verified in source):
 
 | # | Adversary | Can learn or do | Cannot |
 |---|---|---|---|
-| T1 | **A relay operator** (each relay) | **Network metadata:** the IPs of publishers and subscribers, connection times, events per pseudonymous key, update cadence (moving vs. stationary), how many connections subscribe to a stream key, that the kinds belong to this protocol, and a coarse IP geolocation of both ends. **Correlation:** when sharer and viewer use the same relay, it can link the sharer's IP and the viewer's IP through a shared event key. **Active attacks:** drop, delay or replay events. | Read positions or names. Link event keys across days, invites or streams except by IP/timing. Forge or alter events (signatures, MACs). Replay an old grant or location: `seq` ordering stops it. Learn group membership beyond "these IPs follow that key now". |
+| T1 | **A relay operator** (each relay) | **Network metadata:** the IPs of publishers and subscribers, connection times, events per pseudonymous key, update cadence (moving vs. stationary), how many connections follow a stream key, that the kinds belong to this protocol, and a coarse IP geolocation of both ends. **Linking within a day:** all keys that one connection uses, e.g. a sharer's stream and the channel keys it publishes states under, or a viewer's inbox keys and the streams it follows. **Who shares with whom, by IP address:** when sharer and viewers use the same relay, it sees which IP addresses follow the stream that another IP address publishes. **Contact count:** rounded up to a multiple of 8 by decoys; over a day, which inbox keys received events. **Active attacks:** drop, delay or replay events. | Read positions or names. Link keys across days, except by IP address or timing: no connection spans midnight UTC (spec §11). Tie invites or streams to a person. Forge or alter events (signatures, MACs). Replay an old grant or location: `seq` ordering stops it. |
 | T2 | **Colluding relays or a global passive observer** | Everything in T1, correlated across relays and over time. With stable IPs, a long-term IP-level contact graph. | As above. Content stays confidential. |
 | T3 | **An on-path network observer** (ISP, Wi-Fi) | The relay hostnames (TLS SNI), timing and volume, hence that you use Nostr relays and roughly when you share. | Any event content. TLS hides even the pseudonyms. |
-| T4 | **A revoked or expired recipient** | The old stream key, so updates published *before* revocation if it recorded them. It sees its channel state change to "not sharing". | Find the new stream (new random key), decrypt it, or learn the remaining recipients. |
+| T4 | **A removed or expired recipient** | The old stream key, so updates published *before* its removal, if it recorded them. What it receives, a state without a grant and a reason-less `end`, is identical to the sharer stopping altogether. **Traffic analysis:** watching the sharer's relays, it may see a new stream start 30–120 s later and infer that the share went on. That inference is easier when few people use those relays (a self-hosted relay, for instance). If it operates one of the sharer's relays, it sees the sharer's IP address keep publishing (T1). It can also count the states published at that moment, which tells it roughly how many recipients the share had. | Decrypt the new stream, prove that it belongs to the sharer, or learn who the remaining recipients are. |
 | T5 | **A malicious current recipient** | Your positions (by design). It can re-share them out of band (unpreventable). | Forge your positions to other recipients: the stream is signed by a key only you hold. Learn who else receives the share: grants are pairwise. Start, extend or alter your share. |
-| T6 | **Someone who intercepts an invite** (photographed QR, compromised messenger) | **Race** the intended person and pair as an impostor; the inviter sees an unexpected request, and the real person's attempt fails. **Sit in the middle** of both handshakes; the two screens then show different codes, with a 10⁻⁶ chance of a coincidental match thanks to the commitment. Mitigations: inviter confirmation, codes on both screens, single-use invites, expiry (10 min for QR). **Passive interception** (knowing the PSK and recording relay traffic) reveals only the inviter's name and relays, carried in Noise message 1 under PSK-only protection. The joiner's message 2 and everything after it are protected by `ee`. | Learn channel keys from a pairing it did not actively complete: `ee` Diffie-Hellman. |
-| T7 | **Device thief / forensic at rest** | Nothing from a locked, file-based-encrypted (FBE) device. With an unlocked device: current keys and the latest position per contact. | Past channel keys (ratchet) and past streams (erased). No location history is kept anywhere. |
+| T6 | **Someone who intercepts an invite** (photographed QR, compromised messenger) | **Race** the intended person and pair as an impostor. The inviter sees an unexpected name, and the real person's attempt fails. If the real person's commitment arrives before the inviter has decided, both apps abort. **Sit in the middle** of both handshakes; the two screens then show different codes, with a 10⁻⁶ chance of a coincidental match. It cannot grind the codes: each side accepts one message per step, and the code comes from the keys, not from the transcript (spec §6.3–6.4). **Disrupt** the pairing: any second message for a step makes both apps abort and say that the invite was used elsewhere. Mitigations: inviter confirmation, codes on both screens, single-use invites, expiry (10 min for QR). **Passive interception** (knowing the PSK and recording relay traffic) reveals only the relays already in the invite: step 1 carries nothing, and both names travel under `ee`-derived keys. | Learn channel keys from a pairing it did not actively complete: `ee` Diffie-Hellman. |
+| T7 | **Device thief or forensic examiner** | **Before the first unlock after a reboot:** nothing; the app's files are in credential-encrypted storage. **After the first unlock, even with the screen locked:** Android keeps the storage keys in memory, and forensic tools target exactly this state. With an exploit that runs code on the device, an attacker gets what the app holds now: the current channel keys, and the latest positions while the app is running (in memory). If the app has not run for days, its stored chain keys are that old (D16). | Past channel keys (ratchet) and past streams (erased at both ends), hence the content of archived ciphertext. No positions are stored on disk. The limits of key erasure on flash are in §10.4. |
 | T8 | **Malware or root on the device** | Out of scope: it can read everything the app can. | — |
 | T9 | **CoMaps project / app distribution** | Out of scope: it ships the code. It plays no role in operation; no CoMaps server is involved. | — |
-| T10 | **Other relay clients** (scrapers) | The same as T1, minus IP addresses. | — |
+| T10 | **Other relay clients** (scrapers) | What is published: pseudonymous keys, kinds, timing and sizes. They can archive the ciphertext. | IP addresses, connections and subscriptions, which only relays see. Content, as for T1. |
 
 Residual leaks worth stating plainly (they go into the user-facing explanation screen,
 [§11.6](#116-what-relays-can-see-one-screen)):
@@ -153,6 +163,14 @@ Residual leaks worth stating plainly (they go into the user-facing explanation s
   when someone is watching you. Constant-rate cover traffic would hide this at a large battery cost
   (not proposed).
 - **Viewer counts.** A relay can count the connections subscribed to a stream.
+- **Who follows whom, by IP address.** A relay used by both sides sees which IP addresses follow
+  the stream that another IP address publishes. Only routing through Tor or a proxy would hide it.
+- **Keys used together within a day.** A connection links the keys it uses. No connection crosses
+  midnight UTC, so beyond the day boundary only IP addresses and timing link them.
+- **Number of contacts.** Rounded up to a multiple of 8 by decoys. Over a day, a relay sees which
+  of the keys actually received events.
+- **Ciphertext copies.** Relays that ignore NIP-40, and anyone else, can keep copies. They stay
+  unreadable once both ends have erased the keys (§8.5, §10.4).
 - **Protocol fingerprint.** The kind numbers identify the protocol.
 
 ## 4. Protocol overview
@@ -165,15 +183,18 @@ Full byte-level detail: [LIVE_LOCATION_PROTOCOL.md](LIVE_LOCATION_PROTOCOL.md). 
    relays (91 bytes, a 141-character link).
 2. B's app derives a one-time "rendezvous" Nostr key from the secret, and publishes a commitment to
    its fresh Noise key on A's relays.
-3. A's app answers with Noise `NNpsk0_25519_ChaChaPoly_SHA256` message 1; B's app replies with
-   message 2, which opens the commitment. Names and relay lists travel encrypted inside the handshake.
-4. A's app shows "Bob wants to connect — code 779 997" and asks A to accept. B's app shows the same
+3. A's app answers with Noise `NNpsk0_25519_ChaChaPoly_SHA256` message 1, which carries nothing
+   else. B's app replies with message 2, which opens the commitment and carries B's name and relays.
+4. A's app shows "Bob wants to connect — code 767 165" and asks A to accept. B's app shows the same
    code.
-5. A's decision is sent as the fourth message. Both apps derive two per-direction channel roots from
-   the handshake.
+5. A's decision is sent as the fourth message, together with A's name and relays. Both apps derive
+   two per-direction channel roots from the handshake, and erase everything else.
 
-The commitment makes the 6-digit code meaningful: without it, a man in the middle who intercepted the
-invite could try keys offline until both screens show the same code (§5).
+The commitment, and each side accepting exactly one message per step, make the 6-digit code
+meaningful. Without them, a man in the middle who intercepted the invite could try keys offline
+until both screens show the same code. The code comes from the keys rather than from the transcript,
+so varying a message's content does not help it either (§5, spec §6.3–6.4). A second, different
+message for a step means that someone else holds the invite. Both apps then abort and say so.
 
 ### 4.2 Channels
 
@@ -194,24 +215,30 @@ grant and a "not sharing" state cannot be told apart by size.
 On any membership change, at each `until`, and at each new day, the sharer starts a new stream and
 grants it to the remaining recipients only.
 
-- Removed recipients get a state without a grant, and the old stream gets an `end`.
-- Recipients also enforce `until` locally.
-- So a removed recipient cannot read later updates, cannot find the new stream, and stops seeing
-  the share at once.
+- At that moment the sharer first publishes every state, in random order: new grants for those who
+  remain, and a state without a grant for those removed. Then it publishes the old stream's `end`.
+  No `end` carries a reason.
+- The new stream stays silent for a random 30–120 s.
+- Stopping altogether looks the same from outside: the states, then the `end`.
+- Recipients also enforce `until` locally, and erase a stream key as soon as it is replaced or
+  ended.
+- A removed recipient therefore cannot read later updates, and stops seeing the share at once. What
+  it receives is exactly what "stop sharing" would have sent. It can only guess from traffic that a
+  new stream started on the sharer's relays (T4).
 
 ### 4.5 Watch signals (D4)
 
 While a viewer has the map open, it sends a small ephemeral, encrypted "watching" signal to the
-sharer about once a minute. The sharer then sends every fix instead of one per minute. This is what
-reconciles "follows within ~5 s" with an acceptable battery cost.
+sharer about once a minute. The sharer then sends every fix, rather than only larger moves and a
+5-minute heartbeat. This is what reconciles "follows within ~5 s" with an acceptable battery cost.
 
 ## 5. Cryptographic construction and rationale
 
 | Need | Choice | Why |
 |---|---|---|
 | Nostr event ids and signatures | SHA-256 and BIP-340 Schnorr via **libsecp256k1** | Mandatory for Nostr (relays verify). libsecp256k1 is Bitcoin's reference implementation, the most scrutinised secp256k1 code there is. |
-| Pairing | **Hash commitment, then Noise `NNpsk0_25519_ChaChaPoly_SHA256`** with the invite secret as PSK | A standard handshake pattern with a published formal analysis ([Noise Explorer: NNpsk0](https://noiseexplorer.com/patterns/NNpsk0/)) and official vectors (cacophony). The PSK authenticates both sides. Ephemeral `ee` Diffie-Hellman keeps later messages secret even if the invite leaks afterwards. The handshake hash gives the 6-digit code. The commitment, the joiner's hash of its ephemeral key sent first, stops a man in the middle from grinding keys to make the codes match; Matrix SAS, ZRTP and Bluetooth numeric comparison use the same technique. X25519 and ChaChaPoly come from Monocypher (already in tree). |
-| Channel keys | HKDF-SHA256 hash chain advanced per UTC day; per-day signing key and NIP-44 key | Simple forward secrecy (a seized device cannot decrypt earlier days' grants). Pseudonyms change daily. No extra round-trips: both sides derive the day's keys from the clock. |
+| Pairing | **Hash commitment, then Noise `NNpsk0_25519_ChaChaPoly_SHA256`** with the invite secret as PSK | A standard handshake pattern with a published formal analysis ([Noise Explorer: NNpsk0](https://noiseexplorer.com/patterns/NNpsk0/)) and official vectors (cacophony). The PSK authenticates both sides. Ephemeral `ee` Diffie-Hellman keeps later messages secret even if the invite leaks afterwards. The 6-digit code comes from the key schedule (the `Split()` output), which depends only on the PSK and the two ephemeral keys. The commitment (the joiner's hash of its ephemeral key, sent first) and the rule that each side accepts one message per step stop a man in the middle from grinding keys to make the codes match. Matrix SAS, ZRTP and Bluetooth numeric comparison use the same technique. X25519 and ChaChaPoly come from Monocypher (already in tree). |
+| Channel keys | HKDF-SHA256 hash chain advanced per UTC day; per-day signing key and NIP-44 key | Forward secrecy with one-day granularity: once both ends have erased a day's key, a seized device cannot decrypt that day's grants. The pairing roots are erased right after first use. Pseudonyms change daily. No extra round-trips: both sides derive the day's keys from the clock. |
 | Payload encryption | **NIP-44 v2**, conversation key from our derivations | The Nostr ecosystem standard, audited by Cure53 (2023), with vectors. HMAC-SHA256 + ChaCha20. Its padding plus our fixed-size classes hide content length. |
 | Stream authenticity | Random per-stream key, known only to the sharer, signs the stream events | Recipients share the decryption key but cannot sign, so they cannot forge the sharer's positions. Signal's sender keys separate authenticity from confidentiality the same way. |
 | Group key management | **Sender keys** with rotation on membership change | One event per update regardless of group size (§7). Revocation by re-keying. MLS/Marmot would add post-compromise security for *many-to-many* groups at a large complexity cost; here there is one sender per stream. |
@@ -319,7 +346,13 @@ Other findings:
   re-publication after them. NLL therefore never sends kind 5; ends are expressed by replacing the
   slot, and expiry cleans up.
 - **No idle disconnects** in 180 s on any accepting relay. No AUTH challenges, except nostr.land
-  (paid). No rate limiting at 0.2 events/s sustained or 5 events/s in bursts. The only refusals were
+  (paid).
+- **Keep-alive pings** (round 4, 2026-10-10: one idle connection per relay for 10 minutes,
+  [`relay_keepalive.py`](../tools/python/live_location/relay_keepalive.py)). nos.lol and nostr.mom
+  (strfry, configured that way) ping every **240 s**. relay.nostr.net, relay.primal.net and
+  nostr.data.haus ping every **55 s**, strfry's default. relay.snort.social never pings, and closes
+  an idle connection after 300 s. Each ping wakes a phone's radio, which is why an unwatched share
+  keeps only one connection open (§10.3, D17). No rate limiting at 0.2 events/s sustained or 5 events/s in bursts. The only refusals were
   policies: paid, web of trust, NIP-05, kind whitelists.
 - **Author caps.** nostr-rs-relay handles 50 authors per filter but not 100, so the spec caps filters
   at 50.
@@ -358,6 +391,10 @@ Reading it:
   - nostr-rs-relay hosts: dropped connections in our runs;
   - web-of-trust, paid and kind-whitelisted relays.
 - The app will health-check relays and show a warning when fewer than two are reachable.
+- **Self-hosting** (your note on D5). For a small private circle, two self-hosted relays on different
+  hosts cut third-party relay operators out entirely; strfry needs a few minutes to set up. The
+  flip side: whoever runs a relay sees its metadata (T1). If a member of the circle runs it, they see
+  everyone's IP addresses and timing, and keep seeing them after being removed from a share (T4).
 
 ## 7. Fan-out: 1, 10 and 50 recipients
 
@@ -387,11 +424,13 @@ libs/live_location/                 NEW C++ library (core; no UI, no platform co
   crypto/        sha256 shim (libsecp256k1), hkdf, nip44, noise_nnpsk0, keys, random
   nostr/         event serialisation/id/sign/verify, relay message JSON (jansson)
   protocol/      invites, pairing, channels, state, stream, signals (= NLL v1)
-  relay_pool     connections via an abstract WebSocket interface; publish/OK tracking,
-                 subscriptions, dedupe, reconnect/backoff, relay health
-  store          contacts, chains, streams; one file, encrypted with a data key
-  manager        the state machine: pairing, sharing, viewing, timers, cadence policy;
-                 callbacks for UI and map; runs on its own task loop
+  relay_pool     connections via an abstract WebSocket interface, one epoch per connection;
+                 publish/OK tracking, subscriptions (decoy-padded inbox), dedupe,
+                 reconnect/backoff, relay health
+  store          contacts, chain keys, pending pairings; one file, encrypted with a data key
+                 that rotates whenever secrets are erased (no positions, no stream keys)
+  manager        the state machine: pairing, sharing, viewing, timers, cadence and
+                 connection policy; callbacks for UI and map; runs on its own task loop
   live_location_tests/   unit tests (incl. all vectors) + integration tests against an
                  in-process fake relay (drops, delays, 2 of 3 down, replay)
 3party/secp256k1        NEW git submodule (bitcoin-core/secp256k1 v0.7.0; extrakeys + schnorrsig only)
@@ -446,7 +485,7 @@ Each hook is marked `// Live location (NLL): …`.
 | `AndroidManifest.xml` | service, activity | ~10 lines |
 | `MwmApplication.onBackground()` | keep location while sharing | 2 lines |
 | `LocationHelper.calcLocationUpdatesInterval()` | slower interval while sharing in the background | 2 lines |
-| `MwmActivity` | menu entry, indicator, intent processor | ~10 lines |
+| `MwmActivity` | menu entry, indicator, intent processor. `comaps://` already carries the ge0 short links (`comaps://<10 chars>/<name>`), so the invite processor goes before that handler. `live/pair#` cannot be a ge0 code: `/` and `#` are outside ge0's alphabet | ~10 lines |
 | settings (prefs XML + fragment) | experimental toggle | ~10 lines |
 
 ### 8.4 Feature flag
@@ -458,14 +497,38 @@ off, all shares stop and connections close. Contacts are kept until deleted, and
 
 ### 8.5 Persistence
 
-One file, `live_location.dat`, in Android's `noBackupFilesDir`:
+One file, `live_location.dat`, in Android's `noBackupFilesDir`.
 
-- it holds contacts, chain keys, sequence numbers and the active stream;
-- it is encrypted with XChaCha20-Poly1305 (Monocypher) under a 32-byte data key;
-- that data key is wrapped by an Android Keystore AES-256-GCM key;
-- it is written atomically (tmp + rename) after every key change, so ratchet erasure is durable.
+What it holds:
 
-Viewers persist only the latest position per contact. The sharer persists no positions at all.
+- contacts: name, relays, the chain key of each direction (for the oldest epoch still needed only),
+  and sequence counters;
+- the decoy seed (spec §11);
+- pending pairings, until they end or expire: the PSK, the ephemeral key and the ids of the
+  accepted steps (spec §6.3);
+- the active share's settings (recipients and their `until`), so that the app can offer to resume
+  after its process was killed.
+
+What it never holds:
+
+- positions, on either side. Viewers keep the latest position per contact in memory, and fetch it
+  again from the relays when they start;
+- stream secrets and stream keys. They live in memory only. After a process death, the sharer starts
+  a new stream once the user resumes, and recipients re-read their grants from the relays.
+
+How it is protected:
+
+- It is encrypted with XChaCha20-Poly1305 (Monocypher) under a 32-byte data key, which an Android
+  Keystore AES-256-GCM key wraps.
+- **Rotation on erasure.** Whenever secrets in the file are erased (a ratchet step, a pairing ending,
+  a contact deleted), the app makes a new data key and a new Keystore key. It writes the file under
+  them (temporary file + rename), then deletes the old Keystore key. Old versions of the file that
+  survive on flash, since a rename does not erase blocks, are encrypted under a data key that
+  nothing can unwrap any more. §10.4 has the limits.
+
+A sharer whose process dies stops sharing; it does not restart by itself. When the user next opens
+the app, it offers "Resume sharing with Bob until 18:30?". (Android 12+ does not allow starting a
+location foreground service from the background anyway.)
 
 ## 9. Dependencies
 
@@ -523,16 +586,43 @@ TLS 1.2 is available from API 20 and TLS 1.3 from API 29; OkHttp uses the platfo
   test.
 - The idle heartbeat (5 min) keeps the 15-minute-expiring latest position alive on relays.
 
-Estimated budgets for one hour, sharer side, three relays. These are estimates to be replaced by
-the measurements the DoD requires:
+**Connections (decision D17).** Every wake of the cellular radio costs a "tail" of several seconds
+at high power. A publish is such a wake, and so is every keep-alive ping a relay sends to an idle
+connection. Measured pings (§6.3): every 240 s on nos.lol and nostr.mom, every 55 s on
+relay.nostr.net. Three idle connections to the default relays would wake the radio about 95 times an
+hour, or about 195 times if all three used strfry's default 55 s. Hence:
 
-| Scenario | Data | Battery (very rough; GNSS ≈ 0.1 W, LTE tail ≈ 0.5–1 W for ~10 s per send) |
+| Situation | Connections held open | Client pings |
 |---|---|---|
-| Constant 5 s cadence (no D4) | ≈ 2.5 MB up+down | radio never idles: **≈ 4–8 %/h** on a 15 Wh battery |
-| D4, watched the whole hour | ≈ 2.5 MB | as above while watched |
-| D4, never watched, walking | ≈ 0.2 MB | **≈ 1–2 %/h**, GNSS-dominated |
-| D4, never watched, stationary | ≈ 0.05 MB | < 1 %/h |
-| Viewer, map open, 3 relays | ≈ 2 MB down (each update arrives once per relay) | screen dominates |
+| Sharing, nobody watching (idle) | **One**, to the first reachable relay in the user's list (the default list starts with nos.lol). It carries the inbox subscription, so it hears watch signals and states. The other relays are connected only to publish, and closed after 60 s without traffic. | None. The relay's pings keep the connection alive, and the heartbeat publish (no `OK` within 10 s) detects a dead one. |
+| Sharing, watched (live) | All home relays. Publishing every few seconds keeps the radio up anyway. | None |
+| Viewing (app in the foreground, D11) | Own home relays, plus the relays of contacts sharing with me | None |
+| Otherwise | None | — |
+
+Viewers send each watch signal to all of the sharer's relays, so the sharer can listen on any one of
+them. If its listening relay fails, the sharer moves to the next one. If the connection dies
+silently, the next heartbeat notices, so live mode then starts up to one heartbeat (5 min) late,
+but it does start. OkHttp does not report the server's pings to the app, so the list order, not a
+measured ping interval, picks the listening relay.
+
+Estimated budgets for one hour, sharer side, three relays, on LTE. They are estimates, and the
+measurement the DoD requires replaces them. The model: a radio wake costs about 5–10 J (some 10 s at
+0.5–1 W), GNSS draws about 0.05–0.1 W, and on a 15 Wh battery 1 %/h is 0.15 W. On Wi-Fi a wake costs
+far less, and every idle case drops below 1 %/h.
+
+| Scenario | Radio wakes per hour | Data | Battery |
+|---|---|---|---|
+| Constant 5 s cadence (no D4) | continuous | ≈ 2.5 MB up+down | **≈ 4–8 %/h** |
+| D4, watched the whole hour | continuous | ≈ 2.5 MB | ≈ 4–8 %/h |
+| D4, unwatched, walking (a publish every ~40 s) | ≈ 100–150 | ≈ 0.4 MB | **≈ 1.5–3.5 %/h** |
+| D4, unwatched, stationary, **one** listening connection (D17) | ≈ 27 (12 heartbeats, 15 pings) | ≈ 0.2 MB (TLS handshakes for the publishes) | **≈ 0.5–1 %/h** |
+| … the same, with all three connections held open | ≈ 107 (12 + 95) | ≈ 0.05 MB | ≈ 1.5–2.5 %/h |
+| … the same, if all three relays pinged every 55 s | ≈ 207 (12 + 195) | ≈ 0.05 MB | ≈ 2–4 %/h |
+| Viewer, map open, 3 relays | — | ≈ 2 MB down (each update arrives once per relay) | screen dominates |
+
+The previous draft left out the listening connections altogether. Counting them, holding all three
+connections open costs an unwatched, stationary share two to three times what that draft estimated.
+D17 takes most of that back.
 
 The cost of D4 is metadata (see T1): relays can see that a viewer's signal is followed by faster
 updates on some stream. Both sides get a setting to turn it off: viewers can stop asking for live
@@ -541,17 +631,34 @@ updates, sharers can refuse boosts.
 ### 10.4 Key storage at rest (question 5)
 
 The existing `SecureStorage` is **plaintext `SharedPreferences`** (sandbox protection only), and on
-desktop it writes into `settings.ini`. Not suitable on its own. Proposal (part of D6):
+desktop it writes into `settings.ini`. Not suitable on its own. The design (D6, approved with the
+key rotation):
 
 - **Wrapping key.** A non-exportable AES-256-GCM key in **Android Keystore** wraps a random 32-byte
   data key. The key is hardware-backed where available, with no user-authentication requirement,
   because sharing must work with the screen locked.
 - **Data file.** The data key encrypts `live_location.dat` with XChaCha20-Poly1305 (§8.5).
+- **Rotation.** Both keys are replaced whenever secrets in the file are erased. That happens about
+  once a day (the ratchet), at every pairing and at every contact deletion. The old Keystore key is
+  deleted once the new file is in place. Erasing a key in the file thus no longer depends on flash
+  storage erasing the file's old blocks, which it does not do reliably.
+- **Limits of the rotation.**
+  - A deleted Keystore key is certainly gone only on devices whose Keystore is rollback-resistant.
+    Elsewhere, the deleted key blob may survive on flash. Recovering an old data key would then take
+    a raw flash image *and* code execution inside that same device's secure hardware, which is
+    beyond the threat model.
+  - Key material is handled in native code, which wipes it after use (`crypto_wipe`). Java only
+    passes the wrapped data key through for unwrapping and zeroes its copy afterwards; it never sees
+    chain or stream keys.
+- **Locked devices (T7).** The file lives in credential-encrypted storage. Before the first unlock
+  after a reboot, it cannot be read, and the app does not run. After the first unlock, Android keeps
+  the storage keys in memory even while the screen is locked, and the Keystore key works then too,
+  because sharing must continue. A forensic exploit of a device in that state gets what the app
+  holds at that moment, but nothing from before its ratchet and erasure.
 - **Backups.** The file lives in `noBackupFilesDir`, so it is excluded from every backup without
   touching the backup rules. A restored backup therefore has no live-location state: re-pairing is
   required, and key backup is out of scope.
-- **Limitation.** This protects against offline extraction (backups, ADB pulls, file-level forensics
-  of an unlocked image). It does not protect against code running as the app; see T8.
+- **Limitation.** None of this protects against code running as the app or as root (T8).
 
 ## 11. UX flows
 
@@ -568,12 +675,27 @@ Settings → Experimental → "Live location sharing" → the explanation screen
    - a countdown (10 min for QR, 24 h for a link);
    - "Waiting…".
 2. B scans the QR with any camera or QR app that opens links (Google Camera/Lens, GrapheneOS camera,
-   Aperture), or taps the link, or uses **Paste invite** on the same screen. B sees "Connecting…".
-3. Within seconds (three relay round-trips), B sees "Waiting for Alice to confirm — code
-   **779 997**".
-4. A sees "Bob wants to connect — check that Bob's screen shows **779 997**" → [Connect] / [Decline].
+   Aperture; to be confirmed by the D8 test), or taps the link, or uses **Paste invite** on the same
+   screen. B sees "Connecting…".
+3. With both apps open, within seconds (three relay round-trips), B sees "Waiting for confirmation —
+   check that the other phone shows **767 165**". B does not know A's name yet; it arrives with A's
+   confirmation.
+4. A sees "Bob wants to connect — check that Bob's screen shows **767 165**" → [Connect] / [Decline].
 5. B: "Connected with Alice". Both see the contact in their lists. The code stays visible in the
    contact details as "Verify".
+
+The apps need not be open at the same moment. Each step waits on the relays until the invite
+expires, and is taken when the app that owes it is next in the foreground. A link invite can
+therefore complete over hours, but it may take up to four turns. The waiting screens say so:
+
+- A, after sharing a link: "Bob can open this link within 24 hours. Connecting finishes once you
+  have both opened CoMaps; it is quickest while you both have it open."
+- B, waiting: "Waiting for the other phone. You can close CoMaps; connecting continues the next
+  time you open it."
+
+If a second device uses the same invite (a second, different message for one step), both apps stop:
+"Someone else used this invite too, so it was cancelled. Make a new invite and share it only with
+the person you want to connect with."
 
 ### 11.3 Sharing
 
@@ -586,6 +708,25 @@ Live location → **Share my location** → pick contacts (multi-select) and a d
   per-person stop, add people, extend, stop all.
 - Extending or adding someone is only ever done by the sharer.
 
+**No silent sharing.** Android does not guarantee that the notification is seen:
+
+- On Android 13+, a foreground service keeps running when the app's notification permission is
+  denied. Its notice then appears only in the system's Task Manager, not in the notification drawer.
+- From Android 13 users can swipe a foreground-service notification away, and from Android 14 even
+  one marked "ongoing".
+
+Someone with brief access to the phone could otherwise start a share that its owner never sees.
+So:
+
+- Sharing does not start unless notifications are enabled for the app and the sharing channel is
+  not blocked: `areNotificationsEnabled()`, channel importance not `IMPORTANCE_NONE`, channel group
+  not blocked. The share sheet explains why and links to the setting.
+- The service re-checks before every publish, and on the system's block-state broadcasts (API 28+).
+  If notifications were turned off, it stops the share at once, exactly as "Stop all" would.
+- If the notification is swiped away, its delete intent posts it again at once.
+- Optionally, pairing and starting or extending a share could also require the device credential
+  (PIN, pattern or biometric): decision D15, which I recommend against for v1.
+
 ### 11.4 Viewing
 
 - Contacts sharing with you appear as coloured dots with their name label, shown up to a contact
@@ -593,37 +734,45 @@ Live location → **Share my location** → pick contacts (multi-select) and a d
 - Each dot fades to grey when its update is over 2 minutes old ("last seen 7 min ago" on tap). It
   disappears when the share ends or `until` passes.
 - Tapping a dot opens a small sheet: name, last update, accuracy, "Center", "Hide".
-- With D4, opening the map makes the sharer's dot go live within a few seconds.
+- With D4, opening the map makes the sharer's dot go live within a few seconds. In the worst case
+  (the sharer's listening relay died silently), it takes until the sharer's next heartbeat.
+- Positions are kept in memory only. Opening the app fetches each contact's latest position from
+  the relays again.
 
 ### 11.5 Contacts and settings
 
 - Contact list: name, status ("Sharing with you until 18:30", "You share until …"), rename,
   verify code, delete. Deleting a contact also stops any share with them.
-- Relays: list, add, remove, and a reachability test. A warning appears when fewer than two relays
-  work.
+- Relays: list, add, remove, reorder (the first reachable one is the listening relay, D17), and a
+  reachability test. Only `wss://` addresses are accepted. A warning appears when fewer than two
+  relays work.
 - Toggles: "Request live updates when viewing" and "Allow viewers to request live updates" (D4),
   and the low-battery stop threshold.
 
 ### 11.6 What relays can see (one screen)
 
-Draft text, also a DoD item:
+Draft text, also a DoD item. It now claims only what the threat model supports (§3):
 
 > **How live location stays private**
 >
 > Your location is encrypted on your phone. Only the people you choose can decrypt it.
 >
 > It travels through relays: independent servers run by volunteers or companies (you can pick
-> your own). Relays **cannot** see your location, your name, who your contacts are, or who you
-> share with.
+> your own). Relays **cannot** see your location, your name or your contacts' names.
 >
 > Relays **can** see:
 >
 > - your phone's internet address, which reveals your rough region and your provider;
-> - when you send updates and how often (moving phones send more often);
-> - that the app uses this live-location feature;
-> - roughly how many people are watching a share.
+> - the internet addresses of the phones that follow your location, so a relay could tell which
+>   phones you share with, though not whose they are;
+> - when you send updates and how often (moving phones send more often, and so do phones that
+>   someone is watching);
+> - that the app uses this live-location feature, and roughly how many contacts you have.
 >
-> Relays keep only your latest encrypted position, and only until 15 minutes after it was sent.
+> Relays that follow the rules keep only your latest encrypted position, and delete it 15 minutes
+> after it was sent. A relay that breaks the rules, or anyone else, could keep copies. They stay
+> encrypted, and the phones delete the keys that could open them within about a day.
+>
 > Your location is never sent while you are not sharing. While the app is open and you have
 > contacts, it asks the relays whether anyone is sharing with you. People you stop sharing with
 > cannot read anything you send afterwards.
@@ -635,9 +784,14 @@ Draft text, also a DoD item:
     the Noise cacophony vector;
   - every NLL vector reproduced byte for byte from `nll1_vectors.json`;
   - the receiving rules, including tampering, replay, expiry, wrong key and oversize;
-  - the ratchet, epoch boundaries and clock skew;
-  - store round-trip and erasure;
-  - the cadence policy.
+  - the pairing rules: one message per step on each side, abort on a second, different one, and a
+    code that does not change with the payloads (the Python tests already cover these);
+  - revocation looking exactly like a stop to the removed recipient, and the 30–120 s silence;
+  - the ratchet, epoch boundaries and clock skew; erasure of the pairing roots, chain keys and
+    stream keys at both ends;
+  - one epoch per connection, and decoy-padded inbox filters;
+  - store round-trip, and data-key rotation on erasure;
+  - the cadence and connection policy.
 - **Integration (C++)**:
   - manager + relay pool against an in-process fake relay: 2 of 3 relays down, reconnect, duplicate
     and out-of-order delivery, replayed grants;
@@ -649,10 +803,13 @@ Draft text, also a DoD item:
   revocation: it keeps querying the old and the new stream key and logs failures.
 - **Android (JVM)**: Robolectric/JUnit for the Java transport and the Keystore wrapper (mocked).
 - **On device (you)**: a scripted checklist for the DoD.
+  - the stock camera opens a `comaps://` QR code (D8, before anything else);
   - pairing time (stopwatch);
   - follow latency (screen recording of both phones, or a timestamp overlay);
   - stop and revocation (test peer);
   - time-limited end;
+  - no silent sharing: with notifications denied or the channel blocked, sharing refuses to start;
+    turning them off mid-share stops it; swiping the notification away brings it back;
   - two of three relays down (configure two dead hostnames);
   - no traffic when unused (PCAPdroid, FOSS, no root; or `dumpsys netstats` per UID);
   - without Play services (de-Googled device or Play services disabled);
@@ -671,29 +828,34 @@ Draft text, also a DoD item:
 | Hook conflicts on rebase (`MwmActivity` is large and busy) | Hooks kept one-liners delegating to new classes |
 | Kind numbers unregistered | Easy to change before release; propose a NIP later |
 | libsecp256k1 internal-header shim on upgrades | Pinned version; vectors catch breakage; fallback is to vendor Bitcoin Core's `sha256.cpp` |
-| Stalkerware misuse | No silent mode, a persistent notification, sharer-only control, no remote start or extend |
+| Stalkerware misuse | No silent mode, enforced: no share without a visible notification, re-posted if dismissed (§11.3). Sharer-only control, no remote start or extend. D15 would add a credential prompt |
+| A contact runs one of your relays | It sees that relay's metadata, also after you remove them from a share (T4). The relay screen and the self-hosting notes say so |
+| A phone that stays off or unused keeps old chain keys | D16: a daily local ratchet |
 
-## 14. Decisions to sign off
+## 14. Decisions
 
-My recommendation comes first in each row. Rows marked † are ones I would simply proceed with
-unless you object.
+You signed off D1–D14 on 2026-10-10, D8 provisionally. D15–D17 came out of the review fixes and are
+open; my recommendation comes first in each of those rows.
 
-| # | Decision | Recommendation | Main alternative |
+| # | Decision | Choice | Status |
 |---|---|---|---|
-| **D1** | Transport | **Nostr relays** (§6.1) | SimpleX SMP later as a second transport |
-| **D2** | Protocol structure | **No identity keys; Noise pairing; daily-ratcheted pairwise channels; sender-key stream rotated on every membership change** (§4, §5) | Per-recipient NIP-44 copies (simpler, but O(n) traffic); MLS/Marmot (identity-bound onboarding, heavy) |
-| **D3** | What relays keep | **Latest position only (addressable, 15-min expiry)**, so a viewer sees the position immediately on opening the map | Ephemeral only: nothing stored, but the viewer waits for the next update, minutes when idle under D4 |
-| **D4** | Update policy | **Viewer-driven live mode** (§10.3): every fix while watched, ≥ 50 m / 5 min otherwise; toggles on both sides | Constant 5 s cadence: simpler, no watch metadata, roughly 3–5× the battery |
-| D5 | Default relays | **nos.lol, nostr.mom, relay.nostr.net** (soak results in §6.3) | relay.primal.net, nostr.data.haus |
-| D6 | Feature minimum Android, key storage | **API 24+; Keystore-wrapped data key; file in `noBackupFilesDir`** | API 21+ with a custom TrustManager |
-| D7† | WebSocket library | **OkHttp 4.12** | Java-WebSocket (smaller, less proven) |
-| D8 | QR scanning | **No in-app scanner in v1**: system camera or QR app opens the link, plus "Paste invite". No camera permission, no 1.5 MB | ZXing + CameraX in-app scanner |
-| D9† | SHA-256 source | **Shim over libsecp256k1's internal implementation** | Vendor Bitcoin Core `crypto/sha256.cpp` (MIT) |
-| D10† | Names | **Protocol "NLL v1", labels `nll1:`, kinds 30484/20484, link `comaps://live/pair#…`** | Anything you prefer |
-| **D11** | When a viewer connects | **While the app is in the foreground and at least one contact exists**, to discover shares. Never in the background | Only while a "Live locations" map layer is switched on (stricter, but you would not notice a new share) |
-| D12† | Location payload | **lat, lon, acc, ts, spd, brg, alt; `low` battery flag; `nav` reserved** (PoC fields) | Leave out `low`/`alt` |
-| D13† | Pairing confirmation | **The inviter always confirms, with the code shown** | Auto-accept for in-person QR |
-| D14† | Strings | **A new English-only `strings_live_location.xml`**, translated later via the normal pipeline | Add to the main strings source now (rebase conflicts) |
+| **D1** | Transport | **Nostr relays** (§6.1). Later, perhaps SimpleX SMP as a second transport | Approved |
+| **D2** | Protocol structure | **No identity keys; Noise pairing; daily-ratcheted pairwise channels; sender-key stream rotated on every membership change** (§4, §5) | Approved, with the review fixes written into the spec (§16) |
+| **D3** | What relays keep | **Latest position only (addressable, 15-min expiry)**, so a viewer sees the position as soon as it opens the map | Approved |
+| **D4** | Update policy | **Viewer-driven live mode** (§10.3): every fix while watched, ≥ 50 m / 5 min otherwise; toggles on both sides | Approved; D17 refines its connections |
+| D5 | Default relays | **nos.lol, nostr.mom, relay.nostr.net** (§6.3). Your note: for a small private circle, two self-hosted relays on different hosts cut third-party operators out entirely. The relay settings and the docs will say so, together with the caveat in §6.3 | Approved |
+| D6 | Feature minimum Android, key storage | **API 24+; Keystore-wrapped data key; file in `noBackupFilesDir`** | Approved, with key rotation on erasure (§8.5, §10.4) |
+| D7 | WebSocket library | **OkHttp 4.12** | Approved |
+| D8 | QR scanning | **No in-app scanner in v1**: the system camera or a QR app opens the link, plus "Paste invite" | Provisional, until your two-minute test: scan a QR code of the vectors' invite link (`pairing.invite.link`; I sent it as an image) with each phone's stock camera. CoMaps already registers `comaps://` for its short links, so the camera should offer to open the installed CoMaps (which will then show nothing useful). If a camera only shows the text, we add an in-app scanner (ZXing + CameraX, ~1.5 MB, camera permission) |
+| D9 | SHA-256 source | **Shim over libsecp256k1's internal implementation** | Approved. Later, as a separate change: once CoMaps has Boost ≥ 1.88, switch to `boost::hash2::sha2_256` and `hmac_sha2_256` and delete the shim |
+| D10 | Names | **Protocol "NLL v1", labels `nll1:`, kinds 30484/20484, link `comaps://live/pair#…`** | Approved |
+| **D11** | When a viewer connects | **While the app is in the foreground and at least one contact exists**, to discover shares. Never in the background | Approved |
+| D12 | Location payload | **lat, lon, acc, ts, spd, brg, alt; `low` battery flag; `nav` reserved** (PoC fields) | Approved |
+| D13 | Pairing confirmation | **The inviter always confirms, with the code shown** | Approved |
+| D14 | Strings | **A new English-only `strings_live_location.xml`**, translated later through the normal pipeline | Approved |
+| **D15** | Device credential before pairing, and before starting or extending a share | Recommendation: **not in v1.** Notification enforcement (§11.3) already makes every share visible, and a share can always be stopped from the notification. A PIN prompt does not stop someone who knows the PIN or can make the owner unlock, which is common in abusive relationships. It would also add friction to every share. Alternative: an opt-in setting, "Ask for my PIN before sharing" | **Open** |
+| **D16** | Ratchet while the app is idle | Recommendation: **a daily WorkManager job** (already a dependency) while live-location contacts exist. It advances the chain keys and rotates the storage keys, and sends nothing. Without it, a phone that does not run CoMaps for weeks keeps weeks-old chain keys, and if seized could decrypt archived grants, and through them archived positions, from that whole period. Alternative: ratchet only when the app runs, and document the gap | **Open** |
+| **D17** | Connections while a share is unwatched | Recommendation: **one listening connection**, to the first reachable relay in the user's list; the others are connected only to publish (§10.3). Alternative: keep every home relay connected for the whole share. That costs about 1–1.5 %/h more on LTE for a stationary sharer, but live mode would still start promptly if the listening relay died silently (with one connection, it can take up to one 5-minute heartbeat) | **Open** |
 
 ## 15. Answers to the Phase 1 questions
 
@@ -772,3 +934,24 @@ Not reused:
 - **The existing `SecureStorage` is not encrypted** on Android, contrary to its name.
 - I found no materially better transport for v1. SimpleX's queue model has stronger metadata
   privacy and is worth a later look as a second transport.
+
+## 16. Review changes (2026-10-10)
+
+Your review of the 2026-10-09 draft, point by point. Every protocol change is in the spec, the
+reference implementation, its tests and the regenerated vectors (200 primitive checks and 159
+protocol checks pass).
+
+| Your point | Verdict | What changed | Where |
+|---|---|---|---|
+| 1. Pairing needs a single-use rule on the joiner's side | **Right.** It also exposed a second hole of the same kind. The code came from the handshake hash, which covers the step 2 payload, so a man in the middle could vary that payload (any byte, since unknown JSON members are ignored) until the inviter's code matched the joiner's. That takes no key work at all, so the commitment did not help against it | Each side accepts exactly one message per step and aborts on a second, different one. The joiner answers one step 1 and sends step 2 at most once. The code now comes from the `Split()` keys, which depend only on the PSK and the two ephemeral keys. Tests: the joiner aborts on a second step 1, both before and after answering; the inviter aborts on a second step 0 or step 2; the code is unchanged by payloads while the hash is not | spec §6.3–6.4; T6; `test_protocol.py` |
+| 2. Revocation reveals that the share continues | **Right.** A related leak: the stream's expiry was capped at the largest `until`, which told every recipient whether someone else's access lasted longer than its own | `end` has no reason. At a change the sharer publishes all states first (new grants, share-less states, in random order), then the `end`. The new stream is silent for a random 30–120 s. Stopping altogether has the same shape. The expiry cap is gone. T4 now states what traffic analysis can still show. A test checks that "remove Carol" and "stop sharing" look identical on the wire and to Carol | spec §9; T4; §4.4 |
+| 3. Forward-secrecy gaps | **Right on all counts.** Also, the reference implementation never ratcheted its stored key: it derived later keys but kept the old one. And a phone that does not run keeps old keys, which became D16 | The roots `k1`/`k2` are erased once the first chain key is derived. Recipients erase stream keys on replacement, end or `until`. Both keys protecting the store rotate on every erasure. No positions or stream keys are ever written to disk. `Direction.advance()` really ratchets, and tests check that erased epochs cannot be re-derived | spec §6.3, §7, §12, §13; §8.5, §10.4 |
+| 4. "No silent mode" isn't enforced | **Right.** There is a second path: Android 13 lets users swipe a foreground-service notification away, and Android 14 even an "ongoing" one | Sharing refuses to start, and stops, unless notifications are enabled and the channel isn't blocked. A dismissed notification is posted again. Device-credential confirmation is offered as D15 (I recommend against) | §11.3; §2; D15 |
+| 5. The claims overclaim | **Right on all four** | The filter linkage is now fixed, not just documented: one epoch per connection, and the inbox list padded with decoys to a multiple of 8. One author list now covers states and signals, so relays cannot tell recipients from other contacts. T1, T7 and the one-screen text now claim only what holds | spec §11; T1, T7; §11.6 |
+| 6. D4's own cost is missing | **Right** | Connections are counted in the model; one listening connection while unwatched (D17) | §10.3; D17 |
+| 7. strfry pings every 55 s | **Right in substance, one detail differs.** Measured over 10 minutes: nos.lol and nostr.mom, both strfry, ping every **240 s** (so not strfry's default); relay.nostr.net pings every 55 s. Three idle connections still wake the radio about 95 times an hour | The revised estimates use the measured intervals | §6.3, §10.3; `results/2026-10-10_round4_keepalive_10min.json` |
+| Move the inviter's name to step 3 | **Done.** Step 1 now carries nothing; the inviter's name, relays and pairing epoch travel in step 3 under a key derived from `ee` | | spec §6.3; T6 |
+| "Pairing requires both apps to be open at the same time" | **Not quite.** Every step is stored on the relays until the invite expires, so the apps can take turns. That can take up to four turns, though, so the UI says it is quickest with both apps open | Waiting-screen texts | §11.2; spec §6.1 |
+| `wss://` only | **Done.** `ws://` is accepted only for `localhost`, `127.0.0.1` and `[::1]` (local test relays); senders and receivers enforce it | | spec §5 |
+| D5, D8, D9 notes | Recorded | Self-hosting note with its caveat; a QR test image for D8; the Boost.Hash2 path for D9 | §14, §6.3 |
+
