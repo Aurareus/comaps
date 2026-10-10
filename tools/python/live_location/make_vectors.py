@@ -71,27 +71,25 @@ def main():
     pairing['step0_commit'] = {'joiner_ephemeral_public': p.x25519_public(joiner.e).hex(),
                                'commitment': P.commitment(p.x25519_public(joiner.e)).hex(),
                                'random': rng.take(), 'event': ev_dict(m0)}
-    inviter.on_commit(m0, T + 6)
-    m1 = inviter.message1('Alice', relays_a, rng, T + 6)
-    pairing['step1_noise1'] = {'payload_hex': P.encode_plaintext({'t': 'pair1', 'name': 'Alice', 'relays': relays_a,
-                                                                  'epoch': P.epoch_of(T + 6)}, P.SIZE_CONTROL).hex(),
+    m1 = inviter.on_commit(m0, rng, T + 6)
+    pairing['step1_noise1'] = {'payload_hex': P.encode_plaintext({'t': 'pair1'}, P.SIZE_CONTROL).hex(),
                                'random': rng.take(), 'noise_message_hex': p.b64decode(m1.content).hex(),
                                'event': ev_dict(m1)}
-    joiner.on_message1(m1, T + 7)
-    m2 = joiner.message2(rng, T + 7)
+    m2 = joiner.on_message1(m1, rng, T + 7)
     pairing['step2_noise2'] = {'payload_hex': P.encode_plaintext({'t': 'pair2', 'name': 'Bob', 'relays': relays_b},
                                                                  P.SIZE_CONTROL).hex(),
                                'random': rng.take(), 'noise_message_hex': p.b64decode(m2.content).hex(),
                                'event': ev_dict(m2)}
+    k_i2r, k_r2i = joiner.k1, joiner.k2
     req = inviter.on_message2(m2, T + 8)
-    m3, c_a = inviter.message3(True, rng, T + 20)
-    _, _, k_i2r, k_r2i = inviter.hs.ss.split()
+    e_p = P.epoch_of(T + 20)
+    pair3 = {'t': 'pair3', 'ok': True, 'name': 'Alice', 'relays': relays_a, 'epoch': e_p}
+    m3, c_a = inviter.message3(True, 'Alice', relays_a, rng, T + 20)
     pairing['step3_confirm'] = {'confirm_key': P.confirm_key(k_i2r).hex(),
-                                'plaintext_hex': P.encode_plaintext({'t': 'pair3', 'ok': True}, P.SIZE_CONTROL).hex(),
+                                'plaintext_hex': P.encode_plaintext(pair3, P.SIZE_CONTROL).hex(),
                                 'random': rng.take(), 'event': ev_dict(m3)}
     c_b = joiner.on_message3(m3, T + 21)
-    e_p = inviter.epoch
-    pairing['result'] = {'handshake_hash': inviter.hs.handshake_hash().hex(), 'split_i2r': k_i2r.hex(),
+    pairing['result'] = {'handshake_hash': inviter.handshake_hash.hex(), 'split_i2r': k_i2r.hex(),
                          'split_r2i': k_r2i.hex(), 'sas': c_a.sas, 'pairing_epoch': e_p,
                          'shown_to_inviter': req}
     chains = []
@@ -126,14 +124,22 @@ def main():
     out['location'] = {'now': now + 5, 'plaintext_hex': P.encode_plaintext(body, P.SIZE_STREAM).hex(),
                        'random': rng.take(), 'event': ev_dict(loc),
                        'decrypted': P.read_stream(grant, loc, 0, now + 6)}
-    se = stream.end_event('stopped', rng, now + 30)
-    out['stream_end'] = {'now': now + 30, 'random': rng.take(), 'event': ev_dict(se)}
+    se = stream.end_event(rng, now + 30)
+    end_body = {'t': 'end', 'seq': 2, 'ts': now + 30}
+    out['stream_end'] = {'now': now + 30, 'plaintext_hex': P.encode_plaintext(end_body, P.SIZE_STREAM).hex(),
+                         'random': rng.take(), 'event': ev_dict(se)}
     ce = P.control_event(c_a, P.state_body(2, now + 30, relays_a), rng, now + 30)
     out['state_without_share'] = {'now': now + 30, 'random': rng.take(), 'event': ev_dict(ce)}
     sig = P.watch_signal(c_b, now + 150, rng, now + 40)
     out['signal'] = {'now': now + 40, 'random': rng.take(), 'event': ev_dict(sig)}
 
-    # 5. NIP-44 with a protocol conversation key (spot check of the profile).
+    # 5. Inbox subscription of Alice at the pairing epoch: Bob's channel key plus 7 decoys.
+    decoy_seed = bytes(range(32, 64))
+    out['inbox_filters'] = {'decoy_seed': decoy_seed.hex(), 'epoch': e_p, 'now': now,
+                            'decoys': P.decoy_keys(decoy_seed, e_p, 7),
+                            'filters': P.inbox_filters([c_a], decoy_seed, e_p, now)}
+
+    # 6. NIP-44 with a protocol conversation key (spot check of the profile).
     nonce = bytes(range(32))
     pt = P.encode_plaintext({'t': 'end', 'seq': 1, 'ts': T}, P.SIZE_STREAM)
     out['nip44_profile'] = {'conversation_key': stream.key.hex(), 'nonce': nonce.hex(), 'plaintext_hex': pt.hex(),
