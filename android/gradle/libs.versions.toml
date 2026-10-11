@@ -10,6 +10,8 @@ androidToolsDesugar = "2.1.5"
 tripletPlayPublisher = "3.13.0"
 microgServicesLocation = "0.3.14.250932"
 appDevNextAndroidChart = "3.1.0.31"
+okhttp = "4.12.0" # Live location (NLL): WebSocket client for relays, docs/LIVE_LOCATION.md §9
+qrcodegen = "1.8.0" # Live location (NLL): invite QR codes
 
 # Testing
 robo = "4.16.1"
@@ -43,6 +45,8 @@ android-tools-desugar = { module = "com.android.tools:desugar_jdk_libs", version
 triplet-play-publisher = { module = "com.github.triplet.gradle:play-publisher", version.ref = "tripletPlayPublisher" }
 appdevnext-androidchart = { module = "com.github.AppDevNext:AndroidChart", version.ref = "appDevNextAndroidChart" }
 microg-services-location = { module = "org.microg.gms:play-services-location", version.ref = "microgServicesLocation" }
+okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
+qrcodegen = { module = "io.nayuki:qrcodegen", version.ref = "qrcodegen" }
 
 # Testing
 junit = { module = "junit:junit", version.ref = "jUnit" }

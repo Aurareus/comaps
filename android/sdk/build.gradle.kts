@@ -125,6 +125,7 @@ dependencies {
     implementation(libs.androidx.recyclerview)
     implementation(libs.androidx.documentfile)
     implementation(libs.androidx.lifecycle.process)
+    implementation(libs.okhttp) // Live location (NLL)
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
     coreLibraryDesugaring(libs.android.tools.desugar)
