@@ -106,6 +106,7 @@ std::string DebugPrint(UserMark::Type type)
   case UserMark::Type::TRACK_INFO: return "TRACK_INFO";
   case UserMark::Type::TRACK_SELECTION: return "TRACK_SELECTION";
   case UserMark::Type::COLORED: return "COLORED";
+  case UserMark::Type::LIVE_LOCATION: return "LIVE_LOCATION";  // Live location (NLL)
   case UserMark::Type::USER_MARK_TYPES_COUNT: return "USER_MARK_TYPES_COUNT";
   case UserMark::Type::USER_MARK_TYPES_COUNT_MAX: return "USER_MARK_TYPES_COUNT_MAX";
   }
