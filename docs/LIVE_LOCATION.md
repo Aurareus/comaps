@@ -1,9 +1,11 @@
 # Live location sharing: design
 
-Status: **approved for implementation**, 2026-10-10. You reviewed the 2026-10-09 draft and approved
-D1–D14 together with a list of fixes. [§16](#16-review-changes-2026-10-10) says what changed for
-each point and where. The fixes raised three new decisions, D15–D17, which are open
-([§14](#14-decisions)). No feature code has been written yet.
+Status: **approved for implementation**, after two review rounds:
+
+- 2026-10-10: D1–D14 approved with a list of fixes, which §16 maps to their changes.
+- 2026-10-11: D15–D17 approved; the requested changes are mapped in §17.
+
+One new decision, D18, is open ([§14](#14-decisions)). No feature code has been written yet.
 
 The normative protocol is in [LIVE_LOCATION_PROTOCOL.md](LIVE_LOCATION_PROTOCOL.md) ("NLL v1"). The
 reference implementation, test vectors and the relay test harness are in
@@ -28,6 +30,7 @@ reference implementation, test vectors and the relay test harness are in
 14. [Decisions](#14-decisions)
 15. [Answers to the Phase 1 questions](#15-answers-to-the-phase-1-questions)
 16. [Review changes (2026-10-10)](#16-review-changes-2026-10-10)
+17. [Second review changes (2026-10-11)](#17-second-review-changes-2026-10-11)
 
 ## 0. Summary
 
@@ -65,11 +68,9 @@ reference implementation, test vectors and the relay test harness are in
     recommended relays.
   - Idle connections: two of the three default relays send a keep-alive ping every 240 s, the third
     every 55 s. This shapes the battery policy (§10.3).
-- **Needs you.** D1–D14 are signed off ([§14](#14-decisions)). Open:
-  - D15: device-credential confirmation before pairing and sharing (I recommend not in v1).
-  - D16: a daily local ratchet while the app is idle (recommended).
-  - D17: a single listening connection while nobody watches a share (recommended).
-  - D8: your two-minute stock-camera test, with the QR image I sent.
+- **Needs you.** D1–D17 are signed off ([§14](#14-decisions)). Open:
+  - D18: whether unverified and flagged contacts can receive shares (I recommend: unverified with a
+    warning, flagged not until the codes are compared).
   - Device testing will be yours, because this environment cannot run an emulator.
 
 ## 1. Phase 0 report
@@ -148,7 +149,8 @@ Code paths traced (all verified in source):
 | T3 | **An on-path network observer** (ISP, Wi-Fi) | The relay hostnames (TLS SNI), timing and volume, hence that you use Nostr relays and roughly when you share. | Any event content. TLS hides even the pseudonyms. |
 | T4 | **A removed or expired recipient** | The old stream key, so updates published *before* its removal, if it recorded them. What it receives, a state without a grant and a reason-less `end`, is identical to the sharer stopping altogether. **Traffic analysis:** watching the sharer's relays, it may see a new stream start 30–120 s later and infer that the share went on. That inference is easier when few people use those relays (a self-hosted relay, for instance). If it operates one of the sharer's relays, it sees the sharer's IP address keep publishing (T1). It can also count the states published at that moment, which tells it roughly how many recipients the share had. | Decrypt the new stream, prove that it belongs to the sharer, or learn who the remaining recipients are. |
 | T5 | **A malicious current recipient** | Your positions (by design). It can re-share them out of band (unpreventable). | Forge your positions to other recipients: the stream is signed by a key only you hold. Learn who else receives the share: grants are pairwise. Start, extend or alter your share. |
-| T6 | **Someone who intercepts an invite** (photographed QR, compromised messenger) | **Race** the intended person and pair as an impostor. The inviter sees an unexpected name, and the real person's attempt fails. If the real person's commitment arrives before the inviter has decided, both apps abort. **Sit in the middle** of both handshakes; the two screens then show different codes, with a 10⁻⁶ chance of a coincidental match. It cannot grind the codes: each side accepts one message per step, and the code comes from the keys, not from the transcript (spec §6.3–6.4). **Disrupt** the pairing: any second message for a step makes both apps abort and say that the invite was used elsewhere. Mitigations: inviter confirmation, codes on both screens, single-use invites, expiry (10 min for QR). **Passive interception** (knowing the PSK and recording relay traffic) reveals only the relays already in the invite: step 1 carries nothing, and both names travel under `ee`-derived keys. | Learn channel keys from a pairing it did not actively complete: `ee` Diffie-Hellman. |
+| T6 | **Someone who reads an invite** (photographed QR, compromised messenger) | **Race** the intended person and pair as an impostor. Its attempt stays on the relays, under its own key, until the invite expires. Both apps watch until then: if the real person shows up first or in time, both abort; if the inviter had already accepted, its contact is flagged and receives no share until the codes are compared. If the real person never shows up, only comparing codes reveals the impostor, which is why contacts paired by link start "unverified". **Disrupt** the pairing: any competing attempt makes both apps abort and say that the invite was used elsewhere. **Passive interception** reveals only the relays already in the invite: step 1 carries nothing, and both names travel under `ee`-derived keys. Mitigations: codes on both screens, the unverified status, single-use invites, expiry (10 min for QR). | Impersonate the inviter: its steps must be signed by the key whose public half is in the invite. Replace or delete anyone's pairing events. Learn channel keys from a pairing it did not actively complete: `ee` Diffie-Hellman. |
+| T6b | **Someone who rewrites an invite in transit** (substitutes its own) | **Sit in the middle** of both pairings. The protocol cannot see it: the two screens show different codes, matching by chance with probability 10⁻⁶. It cannot grind the codes: the joiner commits to its key first, each side accepts one message per step, and the code comes from the keys, not the transcript (spec §6.3–6.4). Only comparing codes reveals it. | Anything, once the users have compared codes. |
 | T7 | **Device thief or forensic examiner** | **Before the first unlock after a reboot:** nothing; the app's files are in credential-encrypted storage. **After the first unlock, even with the screen locked:** Android keeps the storage keys in memory, and forensic tools target exactly this state. With an exploit that runs code on the device, an attacker gets what the app holds now: the current channel keys, and the latest positions while the app is running (in memory). If the app has not run for days, its stored chain keys are that old (D16). | Past channel keys (ratchet) and past streams (erased at both ends), hence the content of archived ciphertext. No positions are stored on disk. The limits of key erasure on flash are in §10.4. |
 | T8 | **Malware or root on the device** | Out of scope: it can read everything the app can. | — |
 | T9 | **CoMaps project / app distribution** | Out of scope: it ships the code. It plays no role in operation; no CoMaps server is involved. | — |
@@ -179,22 +181,28 @@ Full byte-level detail: [LIVE_LOCATION_PROTOCOL.md](LIVE_LOCATION_PROTOCOL.md). 
 
 ### 4.1 Pairing
 
-1. A shows a QR code (or sends a link) containing a 32-byte one-time secret, an expiry and A's
-   relays (91 bytes, a 141-character link).
-2. B's app derives a one-time "rendezvous" Nostr key from the secret, and publishes a commitment to
-   its fresh Noise key on A's relays.
-3. A's app answers with Noise `NNpsk0_25519_ChaChaPoly_SHA256` message 1, which carries nothing
-   else. B's app replies with message 2, which opens the commitment and carries B's name and relays.
-4. A's app shows "Bob wants to connect — code 767 165" and asks A to accept. B's app shows the same
+1. A shows a QR code (or sends a link) containing a 32-byte one-time secret, A's one-time pairing
+   public key, an expiry and A's relays (123 bytes, a 183-character link).
+2. B's app makes a one-time pairing key of its own. With it, it publishes on A's relays a commitment
+   to its fresh Noise key, authenticated with the secret.
+3. A's app answers with Noise `NNpsk0_25519_ChaChaPoly_SHA256` message 1, signed with A's pairing
+   key and carrying nothing else. B's app accepts step 1 only under the key from the invite. It
+   replies with message 2, which opens the commitment and carries B's name and relays.
+4. A's app shows "Bob wants to connect — code 294 805" and asks A to accept. B's app shows the same
    code.
 5. A's decision is sent as the fourth message, together with A's name and relays. Both apps derive
-   two per-direction channel roots from the handshake, and erase everything else.
+   two per-direction channel roots from the handshake and erase everything else. Until the invite
+   expires, they keep watching the relays for anyone else using it.
 
 The commitment, and each side accepting exactly one message per step, make the 6-digit code
-meaningful. Without them, a man in the middle who intercepted the invite could try keys offline
-until both screens show the same code. The code comes from the keys rather than from the transcript,
-so varying a message's content does not help it either (§5, spec §6.3–6.4). A second, different
-message for a step means that someone else holds the invite. Both apps then abort and say so.
+meaningful. Without them, a man in the middle could try keys offline until both screens show the
+same code. The code comes from the keys rather than from the transcript, so varying a message's
+content does not help either (§5, spec §6.3–6.4).
+
+Each side signs its own pairing messages, so nobody who reads the invite can sign as A, or replace
+or delete anyone's messages. Someone racing B is visible to both apps until the invite expires. Before
+the pairing ends, both apps then abort; after, the contact is flagged. A contact stays "unverified"
+until its user confirms that the codes matched (§11.2).
 
 ### 4.2 Channels
 
@@ -237,7 +245,7 @@ sharer about once a minute. The sharer then sends every fix, rather than only la
 | Need | Choice | Why |
 |---|---|---|
 | Nostr event ids and signatures | SHA-256 and BIP-340 Schnorr via **libsecp256k1** | Mandatory for Nostr (relays verify). libsecp256k1 is Bitcoin's reference implementation, the most scrutinised secp256k1 code there is. |
-| Pairing | **Hash commitment, then Noise `NNpsk0_25519_ChaChaPoly_SHA256`** with the invite secret as PSK | A standard handshake pattern with a published formal analysis ([Noise Explorer: NNpsk0](https://noiseexplorer.com/patterns/NNpsk0/)) and official vectors (cacophony). The PSK authenticates both sides. Ephemeral `ee` Diffie-Hellman keeps later messages secret even if the invite leaks afterwards. The 6-digit code comes from the key schedule (the `Split()` output), which depends only on the PSK and the two ephemeral keys. The commitment (the joiner's hash of its ephemeral key, sent first) and the rule that each side accepts one message per step stop a man in the middle from grinding keys to make the codes match. Matrix SAS, ZRTP and Bluetooth numeric comparison use the same technique. X25519 and ChaChaPoly come from Monocypher (already in tree). |
+| Pairing | **Hash commitment, then Noise `NNpsk0_25519_ChaChaPoly_SHA256`** with the invite secret as PSK | A standard handshake pattern with a published formal analysis ([Noise Explorer: NNpsk0](https://noiseexplorer.com/patterns/NNpsk0/)) and official vectors (cacophony). The PSK authenticates both sides, and the inviter's pairing key in the invite authenticates the inviter's Nostr events, so a reader of the invite cannot pose as the inviter. Ephemeral `ee` Diffie-Hellman keeps later messages secret even if the invite leaks afterwards. The 6-digit code comes from the key schedule (the `Split()` output), which depends only on the PSK and the two ephemeral keys. The commitment (the joiner's hash of its ephemeral key, sent first) and the rule that each side accepts one message per step stop a man in the middle from grinding keys to make the codes match. Matrix SAS, ZRTP and Bluetooth numeric comparison use the same technique. X25519 and ChaChaPoly come from Monocypher (already in tree). |
 | Channel keys | HKDF-SHA256 hash chain advanced per UTC day; per-day signing key and NIP-44 key | Forward secrecy with one-day granularity: once both ends have erased a day's key, a seized device cannot decrypt that day's grants. The pairing roots are erased right after first use. Pseudonyms change daily. No extra round-trips: both sides derive the day's keys from the clock. |
 | Payload encryption | **NIP-44 v2**, conversation key from our derivations | The Nostr ecosystem standard, audited by Cure53 (2023), with vectors. HMAC-SHA256 + ChaCha20. Its padding plus our fixed-size classes hide content length. |
 | Stream authenticity | Random per-stream key, known only to the sharer, signs the stream events | Recipients share the decryption key but cannot sign, so they cannot forge the sharer's positions. Signal's sender keys separate authenticity from confidentiality the same way. |
@@ -352,7 +360,21 @@ Other findings:
   (strfry, configured that way) ping every **240 s**. relay.nostr.net, relay.primal.net and
   nostr.data.haus ping every **55 s**, strfry's default. relay.snort.social never pings, and closes
   an idle connection after 300 s. Each ping wakes a phone's radio, which is why an unwatched share
-  keeps only one connection open (§10.3, D17). No rate limiting at 0.2 events/s sustained or 5 events/s in bursts. The only refusals were
+  keeps only one connection open (§10.3, D17).
+- **Pairing layout** (round 5, 2026-10-11,
+  [`relay_probe_pairing.py`](../tools/python/live_location/relay_probe_pairing.py)): each party signs
+  its own pairing events, and the joiners' carry a `p` tag (spec §6.3). On nos.lol, nostr.mom,
+  relay.primal.net and nostr.data.haus:
+  - kind 30484 events with tags `d`, `p` and `expiration` were accepted;
+  - a live `#p` subscription received them (p50 ≈ 0.2 s);
+  - a later `#p` query returned the events of two authors that share the same `d`, so the relay did
+    not replace one author's event with another's;
+  - a newer event replaced only its own author's older one;
+  - an `authors` query found the inviter's event.
+
+  relay.nostr.net answered HTTP 500 to every connection from 00:18 to at least 00:35 UTC, its NIP-11
+  endpoint included: a live example of one default relay failing. Its pairing probe will be re-run
+  once it is back. No rate limiting at 0.2 events/s sustained or 5 events/s in bursts. The only refusals were
   policies: paid, web of trust, NIP-05, kind whitelists.
 - **Author caps.** nostr-rs-relay handles 50 authors per filter but not 100, so the spec caps filters
   at 50.
@@ -504,8 +526,10 @@ What it holds:
 - contacts: name, relays, the chain key of each direction (for the oldest epoch still needed only),
   and sequence counters;
 - the decoy seed (spec §11);
-- pending pairings, until they end or expire: the PSK, the ephemeral key and the ids of the
-  accepted steps (spec §6.3);
+- pending pairings: until they end, the PSK, the pairing secret, the Noise ephemeral key and the
+  step 0; until the invite expires, what watching for conflicts needs: the MAC key, the inviter's
+  pairing key and the ids of the accepted events (spec §6.3);
+- each contact's verified and flagged status;
 - the active share's settings (recipients and their `until`), so that the app can offer to resume
   after its process was killed.
 
@@ -674,15 +698,29 @@ Settings → Experimental → "Live location sharing" → the explanation screen
    - a "Share link" button that opens the share sheet with the `comaps://live/pair#…` link;
    - a countdown (10 min for QR, 24 h for a link);
    - "Waiting…".
-2. B scans the QR with any camera or QR app that opens links (Google Camera/Lens, GrapheneOS camera,
-   Aperture; to be confirmed by the D8 test), or taps the link, or uses **Paste invite** on the same
-   screen. B sees "Connecting…".
-3. With both apps open, within seconds (three relay round-trips), B sees "Waiting for confirmation —
-   check that the other phone shows **767 165**". B does not know A's name yet; it arrives with A's
-   confirmation.
-4. A sees "Bob wants to connect — check that Bob's screen shows **767 165**" → [Connect] / [Decline].
-5. B: "Connected with Alice". Both see the contact in their lists. The code stays visible in the
-   contact details as "Verify".
+2. B scans the QR with any camera or QR app that opens links, or taps the link, or uses **Paste
+   invite** on the same screen. The stock cameras of three test phones all opened CoMaps (D8). B
+   sees "Connecting…".
+3. With both apps open, within seconds (three relay round-trips), B sees "Check that the other phone
+   shows **294 805**" → [Codes match] / [They differ]. B does not know A's name yet; it arrives
+   with A's confirmation. "They differ" stops the pairing on B's side and tells B not to connect.
+4. A sees the joiner's name and the code. In person (QR): "Bob wants to connect. Check that Bob's
+   screen shows **294 805**" → [Codes match, connect] / [Decline]. By link: "Bob wants to connect.
+   Code **294 805**: compare it with Bob, by phone or in person" → [Codes match, connect] /
+   [Connect without comparing] / [Decline].
+5. B: "Connected with Alice". Both see the contact in their lists.
+
+**Verified, unverified and flagged.**
+
+- Each app marks a contact **verified** only when its own user has confirmed that the codes matched:
+  at pairing time, or later in the contact details ("Compare code").
+- Otherwise the contact is **unverified**, which is the normal outcome of a link pairing nobody
+  checked. A reader of the link could have raced Bob, or a rewritten link could hide a man in the
+  middle (T6, T6b); only comparing codes rules both out.
+- A contact is **flagged** when someone else used the same invite after this pairing finished
+  (spec §6.3). The app says: "Someone else also used the invite you connected with. Compare the
+  code with Bob before you share your location." Comparing the codes verifies the contact and
+  clears the flag; if they differ, the app offers to delete the contact.
 
 The apps need not be open at the same moment. Each step waits on the relays until the invite
 expires, and is taken when the app that owes it is next in the foreground. A link invite can
@@ -693,9 +731,10 @@ therefore complete over hours, but it may take up to four turns. The waiting scr
 - B, waiting: "Waiting for the other phone. You can close CoMaps; connecting continues the next
   time you open it."
 
-If a second device uses the same invite (a second, different message for one step), both apps stop:
-"Someone else used this invite too, so it was cancelled. Make a new invite and share it only with
-the person you want to connect with."
+If a second device uses the same invite before the pairing ends, both apps stop: "Someone else used
+this invite too, so it was cancelled. Make a new invite and share it only with the person you want to
+connect with." The apps keep watching the invite until it expires, so this also catches an attempt
+made while one of them was closed.
 
 ### 11.3 Sharing
 
@@ -707,6 +746,9 @@ Live location → **Share my location** → pick contacts (multi-select) and a d
 - On the map, an indicator chip shows "Sharing with 2". Tapping it opens **Manage sharing**:
   per-person stop, add people, extend, stop all.
 - Extending or adding someone is only ever done by the sharer.
+- Contacts in the picker show their status (D18). Unverified contacts carry a warning: "You haven't
+  compared codes with Bob. If the link was intercepted, someone else could receive your location."
+  Flagged contacts cannot be picked until their code has been compared.
 
 **No silent sharing.** Android does not guarantee that the notification is seen:
 
@@ -733,6 +775,10 @@ So:
   limit.
 - Each dot fades to grey when its update is over 2 minutes old ("last seen 7 min ago" on tap). It
   disappears when the share ends or `until` passes.
+- When a stream ends, its dot stays, greyed, for up to 2 minutes, or until the sharer's next state
+  says whether the share goes on. A share that the sharer re-keys (someone added or removed, a new
+  day) therefore continues without the dot blinking out, even when the `end` arrives before the new
+  grant.
 - Tapping a dot opens a small sheet: name, last update, accuracy, "Center", "Hide".
 - With D4, opening the map makes the sharer's dot go live within a few seconds. In the worst case
   (the sharer's listening relay died silently), it takes until the sharer's next heartbeat.
@@ -741,8 +787,9 @@ So:
 
 ### 11.5 Contacts and settings
 
-- Contact list: name, status ("Sharing with you until 18:30", "You share until …"), rename,
-  verify code, delete. Deleting a contact also stops any share with them.
+- Contact list: name, status ("Sharing with you until 18:30", "You share until …"), a verified /
+  unverified / flagged badge, rename, compare code, delete. Deleting a contact also stops any share
+  with them.
 - Relays: list, add, remove, reorder (the first reachable one is the listening relay, D17), and a
   reachability test. Only `wss://` addresses are accepted. A warning appears when fewer than two
   relays work.
@@ -784,8 +831,13 @@ Draft text, also a DoD item. It now claims only what the threat model supports (
     the Noise cacophony vector;
   - every NLL vector reproduced byte for byte from `nll1_vectors.json`;
   - the receiving rules, including tampering, replay, expiry, wrong key and oversize;
-  - the pairing rules: one message per step on each side, abort on a second, different one, and a
-    code that does not change with the payloads (the Python tests already cover these);
+  - the pairing rules: one message per step on each side; conflicts watched until expiry, aborting
+    before the end of the pairing and flagging after; forged, junk and misdirected steps; a
+    low-order Noise key; a code that does not change with the payloads (the Python tests already
+    cover these, as asynchronous scenarios over a model relay);
+  - the receiving rules: silent discard of everything malformed, the JSON profile and the field
+    checks, strict base64, with the negative cases of `test_protocol.py` ported;
+  - the viewer keeping a stale position when an `end` arrives before the new grant;
   - revocation looking exactly like a stop to the removed recipient, and the 30–120 s silence;
   - the ratchet, epoch boundaries and clock skew; erasure of the pairing roots, chain keys and
     stream keys at both ends;
@@ -834,8 +886,8 @@ Draft text, also a DoD item. It now claims only what the threat model supports (
 
 ## 14. Decisions
 
-You signed off D1–D14 on 2026-10-10, D8 provisionally. D15–D17 came out of the review fixes and are
-open; my recommendation comes first in each of those rows.
+You signed off D1–D14 on 2026-10-10 (D8 after your camera test) and D15–D17 on 2026-10-11. D18 came
+out of the second review and is open; my recommendation comes first in its row.
 
 | # | Decision | Choice | Status |
 |---|---|---|---|
@@ -846,16 +898,17 @@ open; my recommendation comes first in each of those rows.
 | D5 | Default relays | **nos.lol, nostr.mom, relay.nostr.net** (§6.3). Your note: for a small private circle, two self-hosted relays on different hosts cut third-party operators out entirely. The relay settings and the docs will say so, together with the caveat in §6.3 | Approved |
 | D6 | Feature minimum Android, key storage | **API 24+; Keystore-wrapped data key; file in `noBackupFilesDir`** | Approved, with key rotation on erasure (§8.5, §10.4) |
 | D7 | WebSocket library | **OkHttp 4.12** | Approved |
-| D8 | QR scanning | **No in-app scanner in v1**: the system camera or a QR app opens the link, plus "Paste invite" | Provisional, until your two-minute test: scan a QR code of the vectors' invite link (`pairing.invite.link`; I sent it as an image) with each phone's stock camera. CoMaps already registers `comaps://` for its short links, so the camera should offer to open the installed CoMaps (which will then show nothing useful). If a camera only shows the text, we add an in-app scanner (ZXing + CameraX, ~1.5 MB, camera permission) |
+| D8 | QR scanning | **No in-app scanner**: the system camera or a QR app opens the link, plus "Paste invite" | Approved: the stock cameras of three phones opened CoMaps from the test QR. The invite has since grown from 91 to 123 bytes (the inviter's pairing key), so its QR code goes from version 8 to 10 (49 → 57 modules a side, still well within what phone cameras read). A re-scan of the new image is optional |
 | D9 | SHA-256 source | **Shim over libsecp256k1's internal implementation** | Approved. Later, as a separate change: once CoMaps has Boost ≥ 1.88, switch to `boost::hash2::sha2_256` and `hmac_sha2_256` and delete the shim |
 | D10 | Names | **Protocol "NLL v1", labels `nll1:`, kinds 30484/20484, link `comaps://live/pair#…`** | Approved |
 | **D11** | When a viewer connects | **While the app is in the foreground and at least one contact exists**, to discover shares. Never in the background | Approved |
 | D12 | Location payload | **lat, lon, acc, ts, spd, brg, alt; `low` battery flag; `nav` reserved** (PoC fields) | Approved |
 | D13 | Pairing confirmation | **The inviter always confirms, with the code shown** | Approved |
 | D14 | Strings | **A new English-only `strings_live_location.xml`**, translated later through the normal pipeline | Approved |
-| **D15** | Device credential before pairing, and before starting or extending a share | Recommendation: **not in v1.** Notification enforcement (§11.3) already makes every share visible, and a share can always be stopped from the notification. A PIN prompt does not stop someone who knows the PIN or can make the owner unlock, which is common in abusive relationships. It would also add friction to every share. Alternative: an opt-in setting, "Ask for my PIN before sharing" | **Open** |
-| **D16** | Ratchet while the app is idle | Recommendation: **a daily WorkManager job** (already a dependency) while live-location contacts exist. It advances the chain keys and rotates the storage keys, and sends nothing. Without it, a phone that does not run CoMaps for weeks keeps weeks-old chain keys, and if seized could decrypt archived grants, and through them archived positions, from that whole period. Alternative: ratchet only when the app runs, and document the gap | **Open** |
-| **D17** | Connections while a share is unwatched | Recommendation: **one listening connection**, to the first reachable relay in the user's list; the others are connected only to publish (§10.3). Alternative: keep every home relay connected for the whole share. That costs about 1–1.5 %/h more on LTE for a stationary sharer, but live mode would still start promptly if the listening relay died silently (with one connection, it can take up to one 5-minute heartbeat) | **Open** |
+| D15 | Device credential before pairing, and before starting or extending a share | **None in v1.** The enforced notification (§11.3) makes every share visible, and a PIN does not stop someone who knows it | Approved |
+| D16 | Ratchet while the app is idle | **A WorkManager job about once a day** (already a dependency) while live-location contacts exist. It advances the chain keys and rotates the storage keys, and sends nothing. "About": Android defers the background jobs of rarely used apps, so the interval can stretch beyond a day | Approved |
+| **D17** | Connections while a share is unwatched | **One listening connection**, to the first reachable relay in the user's list; the others are connected only to publish (§10.3). Alternative: keep every home relay connected for the whole share. That costs about 1–1.5 %/h more on LTE for a stationary sharer, but live mode would still start promptly if the listening relay died silently (with one connection, it can take up to one 5-minute heartbeat) | Approved |
+| **D18** | Unverified and flagged contacts | Recommendation: **unverified contacts can receive shares, with a warning in the share sheet; flagged contacts cannot until their code has been compared** (§11.2, §11.3). A flag means someone else demonstrably used the invite, and the user cannot tell which of the two became the contact. Unverified is the normal state of a link pairing; blocking it would push people to tap "Codes match" without comparing. Alternatives: block unverified contacts too, or only warn for flagged ones | **Open** |
 
 ## 15. Answers to the Phase 1 questions
 
@@ -954,4 +1007,20 @@ protocol checks pass).
 | "Pairing requires both apps to be open at the same time" | **Not quite.** Every step is stored on the relays until the invite expires, so the apps can take turns. That can take up to four turns, though, so the UI says it is quickest with both apps open | Waiting-screen texts | §11.2; spec §6.1 |
 | `wss://` only | **Done.** `ws://` is accepted only for `localhost`, `127.0.0.1` and `[::1]` (local test relays); senders and receivers enforce it | | spec §5 |
 | D5, D8, D9 notes | Recorded | Self-hosting note with its caveat; a QR test image for D8; the Boost.Hash2 path for D9 | §14, §6.3 |
+
+## 17. Second review changes (2026-10-11)
+
+Your second review, point by point. I reproduced all six findings on the reviewed commit (646af0bb)
+before changing anything, and each one is now a regression test. 200 primitive checks and 224
+protocol checks pass, and the vectors are regenerated.
+
+| Your point | Verdict | What changed | Where |
+|---|---|---|---|
+| 1. Asynchronous pairing lets anyone holding the invite impersonate either side | **Right**; reproduced as you describe it. One correction to the suggested fix: a regular kind alone would not have closed it. All four steps were signed by one key derived from the PSK, and NIP-09 tells relays to delete any event whose pubkey matches a deletion request's. The default relays honour that (§6.3, round 1), so Mallory could have deleted Alice's step 1 instead of replacing it | **No shared signing key.** The invite carries the inviter's one-time pairing key, which signs steps 1 and 3. Joiners sign steps 0 and 2 with fresh keys of their own, prove with a MAC in step 0 that they hold the invite, and tag the inviter's key so that the inviter finds them. Nobody can sign as the inviter, nor replace or delete anyone's events. Impersonating the inviter is therefore impossible, and a racing joiner stays visible. Both sides watch until the invite expires: they abort if a conflict comes before the pairing ends, and flag the contact if it comes after. A flagged contact gets no share until its code has been compared (D18). Contacts start unverified, and the joiner can now confirm the codes too. The prologue binds the step 0 being answered, so a joiner sees at once when the inviter answered someone else. The kind stays 30484; the relay probe ran on the new layout (round 5) | spec §6; T6, T6b; §4.1, §11.2, §11.3 |
+| 2. `extend()` adds a recipient without a new stream | **Right** | `extend()` accepts only current recipients and a future `until`; additions go through `change()` | `protocol.py` (spec §9 already required it) |
+| 3. An `end` that arrives before the new grant blanks the map | **Right** | Your suggested fix, both parts. The viewer keeps the last position, stale, for up to 120 s or until a state decides. The sharer waits for an `OK` on each state (up to 10 s) before the `end`; `Sharer` now returns the states and the `end` separately. Tests cover "remove one" and "stop all" with the `end` arriving first, and the expiry of the grace period | spec §9, §12; §11.4 |
+| 4. Pairing just before midnight breaks the joiner | **Right** | Your fix: `e_p = epoch(now − 300)`, and the joiner rejects `e_p > epoch(now)`. Also, `inbox_filters` now skips a contact whose chain is ahead of the clock instead of failing for every contact, and a chain ahead of the clock (after the clock was set back) still signs. Tested with the skew in both directions | spec §6.3 |
+| 5. Receiving rules and consistency between implementations | **Right on all four.** More of the same kind turned up: Python counts `true` as an integer; `json.loads` turns `1e400` into infinity and accepts duplicate names and lone surrogates; the base64 decoder accepted non-canonical input; relay URLs were checked with a URL parser whose quirks another implementation would not share | Every read path discards silently. The spec now has: a field-check table for every message type; an I-JSON profile with an exact definition of an integer; strict, canonical base64 and lowercase hex; relay URLs as an explicit pattern; an abort on an all-zero `ee`; exact rules for `kind`, `created_at`, `expiration` and reading tags. Each rejection is tested for its reason, not just for a `None` | spec §2, §3, §5, §12 |
+| 6. The joiner keeps the PSK and the rendezvous key | **Right**, and the inviter kept its rendezvous key as well | When the pairing ends, both sides erase the PSK, their pairing secret, the ephemeral key, the Noise state and the roots. Until the invite expires they keep only the MAC key and public data. Tested on both sides | spec §6.3, §13 |
+| Decisions | D8 passed on three phones; D15: none in v1; D16: about daily; D17: one listening connection | Recorded. The invite grew to 123 bytes, so its QR code is now version 10 | §14 |
 

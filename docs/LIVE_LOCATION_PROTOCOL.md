@@ -36,6 +36,9 @@ day. The design doc's threat model spells out what each party can learn.
 - `epoch(t) = floor(t / 86400)` (the UTC day); `epoch_end(e) = (e + 1) * 86400`.
 - `base64` is RFC 4648 §4 with padding; `base64url` is RFC 4648 §5 without padding.
 - Hex is lowercase.
+- Decoders are strict, so that implementations agree on every input. They accept only the alphabet,
+  padding exactly as the encoder writes it (none for base64url), and canonical input: re-encoding
+  the result gives back the input, so unused trailing bits are zero. Hex must be lowercase.
 
 ## 3. Primitives
 
@@ -45,7 +48,7 @@ day. The design doc's threat model spells out what each party can learn.
 | `HKDF-Extract(salt, ikm)`, `HKDF-Expand(prk, info, L)` | RFC 5869 with SHA-256 |
 | BIP-340 | Schnorr signatures over secp256k1, x-only public keys (as required by NIP-01) |
 | NIP-44 v2 | [NIP-44](https://github.com/nostr-protocol/nips/blob/master/44.md) from step 2 onward ("generate nonce" … "base64"), with the conversation key given by this spec instead of ECDH. Plaintexts are limited to 65535 bytes (this profile never uses the extended length prefix). |
-| Noise | `Noise_NNpsk0_25519_ChaChaPoly_SHA256`, Noise Protocol Framework revision 34 |
+| Noise | `Noise_NNpsk0_25519_ChaChaPoly_SHA256`, Noise Protocol Framework revision 34. One addition: if the `ee` Diffie-Hellman result is all zeros (the peer sent a low-order public key), the handshake MUST abort. RFC 7748 §6.1 allows this check and Noise leaves it optional; implementations differ (PyCA refuses such keys, Monocypher returns zeros), and an unchecked zero would leave the handshake keyed by the PSK alone. |
 | CSPRNG | the operating system's secure random generator |
 
 `derive_secp_key(prk, purpose)`: for `ctr = 0 … 255`, let
@@ -64,13 +67,15 @@ The numbers are provisional and not registered (see the design doc, decision D10
 Every NLL event is a normal NIP-01 event (id = SHA256 of the canonical serialization, BIP-340
 signature). Additional rules:
 
-- Kind `30484` events MUST carry exactly the tags `["d", <value>]` and `["expiration", <decimal>]`
-  (NIP-40), in that order. The `d` value is `""` except for pairing messages (§6).
+- Kind `30484` events MUST carry exactly these tags, in this order: `["d", <value>]`; for the
+  joiner's pairing steps only, `["p", <ipk>]` (§6.3); and `["expiration", <decimal>]` (NIP-40). The
+  `d` value is `""` except for pairing messages (§6).
 - Kind `20484` events carry no tags.
 - A sender MUST make `created_at` strictly increase per event pubkey: relays keep only the addressable
   event with the highest `created_at` (lowest id on ties), so two updates in the same second could
   otherwise lose the newer one. Senders use `max(now, previous_created_at + 1)`.
-- No other tags are used. In particular, no `p` tags and nothing derived from a user's identity.
+- No other tags are used. The one `p` tag points at the inviter's one-time pairing key, never at
+  anything derived from a user's identity.
 
 ## 5. Plaintext encoding
 
@@ -86,16 +91,33 @@ Senders MUST pad; a message that does not fit its class MUST NOT be sent. Receiv
 length up to 512 bytes, parse the JSON (trailing whitespace is legal JSON) and ignore unknown members.
 Receivers ignore messages whose `"t"` they do not know.
 
+**JSON profile.** Plaintexts are I-JSON (RFC 7493):
+
+- valid UTF-8;
+- no duplicate member names;
+- no unpaired surrogates, including in `\u` escapes;
+- only finite numbers: `NaN` and `Infinity` are not JSON, and a number that overflows a double is
+  rejected rather than turned into infinity.
+
+An **integer** is a JSON number without a fraction or exponent part, between −(2⁵³ − 1) and
+2⁵³ − 1. `5.0` and `true` are not integers. Receivers MUST reject plaintexts that break any of
+this (§12). Common parsers differ on exactly these points: Python's `json` accepts `NaN`, `Infinity`
+and duplicate names, and jansson rejects them. Two implementations agree only if both apply this
+profile.
+
 Consequence: all NIP-44 payloads of one class have the same length (432 base64 characters for the
 stream class, 772 for the control class) whatever their contents.
 
 Common field limits:
 
 - Relay lists contain 1–4 URLs of at most 64 bytes each.
-- Every URL is `wss://`. The only exception is `ws://` to the host `localhost`, `127.0.0.1` or
-  `[::1]`, for local test relays. Senders MUST NOT send, and receivers MUST reject, any other
-  `ws://` URL: without TLS, an on-path observer would see the event keys and contents that TLS
-  hides (design doc, threat T3).
+- Every URL is `wss://` followed by one or more printable ASCII characters (0x21–0x7E). The only
+  exception is `ws://` to a loopback host, for local test relays: `ws://` then `localhost`,
+  `127.0.0.1` or `[::1]`, an optional `:` with 1–5 digits, and an optional path of printable ASCII
+  starting with `/`. Senders MUST NOT send, and receivers MUST reject, any other URL: without TLS,
+  an on-path observer would see the event keys and contents that TLS hides (design doc, threat
+  T3). The rule is stated as a pattern rather than by reference to a URL parser, because parsers
+  differ.
 - Names are at most 64 bytes.
 
 ## 6. Pairing
@@ -105,71 +127,119 @@ Common field limits:
 ```
 invite = u8(1)                      version
       || psk[32]                    from the CSPRNG
+      || ipk[32]                    the inviter's pairing public key (x-only, §6.2)
       || u32be(expires_at)          invite lifetime end
       || u8(n)                      1 ≤ n ≤ 4
       || n × (u8(len) || url[len])  the inviter's home relays (§11)
 link   = "comaps://live/pair#" || base64url(invite)
 ```
 
-The invite is shown as a QR code of `link` or sent as `link` over any channel. Example: 91-byte
-invite, 141-character link. Each invite is **single-use** (§6.3). The inviter forgets `psk` when the
-pairing ends or the invite expires.
+The invite is shown as a QR code of `link` or sent as `link` over any channel. Example: a 123-byte
+invite with three relays, a 183-character link, QR version 10 at error correction M. Receivers
+reject an invite with trailing bytes, an `ipk` that is not a valid x-only key, or relays that break
+§5. Each invite is **single-use** (§6.3).
 
-QR invites live 10 minutes and link invites 24 hours. Every pairing event is stored on the relays
-until the invite expires, so the two apps need not be open at the same moment. Each step is taken
-when the app that owes it is next open; implementations keep the pairing state (encrypted, design doc §8.5)
-until the pairing ends or the invite expires.
+QR invites live 10 minutes and link invites 24 hours. Every pairing event stays on the relays until
+the invite expires, so the two apps need not be open at the same moment. Each step is taken when the
+app that owes it is next open. Implementations therefore keep the pairing state (encrypted, design
+doc §8.5) until the pairing ends or the invite expires.
 
-### 6.2 Rendezvous key
+### 6.2 Pairing keys
 
-Both sides derive a key from the PSK, used only to sign the pairing events:
+Each side signs its own pairing events:
 
-```
-rv_sk = derive_secp_key(HKDF-Extract(salt = "nll1:rv", ikm = psk), "rv-sign")
-```
+- `isk`, `ipk`: the **inviter's pairing key**, a fresh secp256k1 key from the CSPRNG for each
+  invite. `ipk` is in the invite. It signs steps 1 and 3.
+- `jsk`, `jpk`: the **joiner's pairing key**, fresh for each attempt to join. It signs steps 0 and 2.
+- `mac_key = HKDF-Expand(HKDF-Extract(salt = "nll1:pair", ikm = psk), label("pair-mac"), 32)`.
+  In step 0 it proves that the step's author holds the invite.
+
+Someone who holds the link knows `ipk` but not `isk`, so it can neither sign, replace nor delete the
+inviter's pairing events. Likewise, nobody can replace or delete a joiner's events, since addressable
+replacement and NIP-09 deletion both require the same key.
+
+An earlier draft signed all four steps with one key derived from the PSK. Anyone holding the link
+could then replace a step on the relays, since an addressable slot keeps only the newest event per
+key and `d`. It could also delete a step with a NIP-09 deletion request, which relays honour for
+events of the same key. A party that was offline at that moment saw only the impostor's event.
+Moving to a regular (never replaced) kind would not have stopped the deletion.
 
 ### 6.3 Handshake
 
 The **inviter** (who showed the invite) is the Noise **initiator**; the **joiner** (who scanned or
 opened it) is the **responder**.
 
-- Noise prologue: `label("pair") || u8(1) || u32be(expires_at) || u8(n) || relays…`, i.e. the invite
-  without the PSK, which Noise mixes in itself.
-- All four messages are kind `30484` events signed by `rv_sk`, with tags
-  `[["d",<step>],["expiration",expires_at]]`, published to the inviter's home relays.
-- Both sides subscribe to `{"kinds":[30484],"authors":[rv_pk]}` there.
+```
+c        = SHA256(label("commit") || e_J)          the joiner's commitment to its ephemeral public key
+prologue = label("pair") || u8(1) || ipk || u32be(expires_at) || u8(n) || relays… || jpk || c
+```
 
-| Step | `d` | From → to | Content |
+The prologue is the invite without the PSK (Noise mixes the PSK in itself), followed by the author
+and the commitment of the step 0 being answered.
+
+All four messages are kind `30484` events with `expiration = expires_at`, published to the invite's
+relays:
+
+| Step | Author | Tags | Content |
 |---|---|---|---|
-| 0 | `"0"` | joiner → inviter | `base64(SHA256(label("commit") \|\| e_J))`, a commitment to the joiner's Noise ephemeral public key `e_J` |
-| 1 | `"1"` | inviter → joiner | `base64(` Noise message 1 (`psk, e`) `)`, payload `{"t":"pair1"}` and nothing else |
-| 2 | `"2"` | joiner → inviter | `base64(` Noise message 2 (`e, ee`) `)` with `e = e_J`, payload `{"t":"pair2","name":…,"relays":[…]}` (the joiner's) |
-| 3 | `"3"` | inviter → joiner | `NIP-44(confirm_key, …)`, control class. Accept: `{"t":"pair3","ok":true,"name":…,"relays":[…],"epoch":e_p}` with the inviter's name and home relays and `e_p = epoch(now)`. Decline: `{"t":"pair3","ok":false}` |
+| 0 | joiner, `jsk` | `["d","0"]`, `["p",ipk]` | `base64(c \|\| HMAC-SHA256(mac_key, jpk \|\| c))` |
+| 1 | inviter, `isk` | `["d","1"]` | `base64(` Noise message 1 (`psk, e`) `)`, payload `{"t":"pair1"}` and nothing else |
+| 2 | joiner, `jsk` | `["d","2"]`, `["p",ipk]` | `base64(` Noise message 2 (`e, ee`) `)` with `e = e_J`, payload `{"t":"pair2","name":…,"relays":[…]}` (the joiner's) |
+| 3 | inviter, `isk` | `["d","3"]` | `NIP-44(confirm_key, …)`, control class. Accept: `{"t":"pair3","ok":true,"name":…,"relays":[…],"epoch":e_p}` with the inviter's name and home relays. Decline: `{"t":"pair3","ok":false}` |
 
-Rules:
+Subscriptions on the invite's relays, kept until the invite expires:
 
-- **One event per step.** Each side MUST accept exactly one event per step: the first that passes
-  the envelope checks (§12, items 1–4, with `d` equal to the step). Copies of that same event (same
-  id) arriving from other relays are ignored.
-  - Before the pairing has ended, a *different* envelope-valid event for a step already accepted
-    MUST abort the pairing. So MUST an accepted event that fails its step's own checks (below).
-  - Only someone who knows the PSK can produce an envelope-valid event, so either case means the
-    invite is in other hands. The app says so, and the users start again with a new invite.
-  - An event for a step that is not yet due (a step 3 before step 2 was sent, say) is held until it
-    is due.
-- **Joiner.** It generates `e_J` once per invite and uses it in exactly one step 2. It answers only
-  the accepted step 1, and MUST send step 2 at most once: a retransmission repeats the same event. An
-  implementation that persists the pairing state MUST record the accepted step 1 durably before it
-  publishes step 2.
-- **Inviter.** It sends step 1 only after accepting a step 0, and MUST send it at most once (a
-  retransmission repeats the same event): each further step 1 would give a man in the middle another
-  try at matching the codes. On step 2, it MUST first check, in constant time, that
-  `SHA256(label("commit") || e)` equals the commitment from step 0.
-- The joiner MUST reject `e_p` if `|e_p − epoch(now)| > 1`.
-- After step 2, both sides show the code (§6.4). The inviter's app shows the joiner's name next to
-  the code and asks the user to accept or decline. Step 3 carries the decision and, on acceptance,
-  the inviter's name, relays and `e_p`. Nothing else is sent.
-- Noise messages 1 and 2 carry a 512-byte (control-class) payload: 32 + 512 + 16 = 560 bytes each.
+- the inviter: `{"kinds":[30484],"#p":[ipk]}`;
+- the joiner: `{"kinds":[30484],"authors":[ipk]}` and `{"kinds":[30484],"#p":[ipk]}`.
+
+**Definitions.**
+
+- An event is **envelope-valid for step s** when it passes §12 items 1–4 with `d` equal to `s`.
+  For steps 1 and 3 its author must be `ipk`. For steps 0 and 2, its first `p` tag must be `ipk`.
+- A **valid step 0** is an envelope-valid step 0 whose content decodes to 64 bytes `c || tag`, with
+  `tag = HMAC-SHA256(mac_key, author || c)` compared in constant time. Only a holder of the invite
+  can make one.
+- Envelope-valid events that are not valid step 0s carry no weight. They are ignored, never a
+  reason to abort, so nobody who merely sees `ipk` on a relay can disrupt a pairing.
+
+**Inviter.**
+
+1. It accepts the first valid step 0. That event's author `jpk` and commitment `c` are the
+   joiner's.
+2. It sends exactly one step 1, with the prologue bound to `(jpk, c)`. A retransmission repeats the
+   same event.
+3. It accepts a step 2 only from `jpk`. The first one MUST open the commitment, checked in constant
+   time (`SHA256(label("commit") || e) = c`), and decrypt; otherwise the pairing aborts.
+4. It shows the joiner's name and the code (§6.4), and the user decides. Step 3 carries the
+   decision. On acceptance it also carries the inviter's name, relays and
+   `e_p = epoch(now − 300)`. The lag of 300 s, the accepted clock skew (§12), keeps `e_p` from ever
+   being in the joiner's future.
+
+**Joiner.**
+
+1. It makes `e_J` and `jsk` once per invite and publishes exactly one step 0.
+2. It accepts the first step 1 signed by `ipk`. That step MUST decrypt under the prologue bound to
+   the joiner's own `(jpk, c)`. If it does not, the inviter answered someone else, and the joiner
+   aborts without sending step 2.
+3. It sends exactly one step 2. A retransmission repeats the same event. An implementation that
+   persists the pairing state MUST record step 0 and the accepted step 1 durably before publishing
+   what follows.
+4. It accepts the first step 3 signed by `ipk`. That step MUST decrypt under `confirm_key` and, on
+   acceptance, carry `e_p` with `epoch(now) − 1 ≤ e_p ≤ epoch(now)`. Otherwise the pairing aborts.
+
+**Conflicts.** Both sides watch their subscriptions until the invite expires, whenever they are
+online. The joiner's `#p` subscription also returns its own events, which it ignores: nobody else
+can sign them. A conflict is any of:
+
+- a valid step 0 other than the accepted one (inviter) or the joiner's own (joiner);
+- a second, different event for a step already accepted.
+
+Either means that someone else holds the invite. Before the pairing has ended, both sides MUST abort
+on a conflict, erase everything and tell the user. After it has ended (the inviter has decided, or
+the joiner has accepted step 3), they keep the contact but MUST flag it and warn the user (design doc
+§11.2). Whether a flagged contact may still receive shares is decision D18 of the design doc. Nobody
+can remove another party's events, so a competing attempt stays visible to both sides until the
+invite expires.
 
 After step 2 both sides call Noise `Split()` and keep its raw keys:
 
@@ -180,20 +250,32 @@ After step 2 both sides call Noise `Split()` and keep its raw keys:
 directions (§7). Both are used only through HKDF-Expand with distinct labels; the Noise transport
 ciphers are not used.
 
-**Erasure.** `k1` and `k2` MUST be erased as soon as `CK(e_p)` of both directions has been
-derived: by the inviter when it sends step 3, and by the joiner when it accepts step 3. Whoever holds
-a root can compute every later chain key, which would void the forward secrecy of §7. The handshake
-state, the ephemeral keys and `psk` are erased when the pairing ends.
+**Erasure.** When the pairing ends or aborts, both sides MUST erase the following:
 
-**What an intercepted invite reveals.** Someone who knows the PSK and records the relays' traffic
-can decrypt step 1, which carries nothing. The joiner's name and relays travel in step 2, and the
-inviter's in step 3. Both are under keys that need the `ee` exchange. The eavesdropper learns only
-the relay list that the invite itself contains.
+- `psk`;
+- their pairing secret (`isk` or `jsk`);
+- the Noise ephemeral key and handshake state;
+- the roots `k1` and `k2`, as soon as `CK(e_p)` of both directions has been derived. Whoever holds a
+  root can compute every later chain key, which would void the forward secrecy of §7.
 
-**Why the commitment and the one-event rule.** A man in the middle who knows the PSK (an
-intercepted invite) runs one handshake with each side. Without step 0, it would pick its ephemeral
-key towards the joiner *after* seeing everything on the inviter's side. It could then try keys
-offline until the two short codes match (~10⁶ tries). With step 0 and one event per step:
+Until the invite expires they keep only what watching needs: `mac_key`, `ipk`, `expires_at`, the
+relays, and the ids and authors of the events they accepted. At expiry those go too.
+
+**What someone holding the invite can do.**
+
+| With the link… | it can | it cannot |
+|---|---|---|
+| read it | decrypt step 1, which carries nothing, and learn the invite's relays | read the names or relays, which travel under `ee`-derived keys |
+| race the joiner | pair as an impostor if it gets there first. Its attempt is a valid step 0 under its own key, visible to both sides until expiry. If the real joiner shows up in that time, both apps abort, or flag the contact if the inviter has already decided | impersonate the inviter: steps 1 and 3 need `isk` |
+| rewrite it in transit (its own invite and `ipk`) | sit in the middle of both pairings; the protocol cannot see this | make the two codes match, except with probability 10⁻⁶ |
+
+The last two rows are why the codes matter (§6.4): a contact paired by link stays **unverified**
+until its user confirms that both screens showed the same code.
+
+**Why the commitment and the one-event rule.** A man in the middle runs one handshake with each side.
+Without step 0, it would pick its ephemeral key towards the joiner *after* seeing everything on the
+inviter's side. It could then try keys offline until the two short codes match (~10⁶ tries). With
+step 0 and one event per step:
 
 - its key towards the inviter is committed before it sees the inviter's key;
 - the joiner's key is committed before the man in the middle must choose its key towards the
@@ -224,8 +306,10 @@ ignore unknown JSON members, so any byte would do, and it needs no new keys. Pay
 not depend on the code. Noise authenticates every payload with `h` as associated data, so a changed
 step 1 makes step 2 fail at the inviter, and steps 2 and 3 are encrypted under `ee`-derived keys.
 
-In-person pairing by QR gets the comparison for free: the inviter sees the code next to the joiner's
-name. For remote pairing, the users can compare codes by voice.
+Each app marks a contact **verified** only when its own user confirms that both screens showed the
+same code. In person, comparing is natural: the inviter sees the code next to the joiner's name and
+the joiner's screen. For remote pairing, the users compare codes by voice; until they do, the contact
+stays unverified (design doc §11.2).
 
 ## 7. Channels
 
@@ -246,8 +330,9 @@ ctl_ck(e) = HKDF-Expand(CK(e), label("ctl-enc"), 32)   NIP-44 conversation key
   granularity. The roots `k1` and `k2` are erased at pairing (§6.3).
 - Implementations ratchet when they start and on a timer while running. A device that does not run
   for days keeps an older chain key, and if seized it yields the keys from that day on. Implementations
-  SHOULD therefore also ratchet once a day while idle. That is a local computation that sends nothing
-  (design doc, decision D16).
+  SHOULD therefore also ratchet about once a day while idle. That is a local computation that sends
+  nothing (design doc, decision D16). "About": mobile platforms defer background jobs of rarely used
+  apps, so the interval can stretch.
 - Receivers accept channel events signed by `ctl_pk` of `epoch(now) − 1` (until its key is erased),
   `epoch(now)` and `epoch(now) + 1` (clock skew around midnight UTC).
 
@@ -288,25 +373,30 @@ their grants.
 
 A new `until` for a current recipient needs no new stream, only a new state for that recipient.
 
-**Order of a change.** At the moment of the change, T0, the sharer publishes in this order:
+**Order of a change.** At the moment of the change, T0, the sharer:
 
-1. the states: a grant of the new stream to every remaining recipient and a state without `share`
-   to every removed one, in random order;
-2. the `end` of the old stream.
+1. publishes the states: a grant of the new stream to every remaining recipient and a state without
+   `share` to every removed one, in random order;
+2. waits until each state has an `OK true` from at least one relay, or 10 s have passed;
+3. publishes the `end` of the old stream, and erases the old `stream_sk` and `stream_key`.
 
-It then erases the old `stream_sk` and `stream_key`. The new stream MUST NOT publish its first event
-before `T0 + δ`, with δ drawn uniformly from 30–120 s by the CSPRNG.
+The new stream MUST NOT publish its first event before `T0 + δ`, with δ drawn uniformly from 30–120 s
+by the CSPRNG.
 
 Stopping the share altogether publishes the same: a state without `share` to every recipient, in
-random order, then the `end`. A removed recipient therefore sees exactly what it would see if the
-sharer had stopped: its own state without `share`, among the same number of states, and the same
-`end`. The remaining recipients get their grants before the `end`, so they move to the new stream
-without a gap in what they show.
+random order, then, after the same wait, the `end`. A removed recipient therefore sees exactly what it
+would see if the sharer had stopped: its own state without `share`, among the same number of states,
+and the same `end`. What it can still attempt is traffic analysis: a new stream may appear on the
+sharer's relays 30–120 s later (design doc, threat T4).
+
+The wait makes it likely that the remaining recipients have their grants before the `end` arrives,
+but it cannot guarantee it: states go to each recipient's inbox relays and the `end` to the sharer's
+relays. A recipient that sees the `end` first keeps the last position, marked stale, until a state
+arrives (§12).
 
 A sharer that has lost `stream_sk` (its process died) cannot publish the `end`. The old stream's
 last event then simply expires. Recipients treat a new grant, or a state without `share`, as the end
-of the stream they had. What a removed recipient can still attempt is traffic analysis: a new
-stream may appear on the sharer's relays 30–120 s later (design doc, threat T4).
+of the stream they had.
 
 **Events.** Kind `30484`, pubkey `stream_pk`, tags `[["d",""],["expiration",x]]`,
 `content = NIP-44(stream_key, plaintext)` (stream class), published to the **sharer's** home relays.
@@ -364,8 +454,8 @@ filters of the same `REQ`):
     receive my share. The padding hides the exact number of contacts.
 - **Streams**, on each sharing contact's home relays: `{"kinds":[30484],"authors":[stream_pk]}`
   with the stream key of that contact's current grant.
-- **Pairing**, while an invite is pending: `{"kinds":[30484],"authors":[rv_pk]}` on the inviter's
-  relays.
+- **Pairing**, until the invite expires, on the invite's relays: `{"kinds":[30484],"#p":[ipk]}`, and
+  for the joiner also `{"kinds":[30484],"authors":[ipk]}` (§6.3).
 
 **Decoys.**
 
@@ -392,23 +482,48 @@ answers `OK true`. Receivers deduplicate by event id.
 
 ## 12. Receiving rules
 
-Every event must pass all of these checks; cheap ones may run first, but the signature MUST be verified
-before anything is decrypted (as NIP-44 requires):
+Every event must pass all of these checks. Cheap ones may run first, but the signature MUST be
+verified before anything is decrypted (as NIP-44 requires):
 
-1. the event id equals SHA256 of its serialization, and the BIP-340 signature is valid;
-2. kind and pubkey are among those expected for the subscription, and the `d` tag is as expected;
-3. for kind `30484`: `expiration` is present, is an integer and is `> now`;
+1. `kind` and `created_at` are integers, `created_at ≥ 0`; the event id equals SHA256 of its
+   serialization, and the BIP-340 signature is valid;
+2. kind and pubkey are among those expected for the subscription, and the `d` tag (and, for the
+   joiner's pairing steps, the `p` tag) is as expected. A tag's value is the second element of the
+   first tag with that name; other tags are ignored;
+3. for kind `30484`: `expiration` is present, 1–10 ASCII digits, and `> now`;
 4. `created_at ≤ now + 300`; signals additionally `created_at ≥ now − 60`;
-5. NIP-44 decryption with the context's key succeeds (MAC, padding), and the plaintext is a JSON
-   object with a string `"t"`;
-6. the type-specific checks hold: `seq` ordering (§8, §9), field ranges, relay-list limits.
+5. NIP-44 decryption with the context's key succeeds (strict base64, MAC, padding), and the
+   plaintext is at most 512 bytes of I-JSON (§5) forming an object with a string `"t"`;
+6. the fields pass the checks below, and `seq` ordering holds (§8, §9).
 
-Any failure discards the event silently, except during pairing, where §6.3 says when to abort.
+Any failure discards the event silently: no error escapes, and no state changes. The exception is
+pairing, where §6.3 says when to abort.
 
-A recipient keeps a stream key only while its grant is current. It MUST erase the key when a new
-grant replaces it, when the stream's `end` arrives, and when the grant's `until` passes. It also
-enforces `until` locally, whatever the sharer does. Positions are kept in memory only (design doc
-§8.5).
+**Field checks.** Unknown members are ignored. "Number" means any finite JSON number; "integer" is
+defined in §5.
+
+| `t` | Required | Optional |
+|---|---|---|
+| `state` | `seq` integer ≥ 1; `ts` integer ≥ 0; `relays` per §5 | `share`: an object with `until` an integer ≥ 0, `pk` 64 lowercase hex characters that decode to a valid x-only key, and `key` base64 of exactly 32 bytes. An invalid `share` makes the whole state invalid |
+| `loc` | `seq` integer ≥ 1; `ts` integer ≥ 0 (ms); `lat` number in [−90, 90]; `lon` number in [−180, 180]; `acc` number ≥ 0 | `spd` number ≥ 0; `brg` number in [0, 360); `alt` number; `low` boolean; `nav` object with `eta` integer ≥ 0, `dist` number ≥ 0 and `dest` string of at most 48 bytes, each optional |
+| `end` | `seq` integer ≥ 1; `ts` integer ≥ 0 | — |
+| `watch` | `ts` integer ≥ 0; `until` integer ≥ 0 | — |
+| `pair1` | — | — |
+| `pair2` | `name` string of 1–64 bytes; `relays` per §5 | — |
+| `pair3` | `ok` boolean; when true: `name`, `relays` as in `pair2`, and `epoch` integer (§6.3) | — |
+
+**Stream keys and positions.**
+
+- A recipient keeps a stream key only while its grant is current. It MUST erase the key when a new
+  grant replaces it, when the stream's `end` arrives, and when the grant's `until` passes.
+- It also enforces `until` locally, whatever the sharer does.
+- Positions are kept in memory only (design doc §8.5).
+- On an `end`, the recipient keeps the last position, marked stale, for up to 120 s, or until a state
+  arrives:
+  - with a new grant, it shows the stale position until the new stream's first location;
+  - with a state without `share`, it removes the position.
+
+  The `end` and the states travel over different relays, so the `end` can arrive first (§9).
 
 ## 13. Obligations (summary)
 
@@ -417,8 +532,9 @@ that could decrypt them is erased, at both ends:
 
 | Secret | Erased by | When |
 |---|---|---|
-| `psk`, Noise ephemeral keys and handshake state | both pairing sides | when the pairing ends or the invite expires (§6.3) |
+| `psk`, the pairing secret (`isk`, `jsk`), Noise ephemeral keys and handshake state | both pairing sides | when the pairing ends or aborts (§6.3) |
 | roots `k1`, `k2` | both pairing sides | once `CK(e_p)` is derived (§6.3) |
+| `mac_key`, the accepted pairing ids | both pairing sides | when the invite expires (§6.3) |
 | `CK(e)` | both ends, both directions | at `epoch_end(e) + 3600` (§7) |
 | `stream_sk`, `stream_key` | the sharer | when the stream is replaced or ends (§9) |
 | `stream_key` | each recipient | when its grant is replaced, at the stream's `end`, when `until` passes (§12) |
@@ -429,7 +545,9 @@ old one destroyed, whenever the state above is erased (design doc §10.4).
 
 Further obligations:
 
-- Pairing: one event per step, and abort on a second (§6.3).
+- Pairing: one event per step; watch until the invite expires; abort on a conflict before the pairing
+  ends, flag the contact after (§6.3).
+- After a change of the share, wait for the states' `OK` (up to 10 s) before publishing the `end` (§9).
 - Rotate the stream on every membership change and every epoch, in the order of §9.
 - One epoch per connection, decoys in the inbox subscription (§11).
 - Never publish anything for a contact the user has not explicitly shared with. After the user
@@ -449,6 +567,11 @@ Further obligations:
 | future skew accepted | 300 s |
 | signal: max age, max lease | 60 s, 120 s |
 | silence of a replacement stream | uniform 30–120 s |
+| wait for the states' `OK` before an `end` | ≤ 10 s |
+| stale position kept after an `end` | ≤ 120 s |
+| pairing epoch | `e_p = epoch(now − 300)` at the inviter; the joiner accepts `epoch(now) − 1 ≤ e_p ≤ epoch(now)` |
+| invite | 70 bytes plus the relay list (123 bytes with the three default relays) |
+| JSON integers | within ±(2⁵³ − 1) |
 | relay lists | 1–4 `wss://` URLs of ≤ 64 bytes (`ws://` only to loopback) |
 | authors per REQ filter | ≤ 50 |
 | inbox subscription | padded with decoys to a multiple of 8 |
@@ -457,9 +580,10 @@ Further obligations:
 
 `vectors/nll1_vectors.json` lists, for one complete scenario, every input and every intermediate value:
 
-- invite bytes, link, rendezvous key and Noise prologue;
-- all four pairing steps (commitment, both Noise messages, confirmation with the inviter's name,
-  relays and pairing epoch), the handshake hash (for debugging only), the split keys and the SAS;
+- invite bytes and link, both pairing keys, the MAC key and the Noise prologue;
+- all four pairing steps (the commitment with its MAC, both Noise messages, the confirmation with the
+  inviter's name, relays and pairing epoch), the handshake hash (for debugging only), the split keys
+  and the SAS;
 - channel keys for three epochs in both directions;
 - a state with a grant and a state without one;
 - a location, a stream end and a watch signal;
@@ -470,4 +594,10 @@ BIP-340 auxiliary randomness), so an implementation can reproduce each event byt
 also carries its canonical `serialized` form.
 
 The primitives are checked separately against the published NIP-44 v2, BIP-340, RFC 5869 and Noise
-(cacophony) vectors by `test_primitives.py`.
+(cacophony) vectors by `test_primitives.py`. The negative cases live in `test_protocol.py`, and a
+second implementation should port them too:
+
+- conflicting pairing events, forged or junk steps, and a step 1 meant for another joiner;
+- a low-order Noise key;
+- plaintexts that break the JSON profile, and states and locations that fail the field checks;
+- non-canonical base64.
