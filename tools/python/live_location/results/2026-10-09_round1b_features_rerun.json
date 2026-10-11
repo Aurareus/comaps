@@ -1,0 +1,191 @@
+{
+ "probed_at": 1791569276,
+ "results": [
+  {
+   "url": "wss://nostr.data.haus",
+   "info": {
+    "software": "git+https://github.com/hoytech/strfry.git",
+    "version": "1.1.3",
+    "supported_nips": [
+     1,
+     2,
+     4,
+     9,
+     11,
+     28,
+     40,
+     45,
+     70,
+     77
+    ],
+    "auth_required": null,
+    "payment_required": null,
+    "restricted_writes": null,
+    "min_pow_difficulty": null,
+    "max_message_length": 131072,
+    "max_subscriptions": 20,
+    "max_limit": 500,
+    "max_event_tags": null,
+    "created_at_lower_limit": null,
+    "created_at_upper_limit": null,
+    "retention": null
+   },
+   "connect_ms": 1010,
+   "addr": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 193
+   },
+   "stored": {
+    "served": true,
+    "n": 1,
+    "err": null
+   },
+   "replace_publish": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 268
+   },
+   "live": {
+    "forwarded": true,
+    "latency_ms": 287
+   },
+   "replace": {
+    "latest_only": true,
+    "ids_served": 1,
+    "err": null,
+    "old_served_by_id": false
+   },
+   "eph_live": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 183
+    },
+    "forwarded": true,
+    "latency_ms": 240,
+    "served_from_storage_after": true
+   },
+   "eph_mute": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 252
+   },
+   "exp_short": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 183
+    },
+    "served_after_expiry": true,
+    "err": null
+   },
+   "exp_past": {
+    "ok": false,
+    "msg": "invalid: event expired",
+    "latency_ms": 143
+   },
+   "del_a": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 201
+    },
+    "still_served": false,
+    "deletion_event_served": true
+   },
+   "authors50": {
+    "accepted": true,
+    "err": null
+   },
+   "rate_1s": {
+    "sent": 10,
+    "refused": 0,
+    "first_refused_at": null,
+    "messages": []
+   },
+   "rate_200ms": {
+    "sent": 10,
+    "refused": 0,
+    "first_refused_at": null,
+    "messages": []
+   },
+   "auth_challenge": false,
+   "notices": []
+  },
+  {
+   "url": "wss://relay.nostr.wirednet.jp",
+   "info": {
+    "software": "git+https://github.com/hoytech/strfry.git",
+    "version": "1.0.4-2-gc15be27",
+    "supported_nips": [
+     1,
+     2,
+     4,
+     9,
+     11,
+     22,
+     28,
+     40,
+     70,
+     77
+    ],
+    "auth_required": null,
+    "payment_required": null,
+    "restricted_writes": null,
+    "min_pow_difficulty": null,
+    "max_message_length": 131072,
+    "max_subscriptions": 16,
+    "max_limit": 200,
+    "max_event_tags": null,
+    "created_at_lower_limit": null,
+    "created_at_upper_limit": null,
+    "retention": null
+   },
+   "connect_ms": 994,
+   "addr": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 263
+   },
+   "stored": {
+    "served": true,
+    "n": 1,
+    "err": null
+   },
+   "replace_publish": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 273
+   },
+   "live": {
+    "forwarded": true,
+    "latency_ms": 362
+   },
+   "replace": {
+    "latest_only": true,
+    "ids_served": 1,
+    "err": null,
+    "old_served_by_id": false
+   },
+   "eph_live": {
+    "publish": {
+     "ok": false,
+     "msg": "blocked: Blocked event by ephemeral kind range: 20484",
+     "latency_ms": 251
+    },
+    "forwarded": false,
+    "latency_ms": null,
+    "served_from_storage_after": false
+   },
+   "error": "ConnectionClosedOK(Close(code=<CloseCode.NO_STATUS_RCVD: 1005>, reason=''), Close(code=<CloseCode.NO_STATUS_RCVD: 1005>, reason=''), True)"
+  },
+  {
+   "url": "wss://relay.damus.io",
+   "info": {
+    "error": "<HTTPError 403: 'Forbidden'>"
+   },
+   "connect_error": "InvalidStatus(Response(status_code=503, reason_phrase='Service Unavailable', headers=Headers([('Date', 'Fri, 09 Oct 2026 18:07:20 GMT'), ('Content-Length', '0'), ('Connection', 'keep-alive'), ('Server', 'cloudflare'), ('Cache-Control', 'private, no-store'), ('Nel', '{\"report_to\":\"cf-nel\",\"success_fr"
+  }
+ ]
+}

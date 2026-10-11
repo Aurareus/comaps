@@ -1,0 +1,118 @@
+{
+ "probed_at": 1791567036,
+ "results": [
+  {
+   "url": "ws://127.0.0.1:7777",
+   "info": {
+    "software": "git+https://github.com/hoytech/strfry.git",
+    "version": "v1-4cd3cf6",
+    "supported_nips": [
+     1,
+     2,
+     4,
+     9,
+     11,
+     28,
+     40,
+     45,
+     59,
+     70,
+     77
+    ],
+    "auth_required": null,
+    "payment_required": null,
+    "restricted_writes": null,
+    "min_pow_difficulty": null,
+    "max_message_length": 131072,
+    "max_subscriptions": 200,
+    "max_limit": 500,
+    "max_event_tags": null,
+    "created_at_lower_limit": null,
+    "created_at_upper_limit": null,
+    "retention": null
+   },
+   "connect_ms": 2,
+   "addr": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 4
+   },
+   "stored": {
+    "served": true,
+    "n": 1,
+    "err": null
+   },
+   "replace_publish": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 2
+   },
+   "live": {
+    "forwarded": true,
+    "latency_ms": 98
+   },
+   "replace": {
+    "latest_only": true,
+    "ids_served": 1,
+    "err": null,
+    "old_served_by_id": false
+   },
+   "eph_live": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 2
+    },
+    "forwarded": true,
+    "latency_ms": 101,
+    "served_from_storage_after": true
+   },
+   "eph_mute": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 2
+   },
+   "exp_short": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 2
+    },
+    "served_after_expiry": true,
+    "err": null
+   },
+   "exp_past": {
+    "ok": false,
+    "msg": "invalid: event expired",
+    "latency_ms": 1
+   },
+   "del_a": {
+    "publish": {
+     "ok": true,
+     "msg": "",
+     "latency_ms": 2
+    },
+    "still_served": false,
+    "deletion_event_served": true
+   },
+   "authors50": {
+    "accepted": true,
+    "err": null
+   },
+   "rate_1s": {
+    "sent": 10,
+    "refused": 0,
+    "first_refused_at": null,
+    "messages": []
+   },
+   "rate_200ms": {
+    "sent": 10,
+    "refused": 0,
+    "first_refused_at": null,
+    "messages": []
+   },
+   "auth_challenge": false,
+   "notices": []
+  }
+ ]
+}
