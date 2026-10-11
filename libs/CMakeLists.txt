@@ -10,6 +10,7 @@ add_subdirectory(geometry)
 add_subdirectory(i18n)
 add_subdirectory(indexer)
 add_subdirectory(kml)
+add_subdirectory(live_location)  # Live location (NLL): docs/LIVE_LOCATION.md
 add_subdirectory(map)
 add_subdirectory(cppjansson)
 add_subdirectory(platform)
