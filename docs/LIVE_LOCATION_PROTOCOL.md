@@ -377,7 +377,7 @@ Each direction has a single addressable slot (kind `30484`, `d = ""`, pubkey `ct
 - `seq` is a per-direction counter, starting at 1 and strictly increasing across epochs.
   Receivers MUST ignore a state whose `seq` is not greater than the last one accepted from that
   contact. This stops a relay replaying an old grant after the share ended.
-- `relays` are the sender's current home relays.
+- `relays` are the sender's current home relays, in its order (§11).
 - In the first week after pairing, the joiner's states also confirm the pairing to the inviter
   (§6.3). The first carries no `share`; each later one is the joiner's current state.
 - `share` is present while the sender shares with this recipient. `until` is when this
@@ -455,8 +455,11 @@ signal at most every 60 seconds:
 
 - kind `20484`, signed with the viewer's `ctl_sk(e)` towards that contact, no tags;
 - `content = NIP-44(ctl_ck(e), {"t":"watch","ts":<unix>,"until":<unix>})` (stream class);
-- published to **all** of the sharer's home relays, so that a sharer may listen on only one of them
-  (design doc §10.3).
+- published to every relay of the sharer's list that the viewer may use (relay consent, §11).
+
+While nobody watches, a sharer MAY listen only on its listening relay (§11). A signal then starts
+faster updates only if the viewer may use that relay; §11 says what the viewer's app does when it
+may not.
 
 The sharer treats itself as "watched" until `min(until, now + 120)`. Signals older than 60 s are
 ignored. What the sharer does with this (faster updates) is policy, see the design doc (decision D4).
@@ -464,7 +467,11 @@ Like a state, a signal from an unconfirmed contact confirms it (§6.3).
 
 ## 11. Relays
 
-Every user has 1–4 **home relays**, user-configurable, defaulting to the list in the design doc.
+Every user has 1–4 **home relays**, user-configurable and in the user's order, defaulting to the
+list in the design doc. Every relay list a client sends (the invite, steps 2 and 3, states) keeps
+that order. A client that keeps a single connection open while idle, such as a sharer that nobody
+watches (design doc D17), keeps it to the first relay of its list that it can reach: its
+**listening relay**. Its inbox subscription then runs only there.
 
 | Message | Published to | Read from |
 |---|---|---|
@@ -472,6 +479,8 @@ Every user has 1–4 **home relays**, user-configurable, defaulting to the list 
 | state A→B | B's home relays (B's inbox) | B reads its own home relays |
 | stream | A's home relays | recipients read A's home relays (from A's `state.relays`) |
 | watch signal B→A | A's home relays | A reads its own home relays |
+
+Publishing to another user's relays is limited to those that relay consent allows (below).
 
 Subscriptions (NIP-01 `REQ`, at most 50 authors per filter; longer lists are split into several
 filters of the same `REQ`):
@@ -525,6 +534,12 @@ when you send it states, including when you stop sharing with it. So:
 - Until approved, a relay is skipped. The app reads, publishes and pairs through the contact's
   remaining relays, if any. Skipping a removed recipient's relay when sending it a state without
   `share` costs nothing: revocation is cryptographic (§9).
+- A viewer takes a sharer's listening relay to be the first of the list in its states. If the viewer
+  may not use that relay, its signals cannot reach the sharer while nobody watches, so faster
+  updates never start (§10). An app that sends signals MUST then say, when it asks for that relay,
+  that live updates need it, and while the relay stays refused, it MUST show that live updates are
+  off for that contact (design doc §11.4). The same relay is where an inviter that shares hears its
+  joiner's confirmations as they arrive (§6.3).
 - Hiding a contact stops every connection made for it: no stream, no signals.
 
 ## 12. Receiving rules
@@ -601,7 +616,8 @@ Further obligations:
   stops sharing, publish nothing but the final states and the `end`. The one exception is the
   joiner's confirmation: a state right after pairing, then its current state on each UTC day it
   runs, through epoch `e_p + 7` (§6.3).
-- Connect only to the user's own, the default and approved relays (relay consent, §11).
+- Connect only to the user's own, the default and approved relays (relay consent, §11); when that
+  leaves out a sharer's listening relay, say that live updates are off (§11).
 - Invites live at most 24 hours; joiners refuse longer ones (§6.1).
 - Strictly increasing `created_at` per event pubkey (§4).
 
@@ -657,4 +673,5 @@ The primitives are checked separately against the published NIP-44 v2, BIP-340, 
 - plaintexts that break the JSON profile, and states and locations that fail the field checks;
 - non-canonical base64;
 - a confirmation that expires before the inviter runs, the daily confirmations through epoch
-  `e_p + 7`, and the exact moment removal is first offered.
+  `e_p + 7`, and the exact moment removal is first offered;
+- a watch signal that cannot reach an unwatched sharer's listening relay.

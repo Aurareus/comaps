@@ -1,11 +1,12 @@
 # Live location sharing: design
 
-Status: **approved for implementation**, after four review rounds:
+Status: **approved for implementation**, after five review rounds:
 
 - 2026-10-10: D1–D14 approved with a list of fixes, which §16 maps to their changes.
 - 2026-10-11: D15–D17 approved; the requested changes are mapped in §17.
 - 2026-10-11: D18 approved; the requested changes are mapped in §18.
 - 2026-10-11: one more fix, to the pairing confirmation, mapped in §19.
+- 2026-10-11: relay consent and the listening relay, mapped in §20.
 
 All decisions are made ([§14](#14-decisions)). No feature code has been written yet.
 
@@ -35,6 +36,7 @@ reference implementation, test vectors and the relay test harness are in
 17. [Second review changes (2026-10-11)](#17-second-review-changes-2026-10-11)
 18. [Third review changes (2026-10-11)](#18-third-review-changes-2026-10-11)
 19. [Fourth review changes (2026-10-11)](#19-fourth-review-changes-2026-10-11)
+20. [Fifth review changes (2026-10-11)](#20-fifth-review-changes-2026-10-11)
 
 ## 0. Summary
 
@@ -253,6 +255,9 @@ grants it to the remaining recipients only.
 While a viewer has the map open, it sends a small ephemeral, encrypted "watching" signal to the
 sharer about once a minute. The sharer then sends every fix, rather than only larger moves and a
 5-minute heartbeat. This is what reconciles "follows within ~5 s" with an acceptable battery cost.
+A sharer that nobody watches listens on one relay only, the first in its list. The signal works
+only if the viewer may use that relay; otherwise the viewer's app asks for it, and shows "Live
+updates off" while it stays refused (§10.3, §11.4).
 
 ## 5. Cryptographic construction and rationale
 
@@ -637,11 +642,16 @@ hour, or about 195 times if all three used strfry's default 55 s. Hence:
 | Viewing (app in the foreground, D11) | Own home relays, plus the approved relays of contacts sharing with me (relay consent, §11.4) | None |
 | Otherwise | None | — |
 
-Viewers send each watch signal to all of the sharer's relays, so the sharer can listen on any one of
-them. If its listening relay fails, the sharer moves to the next one. If the connection dies
-silently, the next heartbeat notices, so live mode then starts up to one heartbeat (5 min) late,
-but it does start. OkHttp does not report the server's pings to the app, so the list order, not a
-measured ping interval, picks the listening relay.
+Viewers send each watch signal to every relay of the sharer's that they may use (relay consent,
+§11.4). Live mode therefore needs the viewer to be allowed to use the sharer's listening relay, the
+first in its list; its states carry the list in order. When the viewer may not use it, its app
+asks for that relay, once, as it opens the share, saying that live updates need it. If the user
+declines, the contact shows "Live updates off" and keeps the idle rate (§11.4). The sharer's order
+stays as it is: moving a default relay to the top would override a user who put their own relay
+first. If its listening relay fails, the sharer moves to the next one, which viewers reach if they
+may use it. If the connection dies silently, the next heartbeat notices, so live mode then starts
+up to one heartbeat (5 min) late, but it does start. OkHttp does not report the server's pings to
+the app, so the list order, not a measured ping interval, picks the listening relay.
 
 Estimated budgets for one hour, sharer side, three relays, on LTE. They are estimates, and the
 measurement the DoD requires replaces them. The model: a radio wake costs about 5–10 J (some 10 s at
@@ -810,6 +820,15 @@ So:
   once before connecting: "Bob's location comes through relay.example.org, which isn't one of yours.
   Its operator would see your internet address whenever you view Bob." The same applies when
   sending a contact states, e.g. when the user stops sharing with it (T5b).
+- **Live updates.** When that relay is the first in Bob's list, the one his app listens on while
+  nobody watches (§10.3), the prompt says why it matters: "Live updates from Bob need
+  relay.example.org, which isn't one of yours. Without it, Bob's position updates only after he
+  moves 50 m, or every 5 minutes. Its operator would see your internet address whenever you view
+  Bob." → [Allow] / [Not now]. If the user declines, Bob's contact shows "Live updates off" (on
+  his dot's sheet and in the contact list), and his position keeps the idle rate. The app asks
+  about each relay only once, so the label is where this can be changed: tapping it explains why
+  and offers the relay again. With "Request live updates when viewing" turned off, the prompt does
+  not mention live updates, and no label appears.
 - With D4, opening the map makes the sharer's dot go live within a few seconds. In the worst case
   (the sharer's listening relay died silently), it takes until the sharer's next heartbeat.
 - Positions are kept in memory only. Opening the app fetches each contact's latest position from
@@ -821,9 +840,11 @@ So:
   Bob to finish connecting"), a verified / unverified / flagged badge, rename, compare code, delete.
   Deleting a contact also stops any share with them.
 - Relays: list, add, remove, reorder (the first reachable one is the listening relay, D17), and a
-  reachability test. Only `wss://` addresses are accepted. A warning appears when fewer than two
-  relays work. A second list, "Relays you allowed for contacts", shows the approvals given under
-  relay consent, each with the contact that asked for it, and lets the user revoke them.
+  reachability test. When the first relay isn't a default one, a note says that contacts get live
+  updates from you only if they use or allow that relay too. Only `wss://` addresses are accepted.
+  A warning appears when fewer than two relays work. A second list, "Relays you allowed for
+  contacts", shows the approvals given under relay consent, each with the contact that asked for
+  it, and lets the user revoke them.
 - Toggles: "Request live updates when viewing" and "Allow viewers to request live updates" (D4),
   and the low-battery stop threshold.
 
@@ -878,7 +899,8 @@ Draft text, also a DoD item. It now claims only what the threat model supports (
     stream keys at both ends;
   - one epoch per connection, and decoy-padded inbox filters;
   - store round-trip, and data-key rotation on erasure;
-  - the cadence and connection policy.
+  - the cadence and connection policy, including a viewer that may not use the sharer's listening
+    relay ("Live updates off").
 - **Integration (C++)**:
   - manager + relay pool against an in-process fake relay: 2 of 3 relays down, reconnect, duplicate
     and out-of-order delivery, replayed grants;
@@ -1085,7 +1107,21 @@ are unchanged: the fix adds no message, only a rule for when the joiner sends it
 **What remains.** Each confirmation can be read from the moment Bob's app first runs on a UTC day
 until 01:00 UTC the next day. If Bob only ever opens CoMaps late in the UTC day and Alice only
 early, the week can pass without the two overlapping. Waiting no longer blocks anything, so all
-this costs is the label and, after the week, the removal offer. Sharing narrows the gap: while
-Alice shares with Bob, her app keeps its inbox subscription open (§10.3) and can hear Bob's next
-confirmation as it arrives, and a watch signal, sent when Bob opens Alice's location, confirms him
-at once.
+this costs is the label and, after the week, the removal offer. Sharing narrows the gap if Bob's
+app may use Alice's listening relay, the first in her list (corrected in §20): while she shares,
+her app listens there (§10.3), so it hears Bob's next confirmation as it arrives, and a watch
+signal, sent when Bob opens Alice's location, confirms him at once. If Bob hasn't allowed that
+relay, his app asks for it when he opens her location (§11.4); until then, Alice's app reads his
+confirmations only while it is open.
+
+## 20. Fifth review changes (2026-10-11)
+
+Your fifth review had one finding. I reproduced it on the reviewed commit (bbbecaef) with the
+reference implementation and one model store per relay: with Alice's own relay first in her list
+and Bob not allowed to use it, his watch signal reached only her other relay, and the relay she
+listens on heard nothing. That scenario is now a test. 200 primitive checks and 284 protocol checks
+pass; the vectors are unchanged.
+
+| Your point | Verdict | What changed | Where |
+|---|---|---|---|
+| Relay consent and D17 interact: live mode never starts for a viewer who hasn't allowed the sharer's first relay, and Alice doesn't hear Bob's confirmations as they arrive while she shares, which §19 relied on | **Right**; reproduced as above. One extension: only the design doc said that the listening relay is the first in the list. The spec said neither that relay lists are ordered nor which relay a sharer listens on, so another implementation could not have known which relay to ask for | Your fix, in all three parts. §10.3 says that signals go only to the relays the viewer may use, and that live mode needs the sharer's listening relay; the sharer's order stays. The prompt for that relay says that live updates need it. If the user declines, the contact shows "Live updates off" and keeps the idle rate. Two small additions: tapping the label offers the relay again, since the app asks about each relay only once; and the relay settings note that contacts get live updates only if they use or allow a first relay that isn't a default. The spec now keeps relay lists in order, defines the listening relay, and requires the prompt and the label; `missing_listening_relay()` names the relay to ask for. §19 now says that sharing narrows its gap only when Bob may use Alice's listening relay | spec §8, §10, §11, §13, §15; §4.5, §10.3, §11.4, §11.5, §12, §19 |
