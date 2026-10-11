@@ -96,3 +96,7 @@ target_link_libraries(${PROJECT_NAME}
 )
 
 omim_add_test_subdirectory(live_location_tests)
+
+if (PLATFORM_DESKTOP AND NOT WIN32)
+  omim_add_tool_subdirectory(peer)
+endif()
