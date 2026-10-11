@@ -387,7 +387,7 @@ class Direction:
 @dataclass(eq=False)
 class Contact:
     name: str
-    relays: list           # the peer's home relays (its inbox and stream outbox)
+    relays: list           # the peer's home relays (its inbox and stream outbox), in its order (§11)
     outgoing: Direction    # me -> peer
     incoming: Direction    # peer -> me
     sas: str
@@ -808,6 +808,15 @@ def split_relays(named: list, trusted: set) -> tuple:
     it signals and pairing through an invite's relays: whoever runs a relay sees the IP addresses that
     connect to it."""
     return [r for r in named if r in trusted], [r for r in named if r not in trusted]
+
+
+def missing_listening_relay(relays: list, trusted: set) -> str | None:
+    """Viewer side (§10, §11): the relay that live updates need, if the viewer may not use it. While nobody
+    watches, a sharer listens only on its listening relay: the first relay of the list in its states, unless
+    it cannot reach that one. Watch signals go only to relays the viewer may use, so the app asks for this
+    relay, saying that live updates need it, and while it stays refused shows that they are off (design
+    doc §11.4). It is also where an inviter that shares hears its joiner's confirmations (§6.3)."""
+    return None if relays[0] in trusted else relays[0]
 
 
 def decoy_keys(decoy_seed: bytes, epoch: int, count: int) -> list:

@@ -778,6 +778,32 @@ d_ba = bob_a.outgoing.at(P.epoch_of(later))
 junk_sig = P.sign_event(d_ba.signing_key(), later + 12, P.KIND_SIGNAL, [], p.b64encode(b'\x02' + os.urandom(150)), rng)
 check(P.read_signal(a_bob, wire(junk_sig), later + 12) is None, 'undecryptable signal discarded silently')
 
+# Relay consent meets the single listening connection (D17). Alice lists her own relay first, so while she
+# shares and nobody watches, her app listens only there. Bob's app may not use that relay, so his watch
+# signals go only to her other one, and live updates never start. Relay lists keep the sender's order, so
+# Bob's app can tell which relay live updates need, and ask for it.
+alice_list = ['wss://relay.alice.example', 'wss://nos.lol']
+store = {url: Relay() for url in alice_list}            # one model relay per URL
+bob_trusted = set(RELAYS_B) | set(P.DEFAULT_RELAYS)     # Bob's own relays and the defaults
+st = P.read_control(bob_a, wire(P.state_event(a_bob, alice_list, None, rng, later + 20)), later + 20)
+check(st['relays'] == alice_list, "a state carries the sender's relays in its order")
+signal_to, _ = P.split_relays(st['relays'], bob_trusted)
+for url in signal_to:
+    store[url].publish(P.watch_signal(bob_a, later + 200, rng, later + 21))
+check(store[alice_list[0]].query() == [] and len(store['wss://nos.lol'].query()) == 1,
+      "Bob's watch signal misses the only relay Alice listens on: no live updates")
+check(P.missing_listening_relay(st['relays'], bob_trusted) == 'wss://relay.alice.example',
+      "Bob's app knows which relay live updates need")
+bob_trusted.add('wss://relay.alice.example')            # Bob allows it
+signal_to, _ = P.split_relays(st['relays'], bob_trusted)
+for url in signal_to:
+    store[url].publish(P.watch_signal(bob_a, later + 260, rng, later + 81))
+heard = [P.read_signal(a_bob, ev, later + 82) for ev in store[alice_list[0]].query()]
+check(P.missing_listening_relay(st['relays'], bob_trusted) is None and len(heard) == 1 and heard[0] is not None,
+      'once allowed, his signals reach her listening relay')
+check(P.missing_listening_relay(list(reversed(alice_list)), set(P.DEFAULT_RELAYS)) is None,
+      'a default relay first: nothing to ask')
+
 # --- Subscriptions ---------------------------------------------------------------------------
 
 seed = os.urandom(32)
