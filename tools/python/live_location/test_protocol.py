@@ -52,10 +52,18 @@ class Relay:
         if old is None or ev.created_at > old.created_at or (ev.created_at == old.created_at and ev.id < old.id):
             self.slots[key] = ev
 
-    def query(self, authors=None, p_tag=None):
+    def query(self, authors=None, p_tag=None, now=None):
+        """With `now`, expired events are no longer served (NIP-40)."""
         out = [wire(ev) for ev in self.slots.values()
-               if (authors is None or ev.pubkey in authors) and (p_tag is None or ev.tag_value('p') == p_tag)]
+               if (authors is None or ev.pubkey in authors) and (p_tag is None or ev.tag_value('p') == p_tag) and
+               (now is None or int(ev.tag_value('expiration')) > now)]
         return sorted(out, key=lambda ev: (ev.created_at, ev.id))
+
+
+def read_inbox(contact, relay, now):
+    """The states from `contact` that an app reading its inbox relay at `now` accepts."""
+    events = relay.query(authors=set(P.incoming_keys(contact, now)), now=now)
+    return [st for st in (P.read_control(contact, ev, now) for ev in events) if st is not None]
 
 
 def online(party, relay, now):
@@ -114,6 +122,10 @@ def pair(name_inviter, relays_inviter, name_joiner, relays_joiner, now, checks_o
         state = P.read_control(c_inviter, wire(finished.publish), now + 22)
         check(state is not None and 'share' not in state and c_inviter.confirmed,
               'that share-less state confirms the contact on the inviter\'s side')
+        check(c_joiner.joiner and not c_inviter.joiner and c_joiner.pairing_epoch == c_inviter.pairing_epoch,
+              'both sides know the pairing epoch; only the joiner owes confirmations')
+        check(not P.confirmation_due(c_joiner, now + 22) and not P.confirmation_due(c_inviter, now + 22),
+              'the first confirmation covers its UTC day')
         check(c_inviter.sas == c_joiner.sas, 'SAS agree')
         check(c_inviter.outgoing.chain_key == c_joiner.incoming.chain_key, 'A->B chain keys agree')
         check(c_inviter.incoming.chain_key == c_joiner.outgoing.chain_key, 'B->A chain keys agree')
@@ -362,7 +374,7 @@ check(P.split_relays(['wss://stalker-relay.example'], trusted | {'wss://stalker-
 
 # Two-sided completion. Alice decides near the end of the invite's life, and Bob opens CoMaps only after
 # it expired: step 3 has expired with the invite, Bob never completes, and Alice's contact stays
-# unconfirmed (the app shows "Waiting for Bob" and offers to remove it).
+# unconfirmed (the app shows "Waiting for Bob", and offers to remove it once the week is over).
 relay = Relay()
 alice = P.Inviter(RELAYS_A, rng, T0, lifetime=86400)
 bob = joiner_starts(alice.invite.link(), 'Bob', relay, T0)
@@ -373,6 +385,9 @@ end = alice.invite.expires_at
 relay.publish(alice.decide(True, 'Alice', RELAYS_A, rng, end - 60).publish)
 check(online(bob, relay, end + 600) == [] and bob.contact is None and not alice.contact.confirmed,
       'joiner back after expiry: no contact on its side, the inviter\'s stays unconfirmed')
+week_over = P.epoch_end(alice.contact.pairing_epoch + P.CONFIRM_EPOCHS) + P.CONTROL_GRACE
+check(not P.offer_removal(alice.contact, week_over - 1) and P.offer_removal(alice.contact, week_over),
+      'removal is offered once the week is over, not before')
 check(raises(lambda: alice.decide(True, 'Alice', RELAYS_A, rng, end + 5)), 'decide() twice refused')
 # decide() after expiry: refused, since relays would refuse the step 3 and the joiner has stopped.
 relay = Relay()
@@ -407,6 +422,80 @@ online(bob, relay, T0 + 2)
 online(alice, relay, T0 + 3)
 alice.abort()
 check(raises(lambda: alice.decide(True, 'Alice', RELAYS_A, rng, T0 + 4)), 'decide() refused after an abort')
+
+# The confirmation can expire before the inviter reads it. The review's scenario: Bob accepts step 3 at
+# 23:30 UTC, his confirmation expires at 01:00, and Alice's app, next opened at 08:00, finds nothing. Bob's
+# app sends its current state again on each later UTC day it runs, through epoch e_p + 7.
+day = P.epoch_of(T0) + 10
+t2330 = P.epoch_end(day) - 1800
+relay, inbox_a = Relay(), Relay()                   # the invite's relay and Alice's inbox relay
+alice = P.Inviter(RELAYS_A, rng, t2330 - 600, lifetime=3600)
+bob = joiner_starts(alice.invite.link(), 'Bob', relay, t2330 - 600)
+online(alice, relay, t2330 - 590)
+online(bob, relay, t2330 - 580)
+online(alice, relay, t2330 - 570)
+relay.publish(alice.decide(True, 'Alice', RELAYS_A, rng, t2330 - 60).publish)
+finished = online(bob, relay, t2330)[0]
+inbox_a.publish(finished.publish)
+a_b, b_a = alice.contact, finished.contact
+check(b_a.pairing_epoch == day and int(finished.publish.tag_value('expiration')) == t2330 + 5400,
+      'a confirmation sent at 23:30 is readable for 1.5 h')
+t = P.epoch_end(day) + 8 * 3600                     # 08:00 the next day
+check(read_inbox(a_b, inbox_a, t) == [] and not a_b.confirmed, 'Alice at 08:00: nothing to read, Bob still waiting')
+check(not P.offer_removal(a_b, t), '"waiting" is a label: no removal offered during the week')
+t = P.epoch_end(day) + 12 * 3600                    # Bob's app runs at 12:00
+check(P.confirmation_due(b_a, t), 'on a later UTC day the joiner confirms again')
+inbox_a.publish(P.Sharer(RELAYS_B).current_state(b_a, rng, t))
+check(not P.confirmation_due(b_a, t + 60), 'once per UTC day')
+states = read_inbox(a_b, inbox_a, t + 3600)        # Alice at 13:00
+check(len(states) == 1 and 'share' not in states[0] and a_b.confirmed, 'Alice reads it at 13:00: Bob is confirmed')
+sent = []
+for e in range(day + 2, day + 12):
+    t = e * P.EPOCH_SECONDS + 7200
+    if P.confirmation_due(b_a, t):
+        P.Sharer(RELAYS_B).current_state(b_a, rng, t)
+        sent.append(e)
+check(sent == list(range(day + 2, day + P.CONFIRM_EPOCHS + 1)), 'daily through epoch e_p + 7, then never again')
+check(not P.offer_removal(a_b, P.epoch_end(day + 30)), 'a confirmed contact is never offered for removal')
+
+# Waiting does not block sharing, and any message from the joiner confirms, a watch signal included. Bob's
+# confirmation is lost here; Alice shares with him anyway, and his first watch signal confirms him.
+a_b, b_a, _ = pair('Alice', RELAYS_A, 'Bob', RELAYS_B, T0, checks_on=False)
+t = T0 + 600
+view = P.Following()
+for ev in P.Sharer(RELAYS_A).start({a_b: 0}, rng, t).states:
+    view.on_state(P.read_control(b_a, wire(ev), t + 1), t + 1)
+check(not a_b.confirmed and view.grant is not None, 'Alice can share with a waiting contact, and Bob receives it')
+check(P.read_signal(a_b, wire(P.watch_signal(b_a, t + 120, rng, t + 2)), t + 3) is not None and a_b.confirmed,
+      "Bob's watch signal confirms him")
+
+# The daily confirmation is the joiner's CURRENT state. While Bob shares with Alice it carries his grant: a
+# state without `share` would end his share.
+a_b, b_a, _ = pair('Alice', RELAYS_A, 'Bob', RELAYS_B, T0, checks_on=False)
+e_p = b_a.pairing_epoch
+t = P.epoch_end(e_p) + 600
+bob_sh, alice_view = P.Sharer(RELAYS_B), P.Following()
+for ev in bob_sh.start({b_a: 0}, rng, t).states:
+    alice_view.on_state(P.read_control(a_b, wire(ev), t), t)
+check(a_b.confirmed and not P.confirmation_due(b_a, t + 60), "a share's states count as the day's confirmation")
+t = P.epoch_end(e_p + 1) + 30
+check(bob_sh.tick(rng, t) is not None and not P.confirmation_due(b_a, t + 1),
+      'so does the re-key at the new epoch')
+t = P.epoch_end(e_p + 2) + 30                       # the check comes before the day's re-key
+check(P.confirmation_due(b_a, t), 'a confirmation is due before the re-key')
+st = P.read_control(a_b, wire(bob_sh.current_state(b_a, rng, t)), t)
+alice_view.on_state(st, t)
+check(st.get('share') is not None and st['share']['pk'] == bob_sh.stream.pubkey() and alice_view.grant == st['share'],
+      'it carries the current grant, so Alice keeps following')
+
+# Removal is offered exactly when the latest confirmation the joiner can owe has expired.
+a_b, b_a, _ = pair('Alice', RELAYS_A, 'Bob', RELAYS_B, T0, checks_on=False)
+week_over = P.epoch_end(a_b.pairing_epoch + P.CONFIRM_EPOCHS) + P.CONTROL_GRACE
+last = P.Sharer(RELAYS_B).current_state(b_a, rng, P.epoch_end(b_a.pairing_epoch + P.CONFIRM_EPOCHS) - 1)
+check(int(last.tag_value('expiration')) == week_over and not P.offer_removal(a_b, week_over - 1) and
+      P.offer_removal(a_b, week_over), 'removal offered from the expiry of the last owed confirmation on')
+check(P.read_control(a_b, wire(last), week_over - 1) is not None and not P.offer_removal(a_b, week_over),
+      'read in its last second, that confirmation still counts')
 
 # Relays: wss:// only; ws:// only to a loopback host.
 for url in ('wss://nos.lol', 'ws://127.0.0.1:7777', 'ws://localhost', 'ws://[::1]:7777/'):

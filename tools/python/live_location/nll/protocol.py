@@ -42,6 +42,7 @@ END_GRACE = 120          # a viewer keeps an ended stream's last position, marke
 DECOY_BLOCK = 8          # inbox subscriptions are padded with decoy keys to a multiple of this
 MAX_AUTHORS = 50         # authors per REQ filter (nostr-rs-relay times out on 100)
 MAX_INVITE_LIFETIME = 86400   # invites live at most a day; joiners refuse longer ones (plus the skew)
+CONFIRM_EPOCHS = 7       # the joiner confirms daily through epoch e_p + 7; the inviter then offers removal
 DEFAULT_RELAYS = ['wss://nos.lol', 'wss://nostr.mom', 'wss://relay.nostr.net']   # design doc, D5
 
 
@@ -390,13 +391,16 @@ class Contact:
     outgoing: Direction    # me -> peer
     incoming: Direction    # peer -> me
     sas: str
+    pairing_epoch: int = 0  # e_p (§6.3)
+    joiner: bool = False    # this device joined: it scanned or opened the invite
     last_seq_in: dict = field(default_factory=dict)
     seq_out: int = 0       # last state seq sent on the outgoing direction
     last_created_out: int = 0
     verified: bool = False  # this device's user confirmed that both screens showed the same code
     flagged: bool = False  # someone else used the same invite after this pairing finished (§6.3)
     # The peer is known to hold the contact too. An inviter's contact starts False and turns True with the
-    # first state that arrives from the joiner (§6.3).
+    # first state or signal that arrives from the joiner (§6.3). False is a label, not a block: sharing with
+    # a joiner that never finished leaks nothing, since nobody else holds the channel keys.
     confirmed: bool = True
 
 
@@ -577,7 +581,8 @@ class Joiner:
                 if not (is_int(e_p) and epoch_of(now) - 1 <= e_p <= epoch_of(now)):
                     raise ValueError('implausible pairing epoch')
                 contact = Contact(check_name(body.get('name')), check_relays(body.get('relays')),
-                                  Direction.from_root(self.k2, e_p), Direction.from_root(self.k1, e_p), self.sas)
+                                  Direction.from_root(self.k2, e_p), Direction.from_root(self.k1, e_p), self.sas,
+                                  pairing_epoch=e_p, joiner=True)
         except Exception:
             return self._conflict('invalid step 3')
         self.done = True
@@ -585,8 +590,9 @@ class Joiner:
         if not body['ok']:
             return Outcome(declined=True)
         self.contact = contact
-        # Completion has to be two-sided: the inviter's contact exists from its decision on, but only this
-        # first state on the new channel tells it that the joiner got step 3 (§6.3).
+        # Completion has to be two-sided: the inviter's contact exists from its decision on, but only a
+        # message on the new channel tells it that the joiner got step 3. This state is the first such
+        # message; confirmation_due() asks for one a day through epoch e_p + 7 (§6.3).
         return Outcome(contact=contact, publish=state_event(contact, self.relays, None, rng, now))
 
     def _erase_secrets(self):
@@ -691,7 +697,7 @@ class Inviter:
         ev = pairing_event(self.isk, 3, self.invite, seal(body, SIZE_CONTROL, confirm_key(self.k1), rng), rng, now)
         if accept:
             self.contact = Contact(self.request['name'], self.request['relays'], Direction.from_root(self.k1, e_p),
-                                   Direction.from_root(self.k2, e_p), self.sas, confirmed=False)
+                                   Direction.from_root(self.k2, e_p), self.sas, pairing_epoch=e_p, confirmed=False)
         self._erase_secrets()
         return Outcome(publish=ev, contact=self.contact, declined=not accept)
 
@@ -772,6 +778,25 @@ def read_control(contact: Contact, ev: Event, now: int) -> dict | None:
     contact.last_seq_in['state'] = body['seq']
     contact.confirmed = True
     return body
+
+
+def confirmation_due(contact: Contact, now: int) -> bool:
+    """Joiner side (§6.3): whether to send the current state to the inviter now. Only a message on the new
+    channel tells the inviter that the pairing finished, and a state is readable only until an hour after
+    the end of its UTC day, a span in which the inviter's app may not run at all. So through epoch
+    e_p + 7, every UTC day on which the joiner's app runs carries one state. The caller sends its CURRENT
+    state (Sharer.current_state): a state without `share` would end a share with the inviter.
+
+    Not a longer-lived key instead: the inviter would query that same key every day, which links its
+    daily connections (§11)."""
+    e = epoch_of(now)
+    return contact.joiner and e <= contact.pairing_epoch + CONFIRM_EPOCHS and epoch_of(contact.last_created_out) < e
+
+
+def offer_removal(contact: Contact, now: int) -> bool:
+    """Inviter side (§6.3): a contact still waiting once the last state the joiner owed has expired. Before
+    that, "waiting" is only a label."""
+    return not contact.confirmed and now >= epoch_end(contact.pairing_epoch + CONFIRM_EPOCHS) + CONTROL_GRACE
 
 
 # --- Subscriptions ------------------------------------------------------------------------
@@ -920,7 +945,14 @@ class Sharer:
         if not (until == 0 or until > now):
             raise ValueError('until in the past: use change()')
         self.grants[contact] = until
-        return state_event(contact, self.relays, share_grant(until, self.stream.pubkey(), self.stream.key), rng, now)
+        return self.current_state(contact, rng, now)
+
+    def current_state(self, contact: Contact, rng, now: int) -> Event:
+        """This device's current state towards `contact`, sent again, e.g. as the joiner's daily confirmation
+        (§6.3). It carries the grant while `contact` is a recipient, so that sending it never ends a share."""
+        until = self.grants.get(contact)
+        share = None if until is None else share_grant(until, self.stream.pubkey(), self.stream.key)
+        return state_event(contact, self.relays, share, rng, now)
 
     def stop(self, rng, now: int) -> Rekey:
         """Same shape as change() seen from a removed recipient: states (shuffled), then the end."""
@@ -1014,6 +1046,7 @@ def read_signal(contact: Contact, ev: Event, now: int) -> dict | None:
         check_watch(body)
     except Exception:
         return None
+    contact.confirmed = True        # only a joiner that finished holds this channel (§6.3)
     return body
 
 
