@@ -23,7 +23,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 |---|---|
 | `nll/` | Reference implementation: `primitives`, `nip44`, `noise` (NNpsk0), `nostr` (NIP-01 events), `protocol` (NLL v1) |
 | `test_primitives.py` | Checks the primitives against the published RFC 5869, NIP-44 v2, BIP-340 and Noise (cacophony) vectors |
-| `test_protocol.py` | Scenario tests, with asynchronous pairing over a model relay: impostors and conflicts watched until the invite expires, forged and junk steps, a low-order key, codes independent of payloads, a rewritten link, pairing at midnight; sharing, revocation indistinguishable from stopping, an `end` arriving before the new grant, time limits, ratchet erasure, signals, decoy-padded subscriptions; malformed input of every kind (JSON profile, field checks, base64), tampering, replay |
+| `test_protocol.py` | Scenario tests, with asynchronous pairing over a model relay: impostors and conflicts watched until the invite expires, forged and junk steps, low-order keys on both sides, codes independent of payloads, a rewritten link, pairing at midnight, two-sided completion, the invite lifetime cap, relay consent; sharing, revocation indistinguishable from stopping, an `end` arriving before the new grant, time limits, ratchet erasure, signals, decoy-padded subscriptions; malformed input of every kind (JSON profile, field checks, base64), tampering, replay |
 | `make_vectors.py` | Regenerates `vectors/nll1_vectors.json` deterministically |
 | `vectors/` | NLL v1 test vectors; `external/` holds the third-party vectors (see `external/SOURCES.md`) |
 | `relay_probe.py` | Feature probe of public relays: kinds from fresh keys, replacement, NIP-40, NIP-09, ephemeral forwarding, bursts |

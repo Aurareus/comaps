@@ -92,7 +92,12 @@ def main():
     pairing['step3_confirm'] = {'now': decided_at, 'confirm_key': P.confirm_key(k_i2r).hex(),
                                 'plaintext_hex': P.encode_plaintext(pair3, P.SIZE_CONTROL).hex(),
                                 'random': rng.take(), 'event': ev_dict(m3)}
-    c_b = joiner.on_event(m3, rng, T + 21).contact
+    fin = joiner.on_event(m3, rng, T + 21)
+    c_b = fin.contact
+    pairing['joiner_confirmation'] = {'now': T + 21, 'plaintext_hex': P.encode_plaintext(
+                                          P.state_body(1, T + 21, relays_b), P.SIZE_CONTROL).hex(),
+                                      'random': rng.take(), 'event': ev_dict(fin.publish),
+                                      'confirms_on_inviter_side': P.read_control(c_a, fin.publish, T + 22) is not None}
     pairing['result'] = {'handshake_hash': inviter.handshake_hash.hex(), 'split_i2r': k_i2r.hex(),
                          'split_r2i': k_r2i.hex(), 'sas': c_a.sas, 'pairing_epoch': e_p,
                          'shown_to_inviter': req}

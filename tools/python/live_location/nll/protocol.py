@@ -41,6 +41,8 @@ OK_WAIT = 10             # a sharer waits up to this long for an OK on each stat
 END_GRACE = 120          # a viewer keeps an ended stream's last position, marked stale, this long
 DECOY_BLOCK = 8          # inbox subscriptions are padded with decoy keys to a multiple of this
 MAX_AUTHORS = 50         # authors per REQ filter (nostr-rs-relay times out on 100)
+MAX_INVITE_LIFETIME = 86400   # invites live at most a day; joiners refuse longer ones (plus the skew)
+DEFAULT_RELAYS = ['wss://nos.lol', 'wss://nostr.mom', 'wss://relay.nostr.net']   # design doc, D5
 
 
 class PairingAborted(Exception):
@@ -393,6 +395,9 @@ class Contact:
     last_created_out: int = 0
     verified: bool = False  # this device's user confirmed that both screens showed the same code
     flagged: bool = False  # someone else used the same invite after this pairing finished (§6.3)
+    # The peer is known to hold the contact too. An inviter's contact starts False and turns True with the
+    # first state that arrives from the joiner (§6.3).
+    confirmed: bool = True
 
 
 def ratchet(contact: Contact, now: int):
@@ -488,6 +493,8 @@ class Joiner:
     def __init__(self, invite: Invite, name: str, relays: list, rng, now: int):
         if now >= invite.expires_at:
             raise ValueError('invite expired')
+        if invite.expires_at > now + MAX_INVITE_LIFETIME + MAX_FUTURE_SKEW:
+            raise ValueError('invite lifetime over a day: it would keep this phone watching its relays')
         self.invite, self.name, self.relays = invite, check_name(name), check_relays(relays)
         self.mac_key = invite.mac_key()
         self.jsk = random_secp_key(rng)     # signs steps 0 and 2
@@ -507,6 +514,8 @@ class Joiner:
         """Step 0, made once: a retransmission resends this same event (an implementation that persists the
         pairing state records it before publishing)."""
         if self.step0 is None:
+            if self.jsk is None:
+                raise ValueError('aborted')
             self.step0 = pairing_event(self.jsk, 0, self.invite, step0_content(self.mac_key, self.jpk, self.c),
                                        rng, now)
         return self.step0
@@ -542,13 +551,15 @@ class Joiner:
             self.accepted[1] = ev.id
             try:
                 info = decode_plaintext(self.hs.read_message(p.b64decode(ev.content)))
+                if info.get('t') != 'pair1':
+                    raise ValueError('unexpected message')
+                # Writing step 2 computes ee, which fails on a low-order key in step 1: that must abort
+                # like any other invalid step 1, not escape as a plain error.
+                payload = encode_plaintext({'t': 'pair2', 'name': self.name, 'relays': self.relays}, SIZE_CONTROL)
+                message2 = self.hs.write_message(payload)
             except Exception:
                 return self._conflict('the inviter answered someone else, or step 1 is invalid')
-            if info.get('t') != 'pair1':
-                return self._conflict('invalid step 1')
-            payload = encode_plaintext({'t': 'pair2', 'name': self.name, 'relays': self.relays}, SIZE_CONTROL)
-            self.step2 = pairing_event(self.jsk, 2, self.invite, p.b64encode(self.hs.write_message(payload)), rng,
-                                       now)
+            self.step2 = pairing_event(self.jsk, 2, self.invite, p.b64encode(message2), rng, now)
             _, _, self.k1, self.k2 = self.hs.ss.split()
             self.handshake_hash = self.hs.handshake_hash()    # for vectors and debugging only
             self.hs = self.e = None
@@ -574,7 +585,9 @@ class Joiner:
         if not body['ok']:
             return Outcome(declined=True)
         self.contact = contact
-        return Outcome(contact=contact)
+        # Completion has to be two-sided: the inviter's contact exists from its decision on, but only this
+        # first state on the new channel tells it that the joiner got step 3 (§6.3).
+        return Outcome(contact=contact, publish=state_event(contact, self.relays, None, rng, now))
 
     def _erase_secrets(self):
         """The pairing ended: keep only what watching for conflicts needs until the invite expires (the MAC
@@ -595,6 +608,8 @@ class Inviter:
     """The party that showed the invite (Noise initiator)."""
 
     def __init__(self, relays: list, rng, now: int, lifetime: int = 600):
+        if not 0 < lifetime <= MAX_INVITE_LIFETIME:
+            raise ValueError('invite lifetime must be at most a day')
         psk = rng(32)
         self.isk = random_secp_key(rng)     # signs steps 1 and 3; its public key goes into the invite
         self.invite = Invite(psk, p.secp_xonly_pub(self.isk), now + lifetime, check_relays(relays))
@@ -665,8 +680,10 @@ class Inviter:
         """After the user's decision. The inviter's name, relays and the pairing epoch travel in step 3, under
         a key that needs the ee exchange. e_p lags by the accepted clock skew, so that it is never in the
         joiner's future (§6.3)."""
-        if self.request is None or self.decided:
-            raise ValueError('out of order')
+        if self.request is None or self.decided or self.k1 is None:
+            raise ValueError('out of order or aborted')
+        if now >= self.invite.expires_at:
+            raise ValueError('invite expired: relays would refuse step 3, and the joiner stops at expiry')
         self.decided = True
         e_p = epoch_of(now - MAX_FUTURE_SKEW)
         body = {'t': 'pair3', 'ok': True, 'name': check_name(name), 'relays': check_relays(relays), 'epoch': e_p} \
@@ -674,7 +691,7 @@ class Inviter:
         ev = pairing_event(self.isk, 3, self.invite, seal(body, SIZE_CONTROL, confirm_key(self.k1), rng), rng, now)
         if accept:
             self.contact = Contact(self.request['name'], self.request['relays'], Direction.from_root(self.k1, e_p),
-                                   Direction.from_root(self.k2, e_p), self.sas)
+                                   Direction.from_root(self.k2, e_p), self.sas, confirmed=False)
         self._erase_secrets()
         return Outcome(publish=ev, contact=self.contact, declined=not accept)
 
@@ -753,10 +770,20 @@ def read_control(contact: Contact, ev: Event, now: int) -> dict | None:
     if body['seq'] <= contact.last_seq_in.get('state', 0):
         return None  # replay of an older state, e.g. a grant re-served after it was ended
     contact.last_seq_in['state'] = body['seq']
+    contact.confirmed = True
     return body
 
 
 # --- Subscriptions ------------------------------------------------------------------------
+
+def split_relays(named: list, trusted: set) -> tuple:
+    """Relay consent (§11): (the relays named by a contact that the app may use now, those it must first ask
+    the user about). `trusted` holds the user's own home relays, the built-in defaults and the relays the
+    user approved earlier. The same rule covers reading a contact's stream, publishing to its inbox, sending
+    it signals and pairing through an invite's relays: whoever runs a relay sees the IP addresses that
+    connect to it."""
+    return [r for r in named if r in trusted], [r for r in named if r not in trusted]
+
 
 def decoy_keys(decoy_seed: bytes, epoch: int, count: int) -> list:
     """Stable for the whole epoch, so that reconnecting does not reveal which keys are real (§11)."""

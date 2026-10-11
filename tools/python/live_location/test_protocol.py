@@ -104,8 +104,16 @@ def pair(name_inviter, relays_inviter, name_joiner, relays_joiner, now, checks_o
     done = inviter.decide(True, name_inviter, relays_inviter, rng, now + 20)
     relay.publish(done.publish)
     c_inviter = done.contact
-    c_joiner = online(joiner, relay, now + 21)[0].contact
+    finished = online(joiner, relay, now + 21)[0]
+    c_joiner = finished.contact
     if checks_on:
+        check(not c_inviter.confirmed and c_joiner.confirmed, 'the inviter waits for the joiner to confirm')
+        check(finished.publish is not None and finished.publish.kind == P.KIND_STORED and
+              finished.publish.pubkey == c_joiner.outgoing.at(P.epoch_of(now + 21)).pubkey(),
+              'the joiner publishes one state on the new channel when it accepts step 3')
+        state = P.read_control(c_inviter, wire(finished.publish), now + 22)
+        check(state is not None and 'share' not in state and c_inviter.confirmed,
+              'that share-less state confirms the contact on the inviter\'s side')
         check(c_inviter.sas == c_joiner.sas, 'SAS agree')
         check(c_inviter.outgoing.chain_key == c_joiner.incoming.chain_key, 'A->B chain keys agree')
         check(c_inviter.incoming.chain_key == c_joiner.outgoing.chain_key, 'B->A chain keys agree')
@@ -250,6 +258,19 @@ msg2 = LOW_ORDER + hs.ss.encrypt_and_hash(P.encode_plaintext({'t': 'pair2', 'nam
                                                              P.SIZE_CONTROL))
 s2 = P.pairing_event(msk, 2, inv_m, p.b64encode(msg2), rng, T0)
 check(raises(lambda: alice.on_event(wire(s2), rng, T0), P.PairingAborted), 'all-zero ee aborts the pairing')
+# The same on the joiner's side: a step 1 (only the real inviter can sign one) whose ephemeral key is a
+# low-order point. Writing step 2 computes ee; that must abort the pairing, not escape as a plain error.
+alice = P.Inviter(RELAYS_A, rng, T0)
+bob = P.Joiner(P.Invite.from_link(alice.invite.link()), 'Bob', RELAYS_B, rng, T0)
+hs = noise.HandshakeState(P.NOISE_PATTERN, True, alice.invite.prologue(bob.jpk, bob.c), alice.invite.psk,
+                          os.urandom(32))
+hs.ss.mix_key_and_hash(alice.invite.psk)
+hs.ss.mix_hash(LOW_ORDER)
+hs.ss.mix_key(LOW_ORDER)
+msg1 = LOW_ORDER + hs.ss.encrypt_and_hash(P.encode_plaintext({'t': 'pair1'}, P.SIZE_CONTROL))
+s1 = P.pairing_event(alice.isk, 1, alice.invite, p.b64encode(msg1), rng, T0)
+check(raises(lambda: bob.on_event(wire(s1), rng, T0), P.PairingAborted) and bob.step2 is None and
+      None is bob.jsk is bob.mac_key is bob.invite.psk, 'joiner aborts on a low-order key in step 1, sends no step 2')
 
 # The code depends only on the keys. Same PSK and ephemeral keys, different step 2 payloads (here
 # the joiner's name): the handshake hash differs, the code does not. With a code taken from the
@@ -317,6 +338,75 @@ check(P.state_event(ahead, RELAYS_A, None, rng, T0) is not None, 'a chain ahead 
 # Expired invite.
 check(raises(lambda: P.Joiner(P.Invite.from_link(link), 'Late', RELAYS_B, rng, T0 + 86400 * 2)),
       'expired invite refused')
+
+# Invites live at most a day: the inviter chooses the relays the joiner watches until expiry, so a
+# longer life would let it keep a joiner's phone connecting to its relay (and learn its IP) for years.
+check(raises(lambda: P.Inviter(['wss://stalker-relay.example'], rng, T0, lifetime=10 * 365 * 86400)),
+      'an inviter cannot make an invite that lives over a day')
+long = P.Invite(os.urandom(32), alice.invite.ipk, T0 + 10 * 365 * 86400, ['wss://stalker-relay.example'])
+check(raises(lambda: P.Joiner(P.Invite.from_link(long.link()), 'Victim', RELAYS_B, rng, T0)),
+      'a joiner refuses an invite that expires more than a day ahead')
+edge = P.Invite(os.urandom(32), alice.invite.ipk, T0 + P.MAX_INVITE_LIFETIME + P.MAX_FUTURE_SKEW, RELAYS_A)
+check(not raises(lambda: P.Joiner(P.Invite.from_link(edge.link()), 'B', RELAYS_B, rng, T0)),
+      'a day plus the accepted clock skew is still fine')
+
+# Relay consent: only the user's own relays, the defaults and relays approved earlier are used without
+# asking; anything else a contact names needs the user's approval first.
+own = set(RELAYS_B)
+trusted = own | set(P.DEFAULT_RELAYS)
+check(P.split_relays(['wss://nos.lol', 'wss://stalker-relay.example', 'wss://relay.nostr.net'], trusted) ==
+      (['wss://nos.lol', 'wss://relay.nostr.net'], ['wss://stalker-relay.example']),
+      'relays outside own, default and approved ones need asking')
+check(P.split_relays(['wss://stalker-relay.example'], trusted | {'wss://stalker-relay.example'}) ==
+      (['wss://stalker-relay.example'], []), 'an approved relay is used without asking again')
+
+# Two-sided completion. Alice decides near the end of the invite's life, and Bob opens CoMaps only after
+# it expired: step 3 has expired with the invite, Bob never completes, and Alice's contact stays
+# unconfirmed (the app shows "Waiting for Bob" and offers to remove it).
+relay = Relay()
+alice = P.Inviter(RELAYS_A, rng, T0, lifetime=86400)
+bob = joiner_starts(alice.invite.link(), 'Bob', relay, T0)
+online(alice, relay, T0 + 1)
+online(bob, relay, T0 + 2)
+online(alice, relay, T0 + 3)
+end = alice.invite.expires_at
+relay.publish(alice.decide(True, 'Alice', RELAYS_A, rng, end - 60).publish)
+check(online(bob, relay, end + 600) == [] and bob.contact is None and not alice.contact.confirmed,
+      'joiner back after expiry: no contact on its side, the inviter\'s stays unconfirmed')
+check(raises(lambda: alice.decide(True, 'Alice', RELAYS_A, rng, end + 5)), 'decide() twice refused')
+# decide() after expiry: refused, since relays would refuse the step 3 and the joiner has stopped.
+relay = Relay()
+alice = P.Inviter(RELAYS_A, rng, T0)
+bob = joiner_starts(alice.invite.link(), 'Bob', relay, T0)
+online(alice, relay, T0 + 1)
+online(bob, relay, T0 + 2)
+online(alice, relay, T0 + 3)
+check(raises(lambda: alice.decide(True, 'Alice', RELAYS_A, rng, alice.invite.expires_at)),
+      'decide() refused once the invite has expired')
+# Bob taps "They differ" (his app aborts): he never confirms, so Alice's contact stays unconfirmed.
+relay = Relay()
+alice = P.Inviter(RELAYS_A, rng, T0)
+bob = joiner_starts(alice.invite.link(), 'Bob', relay, T0)
+online(alice, relay, T0 + 1)
+online(bob, relay, T0 + 2)
+online(alice, relay, T0 + 3)
+bob.abort()
+relay.publish(alice.decide(True, 'Alice', RELAYS_A, rng, T0 + 4).publish)
+check(online(bob, relay, T0 + 5) == [] and not alice.contact.confirmed,
+      '"They differ" on the joiner: no confirmation, the inviter\'s contact stays unconfirmed')
+check(bob.commit_event(rng, T0 + 6) is bob.step0, 'an aborted joiner can still resend its old step 0, nothing new')
+fresh = P.Joiner(P.Invite.from_link(P.Inviter(RELAYS_A, rng, T0).invite.link()), 'B', RELAYS_B, rng, T0 + 6)
+fresh.abort()
+check(raises(lambda: fresh.commit_event(rng, T0 + 6), ValueError), 'a joiner aborted before step 0 makes none')
+# decide() after an abort is refused too.
+relay = Relay()
+alice = P.Inviter(RELAYS_A, rng, T0)
+bob = joiner_starts(alice.invite.link(), 'Bob', relay, T0)
+online(alice, relay, T0 + 1)
+online(bob, relay, T0 + 2)
+online(alice, relay, T0 + 3)
+alice.abort()
+check(raises(lambda: alice.decide(True, 'Alice', RELAYS_A, rng, T0 + 4)), 'decide() refused after an abort')
 
 # Relays: wss:// only; ws:// only to a loopback host.
 for url in ('wss://nos.lol', 'ws://127.0.0.1:7777', 'ws://localhost', 'ws://[::1]:7777/'):
