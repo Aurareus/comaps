@@ -46,8 +46,8 @@ UNIT_TEST(Sha256_Nist)
   TEST_EQUAL(ToHex(Sha256(AsBytes("abc"))), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", ());
   std::string_view const m448 = "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq";
   TEST_EQUAL(ToHex(Sha256(AsBytes(m448))), "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1", ());
-  TEST_EQUAL(ToHex(Sha256Concat({AsBytes(m448.substr(0, 13)), AsBytes(m448.substr(13))})),
-             ToHex(Sha256(AsBytes(m448))), ());
+  TEST_EQUAL(ToHex(Sha256Concat({AsBytes(m448.substr(0, 13)), AsBytes(m448.substr(13))})), ToHex(Sha256(AsBytes(m448))),
+             ());
 }
 
 UNIT_TEST(HmacSha256_Rfc4231)
@@ -78,10 +78,11 @@ UNIT_TEST(Hkdf_Rfc5869)
 
   prk = HkdfExtract(range(0x60, 0xaf), range(0x00, 0x4f));
   TEST_EQUAL(ToHex(prk), "06a6b88c5853361a06104c9ceb35b45cef760014904671014a193f40c15fc244", ());
-  TEST_EQUAL(ToHex(HkdfExpand(prk, range(0xb0, 0xff), 82)),
-             "b11e398dc80327a1c8e7f78c596a49344f012eda2d4efad8a050cc4c19afa97c59045a99cac7827271cb41c65e590e09da3275600c"
-             "2f09b8367793a9aca3db71cc30c58179ec3e87c14c01d5c1f3434f1d87",
-             ());
+  TEST_EQUAL(
+      ToHex(HkdfExpand(prk, range(0xb0, 0xff), 82)),
+      "b11e398dc80327a1c8e7f78c596a49344f012eda2d4efad8a050cc4c19afa97c59045a99cac7827271cb41c65e590e09da3275600c"
+      "2f09b8367793a9aca3db71cc30c58179ec3e87c14c01d5c1f3434f1d87",
+      ());
 
   prk = HkdfExtract(ByteSpan(), Bytes(22, 0x0b));
   TEST_EQUAL(ToHex(prk), "19ef24a32c717b167f33a91d6f648bdf96596776afdb6377ac434c1c293ccb04", ());
@@ -98,11 +99,12 @@ UNIT_TEST(ChaCha20_Rfc8439)
   Bytes key;
   for (uint8_t b = 0; b < 32; ++b)
     key.push_back(b);
-  TEST_EQUAL(ToHex(ChaCha20(key, Hex("000000000000004a00000000"), AsBytes(kSunscreen), 1)),
-             "6e2e359a2568f98041ba0728dd0d6981e97e7aec1d4360c20a27afccfd9fae0bf91b65c5524733ab8f593dabcd62b3571639d624e6"
-             "5152ab8f530c359f0861d807ca0dbf500d6a6156a38e088a22b65e52bc514d16ccf806818ce91ab77937365af90bbf74a35be6b40b8"
-             "eedf2785e42874d",
-             ());
+  TEST_EQUAL(
+      ToHex(ChaCha20(key, Hex("000000000000004a00000000"), AsBytes(kSunscreen), 1)),
+      "6e2e359a2568f98041ba0728dd0d6981e97e7aec1d4360c20a27afccfd9fae0bf91b65c5524733ab8f593dabcd62b3571639d624e6"
+      "5152ab8f530c359f0861d807ca0dbf500d6a6156a38e088a22b65e52bc514d16ccf806818ce91ab77937365af90bbf74a35be6b40b8"
+      "eedf2785e42874d",
+      ());
   TEST_THROW(ChaCha20(key, Bytes(8), AsBytes("x")), invalid_argument, ());
 }
 
@@ -114,12 +116,13 @@ UNIT_TEST(ChaChaPoly_Rfc8439)
   auto const nonce = Hex("070000004041424344454647");
   auto const ad = Hex("50515253c0c1c2c3c4c5c6c7");
   auto const sealed = AeadSeal(key, nonce, ad, AsBytes(kSunscreen));
-  TEST_EQUAL(ToHex(sealed),
-             "d31a8d34648e60db7b86afbc53ef7ec2a4aded51296e08fea9e2b5a736ee62d63dbea45e8ca9671282fafb69da92728b1a71de0a9e"
-             "060b2905d6a5b67ecd3b3692ddbd7f2d778b8c9803aee328091b58fab324e4fad675945585808b4831d7bc3ff4def08e4b7a9de576"
-             "d26586cec64b6116"
-             "1ae10b594f09e26a7e902ecbd0600691",
-             ());
+  TEST_EQUAL(
+      ToHex(sealed),
+      "d31a8d34648e60db7b86afbc53ef7ec2a4aded51296e08fea9e2b5a736ee62d63dbea45e8ca9671282fafb69da92728b1a71de0a9e"
+      "060b2905d6a5b67ecd3b3692ddbd7f2d778b8c9803aee328091b58fab324e4fad675945585808b4831d7bc3ff4def08e4b7a9de576"
+      "d26586cec64b6116"
+      "1ae10b594f09e26a7e902ecbd0600691",
+      ());
   auto const opened = AeadOpen(key, nonce, ad, sealed);
   TEST(opened, ());
   TEST_EQUAL(std::string(opened->begin(), opened->end()), kSunscreen, ());
@@ -285,15 +288,15 @@ UNIT_TEST(Noise_TamperedAndLowOrderMessagesFail)
   // Message 0 with a low-order ephemeral key decrypts (it needs no DH), but the responder's ee is then
   // all zeros, so it refuses to write message 1 rather than continue under a key from the PSK alone.
   noise::HandshakeState resp2(false, prologue, psk, HexKey(std::string(64, '2')));
-  auto const m0Low = Hex(
-      "e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b80032d37a70c7993dafc8e866e3838267da5dfebd8e8e");
+  auto const m0Low =
+      Hex("e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b80032d37a70c7993dafc8e866e3838267da5dfebd8e8e");
   auto const hello = resp2.ReadMessage(m0Low);
   TEST(hello && std::string(hello->begin(), hello->end()) == "hello", ());
   TEST(!resp2.WriteMessage(AsBytes("reply")), ("all-zero ee when writing"));
 
   // Message 1 with a low-order ephemeral key: the initiator's ee is all zeros, and it refuses it.
-  auto const m1Low = Hex(
-      "e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800b1af6b604a644677ea0228498fc87fa7aeb7c1fdff");
+  auto const m1Low =
+      Hex("e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800b1af6b604a644677ea0228498fc87fa7aeb7c1fdff");
   TEST(!init.ReadMessage(m1Low), ("all-zero ee when reading"));
 }
 
@@ -378,8 +381,7 @@ UNIT_TEST(Nip44_PublishedVectors)
   for (size_t i = 0; i < json_array_size(badDecrypt); ++i)
   {
     json_t const * t = json_array_get(badDecrypt, i);
-    TEST(!nip44::Decrypt(JsonString(t, "payload"), HexKey(JsonString(t, "conversation_key"))),
-         (JsonString(t, "note")));
+    TEST(!nip44::Decrypt(JsonString(t, "payload"), HexKey(JsonString(t, "conversation_key"))), (JsonString(t, "note")));
   }
 }
 

@@ -8,12 +8,12 @@
 #include <stdlib.h>
 #define NLL_RANDOM_ARC4RANDOM
 #elif defined(__linux__)
-#include <cerrno>
 #include <sys/random.h>
+#include <cerrno>
 #define NLL_RANDOM_GETRANDOM
 #elif defined(_WIN32)
-#include <windows.h>
 #include <bcrypt.h>
+#include <windows.h>
 #define NLL_RANDOM_BCRYPT
 #else
 #error "No CSPRNG known for this platform"
