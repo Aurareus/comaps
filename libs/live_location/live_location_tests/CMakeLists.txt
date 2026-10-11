@@ -2,8 +2,13 @@ project(live_location_tests)
 
 set(SRC
   crypto_tests.cpp
+  json_profile_tests.cpp
+  pairing_tests.cpp
+  scenario.cpp
+  scenario.hpp
   test_helpers.cpp
   test_helpers.hpp
+  vectors_tests.cpp
 )
 
 omim_add_test(${PROJECT_NAME} ${SRC} NO_PLATFORM_INIT)
