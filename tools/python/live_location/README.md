@@ -25,6 +25,8 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 | `test_primitives.py` | Checks the primitives against the published RFC 5869, NIP-44 v2, BIP-340 and Noise (cacophony) vectors |
 | `test_protocol.py` | Scenario tests, with asynchronous pairing over a model relay: impostors and conflicts watched until the invite expires, forged and junk steps, low-order keys on both sides, codes independent of payloads, a rewritten link, pairing at midnight, two-sided completion (a confirmation that expires unread, the daily confirmations that follow, the removal offer after the week), the invite lifetime cap, relay consent (including the listening relay that live updates need); sharing, revocation indistinguishable from stopping, an `end` arriving before the new grant, time limits, ratchet erasure, signals, decoy-padded subscriptions; malformed input of every kind (envelope types, JSON profile, field checks, base64), tampering, replay |
 | `make_vectors.py` | Regenerates `vectors/nll1_vectors.json` deterministically |
+| `peer.py` | Test peer for phones: pairs through a real invite (`join`, `invite`), follows a share with live updates (`follow`), shares a fake position (`share`). After a removal it tries the old stream key on every later event of the sharer's relays and logs what it could decrypt (nothing). Its state file holds keys in the clear |
+| `cross_test.py` | Cross-implementation test: the C++ core (`live_location_peer`) and this implementation pair, share and revoke with each other in both directions over a local strfry |
 | `make_profile_cases.py` | Regenerates `vectors/profile_cases.json`: plaintexts with this implementation's verdict under the JSON profile, for a second implementation to agree with |
 | `vectors/` | NLL v1 test vectors; `external/` holds the third-party vectors (see `external/SOURCES.md`) |
 | `relay_probe.py` | Feature probe of public relays: kinds from fresh keys, replacement, NIP-40, NIP-09, ephemeral forwarding, bursts |
@@ -42,6 +44,9 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python -I test_protocol.py
 .venv/bin/python -I make_vectors.py         # must not change vectors/nll1_vectors.json unless the spec changed
 .venv/bin/python -I make_profile_cases.py   # likewise vectors/profile_cases.json
+.venv/bin/python -I cross_test.py BUILD/live_location_peer path/to/strfry [strfry.conf]
+.venv/bin/python -I peer.py --state bob.json --name Bob join 'comaps://live/pair#...'
+.venv/bin/python -I peer.py --state bob.json follow --minutes 30
 .venv/bin/python -I relay_probe.py out.json wss://nos.lol wss://nostr.mom
 .venv/bin/python -I relay_soak.py out.json 1800 wss://nos.lol wss://nostr.mom wss://relay.primal.net
 .venv/bin/python -I relay_keepalive.py out.json 600 wss://nos.lol wss://nostr.mom wss://relay.nostr.net
