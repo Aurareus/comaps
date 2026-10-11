@@ -65,6 +65,29 @@ add_subdirectory(stb_image)
 add_subdirectory(succinct)
 add_subdirectory(monocypher)
 
+# Live location (NLL): libsecp256k1 for BIP-340 signatures, built static with small tables and only
+# the modules NLL uses (docs/LIVE_LOCATION.md §9). BUILD_SHARED_LIBS is set as a normal variable so
+# that the option() of secp256k1 cannot create a global cache entry turning later libraries shared.
+set(BUILD_SHARED_LIBS OFF)
+set(SECP256K1_DISABLE_SHARED ON)
+set(SECP256K1_INSTALL OFF)
+set(SECP256K1_ENABLE_MODULE_ECDH OFF)
+set(SECP256K1_ENABLE_MODULE_RECOVERY OFF)
+set(SECP256K1_ENABLE_MODULE_MUSIG OFF)
+set(SECP256K1_ENABLE_MODULE_ELLSWIFT OFF)
+set(SECP256K1_ENABLE_MODULE_EXTRAKEYS ON)
+set(SECP256K1_ENABLE_MODULE_SCHNORRSIG ON)
+set(SECP256K1_ECMULT_WINDOW_SIZE 2)
+set(SECP256K1_ECMULT_GEN_KB 2)
+set(SECP256K1_VALGRIND OFF)
+set(SECP256K1_BUILD_BENCHMARK OFF)
+set(SECP256K1_BUILD_TESTS OFF)
+set(SECP256K1_BUILD_EXHAUSTIVE_TESTS OFF)
+set(SECP256K1_BUILD_CTIME_TESTS OFF)
+add_subdirectory(secp256k1)
+set_target_properties(secp256k1 secp256k1_precomputed PROPERTIES UNITY_BUILD OFF)
+unset(BUILD_SHARED_LIBS)
+
 add_subdirectory(vulkan_wrapper)
 
 if (PLATFORM_DESKTOP)
