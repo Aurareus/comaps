@@ -37,6 +37,7 @@ reference implementation, test vectors and the relay test harness are in
 18. [Third review changes (2026-10-11)](#18-third-review-changes-2026-10-11)
 19. [Fourth review changes (2026-10-11)](#19-fourth-review-changes-2026-10-11)
 20. [Fifth review changes (2026-10-11)](#20-fifth-review-changes-2026-10-11)
+21. [Implementation notes (Phase 2)](#21-implementation-notes-phase-2)
 
 ## 0. Summary
 
@@ -1126,3 +1127,26 @@ pass; the vectors are unchanged.
 | Your point | Verdict | What changed | Where |
 |---|---|---|---|
 | Relay consent and D17 interact: live mode never starts for a viewer who hasn't allowed the sharer's first relay, and Alice doesn't hear Bob's confirmations as they arrive while she shares, which §19 relied on | **Right**; reproduced as above. One extension: only the design doc said that the listening relay is the first in the list. The spec said neither that relay lists are ordered nor which relay a sharer listens on, so another implementation could not have known which relay to ask for | Your fix, in all three parts. §10.3 says that signals go only to the relays the viewer may use, and that live mode needs the sharer's listening relay; the sharer's order stays. The prompt for that relay says that live updates need it. If the user declines, the contact shows "Live updates off" and keeps the idle rate. Two small additions: tapping the label offers the relay again, since the app asks about each relay only once; and the relay settings note that contacts get live updates only if they use or allow a first relay that isn't a default. The spec now keeps relay lists in order, defines the listening relay, and requires the prompt and the label; `missing_listening_relay()` names the relay to ask for. §19 now says that sharing narrows its gap only when Bob may use Alice's listening relay | spec §8, §10, §11, §13, §15; §4.5, §10.3, §11.4, §11.5, §12, §19 |
+
+## 21. Implementation notes (Phase 2)
+
+The implementation (`libs/live_location`) follows this document and the spec. Where they leave a
+choice open, it decided as below. Each is easy to change; the ones marked **review** change what
+users or relays see.
+
+| Topic | What the code does | Why |
+|---|---|---|
+| Pairing connections (**review**) | Each pairing has connections of its own, never shared with the inbox or with channel traffic. | Otherwise a relay could link the one-time pairing keys to the new contact's channel keys through a connection. It costs one connection per relay while a pairing runs in the foreground. |
+| REQ ids | Random for every REQ. | A fixed id ("inbox") would link connections of different epochs. |
+| Sharing in the background (**review**) | The inbox stays on the listening relay alone even while live. | Viewers send signals to every relay they may use, so one is enough. The other relays are connected anyway while live, because positions are published every few seconds. |
+| Yesterday's states | In the first hour of a day, an app in the foreground reads its contacts' states once (30 s) with yesterday's keys, over yesterday's scope. | A contact's latest state may still be signed with yesterday's key until it expires at 01:00. Holding a second subscription for the whole hour would cost more for little gain. |
+| "Each UTC day it runs" (**review**) | The joiner sends its daily confirmation when the app is in the foreground or sharing. | It never opens a connection just to confirm, which keeps "no traffic when unused" true. |
+| Failing relays | A relay that refuses, drops the connection, or sends no OK within 10 s (25 s while connecting) backs off: 1 s, doubling to 5 min, ±20 %. A relay's CLOSED is answered with a new REQ after 30 s. A connection used only to publish closes after 60 s without traffic. | §10.3 asks for dead connections to be detected by a missing OK. The rest are ordinary defaults. |
+| Undelivered pairing steps | Resent every 30 s while the app is in the foreground and the invite lasts. | Relays keep one event per step and author, so resending is harmless. |
+| Store format | Versioned binary contents. A save rotates the keys when a secret of the previous save is missing, judged by digests of the secrets, so no call site can forget to. A pairing in progress is stored whole, Noise state included. | §8.5; a link pairing must survive app restarts at every step. |
+| Starting a share | The first position published is a fix that arrives after the share started, never the last fix the app had. | That fix could be hours old. |
+| Hidden contacts (**review**) | Their keys stay in the inbox subscription, but their shares are ignored: no stream, no signals, no dot. | Their states still arrive, e.g. the end of a share or the joiner's confirmations, and the inbox's size does not change when someone is hidden. |
+| A contact's relays | Each state's relay list replaces the one from pairing. | A contact can change its relays; its states name the current ones. |
+| Changing one's relays while sharing (**review**) | The running share keeps the relays it started with, because its states named them. The inbox moves at once. | Changing a share's relays would need new states for every recipient. Stopping and starting the share does that. |
+| Sending to a relay that needs consent | Asked about once, as "sending"; skipped until allowed. | Spec §11. |
+
