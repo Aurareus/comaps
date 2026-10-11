@@ -1,10 +1,11 @@
 # Live location sharing: design
 
-Status: **approved for implementation**, after three review rounds:
+Status: **approved for implementation**, after four review rounds:
 
 - 2026-10-10: D1–D14 approved with a list of fixes, which §16 maps to their changes.
 - 2026-10-11: D15–D17 approved; the requested changes are mapped in §17.
 - 2026-10-11: D18 approved; the requested changes are mapped in §18.
+- 2026-10-11: one more fix, to the pairing confirmation, mapped in §19.
 
 All decisions are made ([§14](#14-decisions)). No feature code has been written yet.
 
@@ -33,6 +34,7 @@ reference implementation, test vectors and the relay test harness are in
 16. [Review changes (2026-10-10)](#16-review-changes-2026-10-10)
 17. [Second review changes (2026-10-11)](#17-second-review-changes-2026-10-11)
 18. [Third review changes (2026-10-11)](#18-third-review-changes-2026-10-11)
+19. [Fourth review changes (2026-10-11)](#19-fourth-review-changes-2026-10-11)
 
 ## 0. Summary
 
@@ -127,7 +129,7 @@ Code paths traced (all verified in source):
 | 3 | Confidentiality incl. metadata | No identity keys. Event keys are pseudonyms rotated per invite, per day or per stream, and no connection spans two days. The only `p` tag points at the invite's one-time pairing key, and there are no `g` tags. Payloads are padded per class, and inbox subscriptions are padded with decoys. What remains (IP addresses, timing, volume, keys used together within a day) is analysed in [§3](#3-threat-model). |
 | 4 | Decentralisation | No server of ours. Any NIP-01 relay works. Publishing goes to all (default 3) relays, and the list is user-configurable, including self-hosted relays. Measured in [§6](#6-transport-evaluation-and-relay-test-results). |
 | 5 | Minimal retention | Addressable "latest only" events with NIP-40 expiry: 15 min for positions, end of day + 1 h for channel state. No NIP-09 deletion requests, because relays keep those forever (§6.3). Viewers keep only the latest position per contact, in memory. Both ends erase keys, so copies of the ciphertext stay unreadable (§8.5). |
-| 6 | Inert unless used | No initialisation without the flag. No connection without a paired contact. Then connections only while sharing, while pairing, or while the app is in the foreground and has contacts (decision D11). An unwatched share holds one connection (D17). The only background work without a share is a local daily ratchet that sends nothing (D16). |
+| 6 | Inert unless used | No initialisation without the flag. No connection without a paired contact. Then connections only while sharing, while pairing, or while the app is in the foreground and has contacts (decision D11). An unwatched share holds one connection (D17). For a week after joining someone's invite, the app also sends that contact one state on each day it runs (spec §6.3). The only background work without a share is a local daily ratchet that sends nothing (D16). |
 | 7 | FOSS, de-Googled | All new dependencies are MIT, BSD or Apache-2.0. Location comes from the existing `LocationHelper` (native provider without Play services). No FCM: background receiving is out of scope. |
 | 8 | Vetted crypto | Noise, HKDF, NIP-44 v2 (audited) and BIP-340 via libsecp256k1. No home-made primitives. Written spec plus test vectors. |
 | 9 | Rebase-friendly | New library, new Java packages and new files. About a dozen small, marked hooks ([§8.3](#83-hooks-into-existing-code)). |
@@ -150,7 +152,7 @@ Code paths traced (all verified in source):
 | T4 | **A removed or expired recipient** | The old stream key, so updates published *before* its removal, if it recorded them. What it receives, a state without a grant and a reason-less `end`, is identical to the sharer stopping altogether. **Traffic analysis:** watching the sharer's relays, it may see a new stream start 30–120 s later and infer that the share went on. That inference is easier when few people use those relays (a self-hosted relay, for instance). If it operates one of the sharer's relays, it sees the sharer's IP address keep publishing (T1). It can also count the states published at that moment, which tells it roughly how many recipients the share had. | Decrypt the new stream, prove that it belongs to the sharer, or learn who the remaining recipients are. |
 | T5 | **A malicious current recipient** | Your positions (by design). It can re-share them out of band (unpreventable). | Forge your positions to other recipients: the stream is signed by a key only you hold. Learn who else receives the share: grants are pairwise. Start, extend or alter your share. |
 | T6 | **Someone who reads an invite** (photographed QR, compromised messenger) | **Race** the intended person and pair as an impostor. Its attempt stays on the relays, under its own key, until the invite expires. Both apps watch until then: if the real person shows up first or in time, both abort; if the inviter had already accepted, its contact is flagged and receives no share until the codes are compared. If the real person never shows up, only comparing codes reveals the impostor, which is why contacts paired by link start "unverified". **Disrupt** the pairing: any competing attempt makes both apps abort and say that the invite was used elsewhere. **Passive interception** reveals only the relays already in the invite: step 1 carries nothing, and both names travel under `ee`-derived keys. Mitigations: codes on both screens, the unverified status, single-use invites, expiry (10 min for QR). | Impersonate the inviter: its steps must be signed by the key whose public half is in the invite. Replace or delete anyone's pairing events. Learn channel keys from a pairing it did not actively complete: `ee` Diffie-Hellman. |
-| T5b | **A malicious contact as sharer, inviter or recipient** (for example a stalker you paired with) | **Choose the relays your phone connects to for it**: its stream relays when you view its share or send watch signals, its invite's relays while you pair and until the invite expires, its inbox relays when you send it states (also when you stop sharing with it). If it runs one of them, it learns your IP address, hence your rough location and provider, and when your app talks to it, e.g. when your map is open. You never have to share with it for this to happen. Mitigations: relay consent (spec §11): without asking, your phone uses only your own relays, the defaults and relays you approved; for any other relay a contact names, the app asks once, naming the contact and the relay. Invites live at most 24 hours. "Hide" stops all connections for that contact. | Make your phone connect to a relay you did not approve. Keep you watching an invite for more than a day. Learn anything about you from relays that you and other contacts use, beyond what T1 says about every relay operator. |
+| T5b | **A malicious contact as sharer, inviter or recipient** (for example a stalker you paired with) | **Choose the relays your phone connects to for it**: its stream relays when you view its share or send watch signals, its invite's relays while you pair and until the invite expires, its inbox relays when you send it states (also when you stop sharing with it, and on each day your app runs in the first week after you joined its invite). If it runs one of them, it learns your IP address, hence your rough location and provider, and when your app talks to it, e.g. when your map is open. You never have to share with it for this to happen. Mitigations: relay consent (spec §11): without asking, your phone uses only your own relays, the defaults and relays you approved; for any other relay a contact names, the app asks once, naming the contact and the relay. Invites live at most 24 hours. "Hide" stops all connections for that contact. | Make your phone connect to a relay you did not approve. Keep you watching an invite for more than a day. Learn anything about you from relays that you and other contacts use, beyond what T1 says about every relay operator. |
 | T6b | **Someone who rewrites an invite in transit** (substitutes its own) | **Sit in the middle** of both pairings. The protocol cannot see it: the two screens show different codes, matching by chance with probability 10⁻⁶. It cannot grind the codes: the joiner commits to its key first, each side accepts one message per step, and the code comes from the keys, not the transcript (spec §6.3–6.4). Only comparing codes reveals it. | Anything, once the users have compared codes. |
 | T7 | **Device thief or forensic examiner** | **Before the first unlock after a reboot:** nothing; the app's files are in credential-encrypted storage. **After the first unlock, even with the screen locked:** Android keeps the storage keys in memory, and forensic tools target exactly this state. With an exploit that runs code on the device, an attacker gets what the app holds now: the current channel keys, and the latest positions while the app is running (in memory). If the app has not run for days, its stored chain keys are that old (D16). | Past channel keys (ratchet) and past streams (erased at both ends), hence the content of archived ciphertext. No positions are stored on disk. The limits of key erasure on flash are in §10.4. |
 | T8 | **Malware or root on the device** | Out of scope: it can read everything the app can. | — |
@@ -197,8 +199,11 @@ Full byte-level detail: [LIVE_LOCATION_PROTOCOL.md](LIVE_LOCATION_PROTOCOL.md). 
 5. A's decision is sent as the fourth message, together with A's name and relays. Both apps derive
    two per-direction channel roots from the handshake and erase everything else. Until the invite
    expires, they keep watching the relays for anyone else using it.
-6. B's app confirms with a first, share-less state on the new channel. Until it arrives, A's app
-   shows B as "waiting": pairing is complete only when both sides hold the contact.
+6. B's app confirms with a first, share-less state on the new channel. A state can be read only
+   until 01:00 UTC the next day, and A's app might not run before then, so for the first week B's
+   app sends its current state again on each UTC day it runs. Until one arrives, A's app shows B as
+   "waiting": pairing is complete only when both sides hold the contact. "Waiting" is a label, not a
+   block, and A's app offers to remove B only once that week is over.
 
 Invites live at most 24 hours. B's app connects to A's relays only after relay consent (§11.2): A
 chose them, and if A ran one, it would learn B's IP address.
@@ -720,9 +725,13 @@ Settings → Experimental → "Live location sharing" → the explanation screen
    Code **294 805**: compare it with Bob, by phone or in person" → [Codes match, connect] /
    [Connect without comparing] / [Decline].
 5. B: "Connected with Alice". B's app sends its confirmation (spec §6.3), and A's contact changes
-   from "Waiting for Bob to finish connecting" to connected when it arrives. If it never arrives
-   (Bob came back after the invite expired, refused the code, or aborted), A's app says "Bob didn't
-   finish connecting" and offers to remove the contact.
+   from "Waiting for Bob to finish connecting" to connected when it arrives. Each confirmation can
+   be read only until 01:00 UTC the next day, so B's app repeats it on each UTC day it runs, for the
+   first week. Meanwhile A can already share with Bob (§11.3). If nothing has arrived once that
+   week is over (Bob came back after the invite expired, refused the code, aborted, or has not
+   opened CoMaps since), A's app says "Nothing has arrived from Bob since you connected. Bob may not
+   have finished connecting, or may not have opened CoMaps since." It offers to remove the contact,
+   and keeping it is equally fine.
 
 **Verified, unverified and flagged.**
 
@@ -762,8 +771,9 @@ Live location → **Share my location** → pick contacts (multi-select) and a d
 - Extending or adding someone is only ever done by the sharer.
 - Contacts in the picker show their status (D18). Unverified contacts carry a warning: "You haven't
   compared codes with Bob. If the link was intercepted, someone else could receive your location."
-  Flagged contacts cannot be picked until their code has been compared, and contacts still waiting
-  to finish connecting cannot be picked at all.
+  Flagged contacts cannot be picked until their code has been compared. Contacts still waiting to
+  finish connecting can be picked, with a label: "Bob may not have finished connecting, and may not
+  receive this." If Bob never finished, nobody else holds the keys, so nothing leaks.
 
 **No silent sharing.** Android does not guarantee that the notification is seen:
 
@@ -807,9 +817,9 @@ So:
 
 ### 11.5 Contacts and settings
 
-- Contact list: name, status ("Sharing with you until 18:30", "You share until …"), a verified /
-  unverified / flagged badge, rename, compare code, delete. Deleting a contact also stops any share
-  with them.
+- Contact list: name, status ("Sharing with you until 18:30", "You share until …", "Waiting for
+  Bob to finish connecting"), a verified / unverified / flagged badge, rename, compare code, delete.
+  Deleting a contact also stops any share with them.
 - Relays: list, add, remove, reorder (the first reachable one is the listening relay, D17), and a
   reachability test. Only `wss://` addresses are accepted. A warning appears when fewer than two
   relays work. A second list, "Relays you allowed for contacts", shows the approvals given under
@@ -857,8 +867,9 @@ Draft text, also a DoD item. It now claims only what the threat model supports (
   - the receiving rules, including tampering, replay, expiry, wrong key and oversize;
   - the pairing rules: one message per step on each side; conflicts watched until expiry, aborting
     before the end of the pairing and flagging after; forged, junk and misdirected steps; a
-    low-order Noise key; a code that does not change with the payloads (the Python tests already
-    cover these, as asynchronous scenarios over a model relay);
+    low-order Noise key; a code that does not change with the payloads; the joiner's daily
+    confirmations through epoch `e_p + 7`, and the moment removal is first offered (the Python tests
+    already cover these, as asynchronous scenarios over a model relay);
   - the receiving rules: silent discard of everything malformed, the JSON profile and the field
     checks, strict base64, with the negative cases of `test_protocol.py` ported;
   - the viewer keeping a stale position when an `end` arrives before the new grant;
@@ -1061,3 +1072,20 @@ are regenerated. The pairing values are unchanged; the joiner's confirmation sta
 | §2 still said "No `p` or `g` tags" | **Right** | It now says that the only `p` tag points at the invite's one-time pairing key | §2 |
 | D18 | Approved | Recorded | §14 |
 
+## 19. Fourth review changes (2026-10-11)
+
+Your fourth review had one finding. It reproduced on the reviewed commit (cd71dd10), and your
+scenario is now a regression test. 200 primitive checks and 279 protocol checks pass. The vectors
+are unchanged: the fix adds no message, only a rule for when the joiner sends its state.
+
+| Your point | Verdict | What changed | Where |
+|---|---|---|---|
+| 1. The joiner's confirmation can expire before the inviter sees it | **Right**; reproduced: Bob confirms at 23:30 UTC, the state expires at 01:00, and at 08:00 Alice's app finds nothing, so Bob stays "waiting". A longer expiry would not have helped: Alice's app erases that day's channel key at 01:00 anyway. One adjustment to your fix: what Bob sends each day is his *current* state, not a share-less one. Once Bob shares with Alice, a share-less state would end his share | Your fix. Through epoch `e_p + 7`, whenever Bob's app runs on a UTC day on which it has sent Alice no state, it sends its current state, with the grant while it shares with her; a share's own states count. Any message from Bob confirms him, a watch signal included. "Waiting" is a label in the share sheet, not a block. Removal is offered only once the last confirmation Bob owed has expired, at `epoch_end(e_p + 7) + 3600`, about 7 to 8 days after pairing, and the offer says that Bob may simply not have opened CoMaps. No long-lived key: the confirmation uses the daily channel keys like any state. Tests cover your scenario, the daily window, sharing with a waiting contact, a signal confirming, the grant in the re-sent state, and the exact moment removal is first offered | spec §6.3, §8, §10, §13, §14, §15; §2, T5b, §4.1, §11.2, §11.3, §11.5, §12 |
+
+**What remains.** Each confirmation can be read from the moment Bob's app first runs on a UTC day
+until 01:00 UTC the next day. If Bob only ever opens CoMaps late in the UTC day and Alice only
+early, the week can pass without the two overlapping. Waiting no longer blocks anything, so all
+this costs is the label and, after the week, the removal offer. Sharing narrows the gap: while
+Alice shares with Bob, her app keeps its inbox subscription open (§10.3) and can hear Bob's next
+confirmation as it arrives, and a watch signal, sent when Bob opens Alice's location, confirms him
+at once.

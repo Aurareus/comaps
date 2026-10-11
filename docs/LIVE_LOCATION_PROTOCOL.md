@@ -222,10 +222,13 @@ Subscriptions on the invite's relays, kept until the invite expires:
    `e_p = epoch(now − 300)`. The lag of 300 s, the accepted clock skew (§12), keeps `e_p` from ever
    being in the joiner's future. The inviter MUST NOT send step 3 once the invite has expired:
    relays would refuse it, and the joiner has stopped listening.
-5. Its new contact is **unconfirmed** until a state arrives on the contact's channel towards it (the
-   joiner's confirmation, below). Until then the app shows it as waiting for the joiner and offers to
-   remove it. The joiner may never get step 3: it may come back after the invite expired, refuse
-   the code, or abort on a late conflict.
+5. Its new contact is **unconfirmed** until a state or a watch signal arrives on the contact's
+   channel towards it (the joiner's confirmation, below). The joiner may never get step 3: it may
+   come back after the invite expired, refuse the code, or abort on a late conflict. Unconfirmed is
+   a label, not a block: the user may share with the contact. If the joiner never finished, nothing
+   leaks, since nobody else holds the channel keys. The app offers to remove the contact only if it
+   is still unconfirmed at `epoch_end(e_p + 7) + 3600`, when the last confirmation the joiner owed
+   has expired.
 
 **Joiner.**
 
@@ -238,9 +241,18 @@ Subscriptions on the invite's relays, kept until the invite expires:
    what follows.
 4. It accepts the first step 3 signed by `ipk`. That step MUST decrypt under `confirm_key` and, on
    acceptance, carry `e_p` with `epoch(now) − 1 ≤ e_p ≤ epoch(now)`. Otherwise the pairing aborts.
-5. Right after accepting step 3, it MUST publish one state without `share` on the new channel, to the
+5. Right after accepting step 3, it MUST publish a state without `share` on the new channel, to the
    inviter's relays from step 3 (§8, under relay consent, §11). This is the **confirmation**:
-   completion is two-sided only when the inviter has received it.
+   completion is two-sided only when the inviter has received it. A state can be read only until an
+   hour after the end of its UTC day, and the inviter might not run in that time. So through epoch
+   `e_p + 7`, whenever the joiner runs on a UTC day on which it has published no state on this
+   channel, it MUST publish its **current** state there: with its grant while it shares with the
+   inviter, since a state without `share` would end that share.
+
+The confirmation uses the channel's daily keys, like any state. A key that outlived the day would
+make the inviter query that same key every day, which links its daily connections: exactly what the
+one-epoch-per-connection rule prevents (§11). A longer expiry would not help either: the inviter
+erases each day's channel key an hour after the day ends (§7).
 
 **Conflicts.** Both sides watch their subscriptions until the invite expires, whenever they are
 online. The joiner's `#p` subscription also returns its own events, which it ignores: nobody else
@@ -366,8 +378,8 @@ Each direction has a single addressable slot (kind `30484`, `d = ""`, pubkey `ct
   Receivers MUST ignore a state whose `seq` is not greater than the last one accepted from that
   contact. This stops a relay replaying an old grant after the share ended.
 - `relays` are the sender's current home relays.
-- The joiner's first state, sent right after pairing, carries no `share`. It confirms the pairing to
-  the inviter (§6.3).
+- In the first week after pairing, the joiner's states also confirm the pairing to the inviter
+  (§6.3). The first carries no `share`; each later one is the joiner's current state.
 - `share` is present while the sender shares with this recipient. `until` is when this
   recipient's access ends (0 = until stopped). A state without `share` ends any earlier grant.
 - Encryption: `content = NIP-44(ctl_ck(e), plaintext)`, control class.
@@ -448,6 +460,7 @@ signal at most every 60 seconds:
 
 The sharer treats itself as "watched" until `min(until, now + 120)`. Signals older than 60 s are
 ignored. What the sharer does with this (faster updates) is policy, see the design doc (decision D4).
+Like a state, a signal from an unconfirmed contact confirms it (§6.3).
 
 ## 11. Relays
 
@@ -586,7 +599,8 @@ Further obligations:
 - One epoch per connection, decoys in the inbox subscription (§11).
 - Never publish anything for a contact the user has not explicitly shared with. After the user
   stops sharing, publish nothing but the final states and the `end`. The one exception is the
-  joiner's confirmation, a single state without `share` right after pairing (§6.3).
+  joiner's confirmation: a state right after pairing, then its current state on each UTC day it
+  runs, through epoch `e_p + 7` (§6.3).
 - Connect only to the user's own, the default and approved relays (relay consent, §11).
 - Invites live at most 24 hours; joiners refuse longer ones (§6.1).
 - Strictly increasing `created_at` per event pubkey (§4).
@@ -607,6 +621,8 @@ Further obligations:
 | wait for the states' `OK` before an `end` | ≤ 10 s |
 | stale position kept after an `end` | ≤ 120 s |
 | pairing epoch | `e_p = epoch(now − 300)` at the inviter; the joiner accepts `epoch(now) − 1 ≤ e_p ≤ epoch(now)` |
+| joiner's confirmation | a state right after step 3, then one on each UTC day the joiner runs, through epoch `e_p + 7` |
+| removal offered for an unconfirmed contact | from `epoch_end(e_p + 7) + 3600` |
 | invite | 70 bytes plus the relay list (123 bytes with the three default relays) |
 | invite lifetime | at most 86400 s; joiners refuse `expires_at` more than 86400 + 300 s ahead |
 | JSON integers | within ±(2⁵³ − 1) |
@@ -633,10 +649,12 @@ BIP-340 auxiliary randomness), so an implementation can reproduce each event byt
 also carries its canonical `serialized` form.
 
 The primitives are checked separately against the published NIP-44 v2, BIP-340, RFC 5869 and Noise
-(cacophony) vectors by `test_primitives.py`. The negative cases live in `test_protocol.py`, and a
-second implementation should port them too:
+(cacophony) vectors by `test_primitives.py`. The negative and timing cases live in
+`test_protocol.py`, and a second implementation should port them too:
 
 - conflicting pairing events, forged or junk steps, and a step 1 meant for another joiner;
 - a low-order Noise key;
 - plaintexts that break the JSON profile, and states and locations that fail the field checks;
-- non-canonical base64.
+- non-canonical base64;
+- a confirmation that expires before the inviter runs, the daily confirmations through epoch
+  `e_p + 7`, and the exact moment removal is first offered.
