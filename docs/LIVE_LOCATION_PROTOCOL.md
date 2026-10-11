@@ -548,8 +548,10 @@ when you send it states, including when you stop sharing with it. So:
 Every event must pass all of these checks. Cheap ones may run first, but the signature MUST be
 verified before anything is decrypted (as NIP-44 requires):
 
-1. `kind` and `created_at` are integers, `created_at ≥ 0`; the event id equals SHA256 of its
-   serialization, and the BIP-340 signature is valid;
+1. the envelope is well typed: `id` and `pubkey` are 64 and `sig` 128 lowercase hex characters,
+   `kind` and `created_at` are integers, `created_at ≥ 0`, `tags` is an array of arrays of strings
+   and `content` is a string; the event id equals SHA256 of its serialization, and the BIP-340
+   signature is valid;
 2. kind and pubkey are among those expected for the subscription, and the `d` tag (and, for the
    joiner's pairing steps, the `p` tag) is as expected. A tag's value is the second element of the
    first tag with that name; other tags are ignored;
@@ -670,9 +672,14 @@ The primitives are checked separately against the published NIP-44 v2, BIP-340, 
 `test_protocol.py`, and a second implementation should port them too:
 
 - conflicting pairing events, forged or junk steps, and a step 1 meant for another joiner;
+- mistyped envelopes whose id and signature still verify (a tag given as a string) and uppercase hex;
 - a low-order Noise key;
 - plaintexts that break the JSON profile, and states and locations that fail the field checks;
 - non-canonical base64;
 - a confirmation that expires before the inviter runs, the daily confirmations through epoch
   `e_p + 7`, and the exact moment removal is first offered;
 - a watch signal that cannot reach an unwatched sharer's listening relay.
+
+`vectors/profile_cases.json` (made by `make_profile_cases.py`) lists plaintexts with the verdict of
+§12 item 5: hand-written cases for each rule of the profile (§5), and mutations of valid plaintexts.
+Another implementation must reach the same verdict on every one.
