@@ -68,6 +68,7 @@ public:
   double AsNumber() const { return m_type == Type::Int ? static_cast<double>(m_int) : m_double; }
   std::string const & AsString() const { return m_string; }
   std::vector<Value> const & Elements() const { return m_elements; }
+  std::vector<std::pair<std::string, Value>> const & Members() const { return m_members; }
 
   /// The member of an object, or null if this is not an object or has no such member.
   Value const * Get(std::string_view key) const;

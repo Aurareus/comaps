@@ -194,4 +194,27 @@ std::vector<State> ReadInbox(Contact & contact, ModelRelay const & relay, int64_
       out.push_back(std::move(*state));
   return out;
 }
+
+void Deliver(std::vector<std::pair<ContactPtr, nostr::Event>> const & states,
+             std::vector<std::pair<ContactPtr, Following *>> const & views, int64_t now)
+{
+  for (auto const & state : states)
+  {
+    for (auto const & [contact, view] : views)
+      if (auto const st = ReadControl(*contact, Wire(state.second), now))
+        view->OnState(*st, now);
+  }
+}
+
+Location Fix(int64_t now)
+{
+  Location fix;
+  fix.m_ts = now * 1000;
+  fix.m_lat = 52.5200066;
+  fix.m_lon = 13.404954;
+  fix.m_acc = 8.0;
+  fix.m_spd = 1.4;
+  fix.m_brg = 271.0;
+  return fix;
+}
 }  // namespace live_location_tests

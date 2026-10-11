@@ -4,6 +4,7 @@
 #include "live_location/nostr/event.hpp"
 #include "live_location/protocol/channel.hpp"
 #include "live_location/protocol/pairing.hpp"
+#include "live_location/protocol/stream.hpp"
 
 #include <cstdint>
 #include <map>
@@ -12,6 +13,7 @@
 #include <set>
 #include <string>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 // The scenario harness of the C++ port of tools/python/live_location/test_protocol.py: a model relay,
@@ -68,6 +70,13 @@ Paired Pair(std::string const & inviterName, live_location::Relays const & invit
 
 /// The states from `contact` that an app reading its inbox relay at `now` accepts.
 std::vector<live_location::State> ReadInbox(live_location::Contact & contact, ModelRelay const & relay, int64_t now);
+
+/// Every viewer reads every state, as if all used one relay; each keeps what it can read.
+void Deliver(std::vector<std::pair<live_location::ContactPtr, live_location::nostr::Event>> const & states,
+             std::vector<std::pair<live_location::ContactPtr, live_location::Following *>> const & views, int64_t now);
+
+/// A position at `now`, as in the Python suite.
+live_location::Location Fix(int64_t now);
 
 template <typename Exception, typename F>
 bool Throws(F && f)

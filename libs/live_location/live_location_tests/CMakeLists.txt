@@ -1,11 +1,13 @@
 project(live_location_tests)
 
 set(SRC
+  channel_tests.cpp
   crypto_tests.cpp
   json_profile_tests.cpp
   pairing_tests.cpp
   scenario.cpp
   scenario.hpp
+  sharing_tests.cpp
   test_helpers.cpp
   test_helpers.hpp
   vectors_tests.cpp
