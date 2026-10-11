@@ -62,6 +62,8 @@ public:
   Grants const & GetGrants() const { return m_grants; }
   Stream const * GetStream() const { return m_stream ? &*m_stream : nullptr; }
   int64_t NotBefore() const { return m_notBefore; }
+  /// The epoch in which the current stream was created: its events travel in that epoch's scope (spec §11).
+  int64_t StreamEpoch() const { return m_streamEpoch; }
 
   /// Throws std::logic_error when already sharing.
   Rekey Start(Grants grants, crypto::Rng & rng, int64_t now);

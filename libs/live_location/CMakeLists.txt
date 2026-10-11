@@ -29,6 +29,9 @@ set(SRC
   encoding/binary.cpp
   encoding/binary.hpp
   executor.hpp
+  manager/manager.cpp
+  manager/manager.hpp
+  manager/types.hpp
   nostr/event.cpp
   nostr/event.hpp
   nostr/filter.cpp

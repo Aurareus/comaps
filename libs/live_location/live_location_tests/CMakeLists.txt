@@ -6,6 +6,7 @@ set(SRC
   fake_relay.cpp
   fake_relay.hpp
   json_profile_tests.cpp
+  manager_tests.cpp
   pairing_tests.cpp
   relay_pool_tests.cpp
   scenario.cpp
