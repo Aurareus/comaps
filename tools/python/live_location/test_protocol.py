@@ -6,7 +6,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from nll import noise, primitives as p, protocol as P  # noqa: E402
+from nll import nip44, noise, primitives as p, protocol as P  # noqa: E402
 from nll.nostr import Event  # noqa: E402
 
 failures = 0
@@ -40,113 +40,227 @@ def wire(ev):
     return Event.from_dict(json.loads(ev.to_json()))
 
 
-def pair(name_inviter, relays_inviter, name_joiner, relays_joiner, now):
+class Relay:
+    """What pairing sees of a relay: addressable events, the newest kept per (pubkey, kind, d) (NIP-01)."""
+
+    def __init__(self):
+        self.slots = {}
+
+    def publish(self, ev):
+        key = (ev.pubkey, ev.kind, ev.tag_value('d'))
+        old = self.slots.get(key)
+        if old is None or ev.created_at > old.created_at or (ev.created_at == old.created_at and ev.id < old.id):
+            self.slots[key] = ev
+
+    def query(self, authors=None, p_tag=None):
+        out = [wire(ev) for ev in self.slots.values()
+               if (authors is None or ev.pubkey in authors) and (p_tag is None or ev.tag_value('p') == p_tag)]
+        return sorted(out, key=lambda ev: (ev.created_at, ev.id))
+
+
+def online(party, relay, now):
+    """The party's app is open: it reads its pairing subscriptions and publishes what it is asked to.
+    Returns the outcomes; PairingAborted propagates."""
+    ipk = party.invite.ipk.hex()
+    events = relay.query(p_tag=ipk)
+    if isinstance(party, P.Joiner):
+        events = sorted(events + relay.query(authors={ipk}), key=lambda ev: (ev.created_at, ev.id))
+    outcomes = []
+    for ev in events:
+        try:
+            out = party.on_event(ev, rng, now)
+        except ValueError as e:
+            if 'out of order' in str(e):
+                continue                        # held until due
+            raise
+        if out is not None:
+            outcomes.append(out)
+            if out.publish is not None:
+                relay.publish(out.publish)
+    return outcomes
+
+
+def joiner_starts(link, name, relay, now):
+    joiner = P.Joiner(P.Invite.from_link(link), name, RELAYS_B, rng, now)
+    relay.publish(joiner.commit_event(rng, now))
+    return joiner
+
+
+def pair(name_inviter, relays_inviter, name_joiner, relays_joiner, now, checks_on=True):
+    relay = Relay()
     inviter = P.Inviter(relays_inviter, rng, now)
     link = inviter.invite.link()
     joiner = P.Joiner(P.Invite.from_link(link), name_joiner, relays_joiner, rng, now + 5)
     m0 = joiner.commit_event(rng, now + 5)
-    m1 = inviter.on_commit(wire(m0), rng, now + 6)
-    check(inviter.on_commit(wire(m0), rng, now + 6) is None, 'a copy of step 0 from another relay is ignored')
-    m2 = joiner.on_message1(wire(m1), rng, now + 7)
-    check(joiner.on_message1(wire(m1), rng, now + 7) is None, 'a copy of step 1 is not answered again')
-    req = inviter.on_message2(wire(m2), now + 8)
+    check(joiner.commit_event(rng, now + 6) is m0, 'step 0 is made once; a retransmission resends it')
+    relay.publish(m0)
+    online(inviter, relay, now + 6)                                       # step 1
+    check(inviter.on_event(wire(m0), rng, now + 6) is None, 'a copy of step 0 from another relay is ignored')
+    out = online(joiner, relay, now + 7)                                  # step 2
+    check(len(out) == 1 and out[0].show_code['sas'] == joiner.sas, 'joiner shows the code after step 2')
+    check(online(joiner, relay, now + 7) == [], 'copies of step 1 are not answered again')
+    req = online(inviter, relay, now + 8)[0].show_code
     check(req['name'] == name_joiner and req['sas'] == joiner.sas, 'inviter sees joiner name and the same code')
-    m3, c_inviter = inviter.message3(True, name_inviter, relays_inviter, rng, now + 20)
-    c_joiner = joiner.on_message3(wire(m3), now + 21)
-    check(c_inviter.sas == c_joiner.sas, 'SAS agree')
-    check(c_inviter.outgoing.chain_key == c_joiner.incoming.chain_key, 'A->B chain keys agree')
-    check(c_inviter.incoming.chain_key == c_joiner.outgoing.chain_key, 'B->A chain keys agree')
-    check(c_inviter.outgoing.chain_key != c_inviter.incoming.chain_key, 'directions differ')
-    check(c_joiner.name == name_inviter and c_inviter.name == name_joiner, 'names exchanged')
-    check(c_joiner.relays == relays_inviter and c_inviter.relays == relays_joiner, 'relays exchanged')
-    check(None is inviter.k1 is inviter.k2 is joiner.k1 is joiner.k2 is inviter.invite.psk,
-          'pairing roots and PSK erased once the channel keys exist')
-    late = P.Joiner(P.Invite.from_link(link), 'Late', relays_joiner, rng, now + 30)
-    check(raises(lambda: inviter.on_commit(wire(late.commit_event(rng, now + 30)), rng, now + 30)),
-          'invite is single-use')
-    return c_inviter, c_joiner
+    done = inviter.decide(True, name_inviter, relays_inviter, rng, now + 20)
+    relay.publish(done.publish)
+    c_inviter = done.contact
+    c_joiner = online(joiner, relay, now + 21)[0].contact
+    if checks_on:
+        check(c_inviter.sas == c_joiner.sas, 'SAS agree')
+        check(c_inviter.outgoing.chain_key == c_joiner.incoming.chain_key, 'A->B chain keys agree')
+        check(c_inviter.incoming.chain_key == c_joiner.outgoing.chain_key, 'B->A chain keys agree')
+        check(c_inviter.outgoing.chain_key != c_inviter.incoming.chain_key, 'directions differ')
+        check(c_joiner.name == name_inviter and c_inviter.name == name_joiner, 'names exchanged')
+        check(c_joiner.relays == relays_inviter and c_inviter.relays == relays_joiner, 'relays exchanged')
+        check(not c_inviter.verified and not c_joiner.verified, 'contacts start unverified')
+        for side, key in ((inviter, 'isk'), (joiner, 'jsk')):
+            check(None is side.invite.psk is getattr(side, key) is side.e is side.hs is side.k1 is side.k2,
+                  '%s erased the PSK, its pairing key, the ephemeral key, the Noise state and the roots' % key[0])
+            check(side.mac_key is not None, '%s keeps only the MAC key, to watch until expiry' % key[0])
+        check(online(inviter, relay, now + 30) == [] and online(joiner, relay, now + 30) == [],
+              'watching after completion: nothing new, nothing flagged')
+    return c_inviter, c_joiner, {'relay': relay, 'inviter': inviter, 'joiner': joiner, 'link': link}
 
 
-def start_pairing(now, name='Bob'):
-    """Inviter and joiner up to (excluding) step 1 being processed by the joiner."""
-    inviter = P.Inviter(RELAYS_A, rng, now)
-    joiner = P.Joiner(inviter.invite, name, RELAYS_B, rng, now)
-    m1 = inviter.on_commit(wire(joiner.commit_event(rng, now)), rng, now)
-    return inviter, joiner, m1
-
-
-def forged_step1(invite, rng_, now):
-    """What anyone holding the invite (an intercepted link) can publish as step 1."""
-    hs = noise.HandshakeState(P.NOISE_PATTERN, True, invite.prologue(), invite.psk, rng_(32))
+def mallory_step1(invite, relay, rng_, now):
+    """A link holder's forged step 1: it can encrypt like the inviter, but signs with its own key."""
+    msk = P.random_secp_key(rng_)
+    hs = noise.HandshakeState(P.NOISE_PATTERN, True, invite.prologue(bytes(32), bytes(32)), invite.psk, rng_(32))
     payload = P.encode_plaintext({'t': 'pair1'}, P.SIZE_CONTROL)
-    return P.rendezvous_event(invite.rendezvous_key(), 1, p.b64encode(hs.write_message(payload)), invite, rng_, now)
+    ev = P.pairing_event(msk, 1, invite, p.b64encode(hs.write_message(payload)), rng_, now)
+    relay.publish(ev)
+    return ev
 
 
 # --- Pairing ---------------------------------------------------------------------------------
 
-a_bob, bob_a = pair('Alice', RELAYS_A, 'Bob', RELAYS_B, T0)
-a_carol, carol_a = pair('Alice', RELAYS_A, 'Carol', RELAYS_B, T0 + 100)
+a_bob, bob_a, ctx = pair('Alice', RELAYS_A, 'Bob', RELAYS_B, T0)
+a_carol, carol_a, _ = pair('Alice', RELAYS_A, 'Carol', RELAYS_B, T0 + 100)
 
-# Step 1 carries nothing: an intercepted link (PSK) lets an eavesdropper decrypt step 1, which must
-# not reveal the inviter's name or relays any more.
-inv, jn, m1 = start_pairing(T0)
-eavesdropper = noise.HandshakeState(P.NOISE_PATTERN, False, inv.invite.prologue(), inv.invite.psk, os.urandom(32))
-step1_plain = P.decode_plaintext(eavesdropper.read_message(p.b64decode(m1.content)))
-check(step1_plain == {'t': 'pair1'}, 'step 1 reveals nothing to someone holding the invite')
+# The invite carries the inviter's pairing key; intercepted, it lets an eavesdropper decrypt step 1,
+# which carries nothing.
+relay = Relay()
+inv = P.Inviter(RELAYS_A, rng, T0, lifetime=86400)
+link = inv.invite.link()
+check(len(inv.invite.encode()) == 1 + 32 + 32 + 4 + 1 + sum(1 + len(r) for r in RELAYS_A), 'invite layout')
+bob = joiner_starts(link, 'Bob', relay, T0)
+step1 = online(inv, relay, T0 + 1)[0].publish
+eve = noise.HandshakeState(P.NOISE_PATTERN, False, inv.invite.prologue(bob.jpk, bob.c), inv.invite.psk,
+                           os.urandom(32))
+check(P.decode_plaintext(eve.read_message(p.b64decode(step1.content))) == {'t': 'pair1'},
+      'step 1 reveals nothing to someone holding the invite')
+
+# The review's scenario: Mallory reads Alice's link. Bob publishes step 0 and closes the app, Alice
+# answers, Mallory publishes her own step 1. It goes into her own slot (her key), so Alice's step 1 is
+# still there, and Bob, back an hour later, ignores Mallory's: only the key in the invite signs step 1.
+fake = mallory_step1(P.Invite.from_link(link), relay, rng, T0 + 2)
+check(relay.query(authors={inv.invite.ipk.hex()})[0].id == step1.id, "Alice's step 1 cannot be replaced")
+out = online(bob, relay, T0 + 3600)
+check(len(out) == 1 and out[0].publish is not None, 'Bob answers the real step 1 and ignores the forged one')
+online(inv, relay, T0 + 3601)
+relay.publish(inv.decide(True, 'Alice', RELAYS_A, rng, T0 + 3602).publish)
+c = online(bob, relay, T0 + 3603)[0].contact
+check(c is not None and c.sas == inv.sas, 'Bob pairs with the real Alice')
+check(bob.on_event(wire(fake), rng, T0 + 3604) is None, 'a forged step 1 is ignored after completion too')
+
+# Mallory as a second joiner while Bob is offline: both apps see both commitments and abort.
+relay = Relay()
+alice = P.Inviter(RELAYS_A, rng, T0, lifetime=86400)
+link = alice.invite.link()
+bob = joiner_starts(link, 'Bob', relay, T0)
+mallory = joiner_starts(link, 'Bob', relay, T0 + 60)
+check(raises(lambda: online(alice, relay, T0 + 120), P.PairingAborted), 'inviter aborts: two joiners used the invite')
+check(raises(lambda: online(bob, relay, T0 + 180), P.PairingAborted), 'joiner aborts: another joiner used the invite')
+check(alice.mac_key is None and alice.invite.psk is None and bob.mac_key is None and bob.jsk is None,
+      'an abort erases everything')
+
+# Mallory first, and Alice connects without comparing codes; Bob opens the link later. Alice's app,
+# still watching until the invite expires, flags the contact; Bob's aborts.
+relay = Relay()
+alice = P.Inviter(RELAYS_A, rng, T0, lifetime=86400)
+link = alice.invite.link()
+mallory = joiner_starts(link, 'Bob', relay, T0)
+online(alice, relay, T0 + 1)
+online(mallory, relay, T0 + 2)
+online(alice, relay, T0 + 3)
+relay.publish(alice.decide(True, 'Alice', RELAYS_A, rng, T0 + 4).publish)
+fake_bob = alice.contact
+bob = joiner_starts(link, 'Bob', relay, T0 + 3600)
+out = online(alice, relay, T0 + 3601)
+check(len(out) == 1 and out[0].flagged and fake_bob.flagged, 'after pairing, a second joiner flags the contact')
+check(raises(lambda: online(bob, relay, T0 + 3602), P.PairingAborted), 'the late real joiner aborts')
+# The same seen from the joiner: after its pairing ended, a later joiner flags the contact.
+c_inv, c_join, ctx = pair('Alice', RELAYS_A, 'Bob', RELAYS_B, T0, checks_on=False)
+joiner_starts(ctx['link'], 'Mallory', ctx['relay'], T0 + 40)
+check([o.flagged for o in online(ctx['joiner'], ctx['relay'], T0 + 41)] == [True] and c_join.flagged,
+      'joiner flags its contact when another joiner shows up later')
+check([o.flagged for o in online(ctx['inviter'], ctx['relay'], T0 + 41)] == [True] and c_inv.flagged,
+      'inviter flags its contact too')
+
+# Without the PSK nothing counts: a step 0 with a wrong MAC is ignored by both sides (no denial of
+# service by someone who merely sees the inviter's key on a relay).
+relay = Relay()
+alice = P.Inviter(RELAYS_A, rng, T0)
+link = alice.invite.link()
+bob = joiner_starts(link, 'Bob', relay, T0)
+junk = P.Joiner(P.Invite(os.urandom(32), alice.invite.ipk, alice.invite.expires_at, RELAYS_A), 'X', RELAYS_B, rng,
+                T0)
+relay.publish(junk.commit_event(rng, T0))
+check(len(online(alice, relay, T0 + 1)) == 1, 'inviter ignores a step 0 without proof of the PSK')
+check(len(online(bob, relay, T0 + 2)) == 1, 'joiner ignores it too')
+
+# A step 1 from the inviter that answers another joiner's step 0 cannot be decrypted (the prologue
+# binds the accepted step 0): the joiner aborts without revealing its key.
+alice = P.Inviter(RELAYS_A, rng, T0)
+link = alice.invite.link()
+m, b = (P.Joiner(P.Invite.from_link(link), n, RELAYS_B, rng, T0) for n in ('M', 'B'))
+s1 = alice.on_event(wire(m.commit_event(rng, T0)), rng, T0).publish
+check(raises(lambda: b.on_event(wire(s1), rng, T0), P.PairingAborted) and b.step2 is None,
+      'joiner aborts on a step 1 meant for someone else, and sends no step 2')
 
 # Declining: the joiner learns it and gets no contact.
-inv, jn, m1 = start_pairing(T0, 'Dave')
-inv.on_message2(wire(jn.on_message1(wire(m1), rng, T0)), T0)
-m3, c = inv.message3(False, 'Alice', RELAYS_A, rng, T0)
-check(c is None and jn.on_message3(wire(m3), T0) is None, 'decline: no contact on either side')
+relay = Relay()
+alice = P.Inviter(RELAYS_A, rng, T0)
+dave = joiner_starts(alice.invite.link(), 'Dave', relay, T0)
+online(alice, relay, T0)
+online(dave, relay, T0)
+online(alice, relay, T0)
+d = alice.decide(False, 'Alice', RELAYS_A, rng, T0)
+relay.publish(d.publish)
+check(d.contact is None and d.declined and [o.declined for o in online(dave, relay, T0)] == [True],
+      'decline: no contact on either side')
 
-# Without the PSK nothing can be injected: events under a wrong rendezvous key are rejected.
-inv = P.Inviter(RELAYS_A, rng, T0)
-bad = P.Invite(os.urandom(32), inv.invite.expires_at, RELAYS_A)
-check(raises(lambda: inv.on_commit(P.Joiner(bad, 'Mallory', RELAYS_B, rng, T0).commit_event(rng, T0), rng, T0),
-             ValueError) and inv.commit is None, 'wrong psk rejected (envelope) without using up the invite')
-
-# Single use, joiner side: it answers exactly one step 1. A second, different step 1 (which anyone
-# holding the invite can sign) aborts, before and after step 2 was sent. Otherwise an attacker could
-# learn the joiner's key from step 2 and then grind its own key offline until the codes match.
-inv, jn, m1 = start_pairing(T0)
-check(raises(lambda: jn.on_message1(wire(forged_step1(inv.invite, rng, T0)), rng, T0), ValueError) is False and
-      jn.step2 is not None, 'joiner answers the first step 1')
-inv, jn, m1 = start_pairing(T0)
-jn.on_message1(wire(m1), rng, T0)
-check(raises(lambda: jn.on_message1(wire(forged_step1(inv.invite, rng, T0)), rng, T0), P.PairingAborted),
-      'joiner aborts on a second, different step 1 after answering')
-inv, jn, m1 = start_pairing(T0)
-check(raises(lambda: jn.on_message1(wire(P.rendezvous_event(inv.rv_sk, 1, p.b64encode(os.urandom(560)), inv.invite,
-                                                            rng, T0)), rng, T0), P.PairingAborted),
-      'joiner aborts on an undecryptable step 1 signed with the invite key')
-
-# Single use, inviter side.
-inv, jn, m1 = start_pairing(T0)
-other = P.Joiner(inv.invite, 'Mallory', RELAYS_B, rng, T0)
-check(raises(lambda: inv.on_commit(wire(other.commit_event(rng, T0)), rng, T0), P.PairingAborted),
-      'inviter aborts on a second, different step 0')
-inv, jn, m1 = start_pairing(T0)
-other = P.Joiner(inv.invite, 'Mallory', RELAYS_B, rng, T0)
-check(raises(lambda: inv.on_message2(wire(other.on_message1(wire(m1), rng, T0)), T0), P.PairingAborted),
-      'step 2 that does not open the commitment aborts')
-inv, jn, m1 = start_pairing(T0)
-m2 = jn.on_message1(wire(m1), rng, T0)
-inv.on_message2(wire(m2), T0)
-other = P.Joiner(inv.invite, 'Mallory', RELAYS_B, rng, T0)
-check(raises(lambda: inv.on_message2(wire(other.on_message1(wire(m1), rng, T0)), T0), P.PairingAborted),
-      'inviter aborts on a second, different step 2')
+# A low-order Noise key gives an all-zero ee. PyCA refuses it and Monocypher returns zeros; both must
+# abort. Here a link holder commits to a low-order point and builds step 2 with ee = 0, as an unchecked
+# X25519 would accept.
+LOW_ORDER = bytes.fromhex('e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800')
+alice = P.Inviter(RELAYS_A, rng, T0)
+inv_m = P.Invite.from_link(alice.invite.link())
+msk = P.random_secp_key(rng)
+mpk = p.secp_xonly_pub(msk)
+c_low = P.commitment(LOW_ORDER)
+s0 = P.pairing_event(msk, 0, inv_m, P.step0_content(inv_m.mac_key(), mpk, c_low), rng, T0)
+s1 = alice.on_event(wire(s0), rng, T0).publish
+hs = noise.HandshakeState(P.NOISE_PATTERN, False, inv_m.prologue(mpk, c_low), inv_m.psk, os.urandom(32))
+hs.read_message(p.b64decode(s1.content))
+hs.ss.mix_hash(LOW_ORDER)
+hs.ss.mix_key(LOW_ORDER)
+hs.ss.mix_key(bytes(32))
+msg2 = LOW_ORDER + hs.ss.encrypt_and_hash(P.encode_plaintext({'t': 'pair2', 'name': 'M', 'relays': RELAYS_B},
+                                                             P.SIZE_CONTROL))
+s2 = P.pairing_event(msk, 2, inv_m, p.b64encode(msg2), rng, T0)
+check(raises(lambda: alice.on_event(wire(s2), rng, T0), P.PairingAborted), 'all-zero ee aborts the pairing')
 
 # The code depends only on the keys. Same PSK and ephemeral keys, different step 2 payloads (here
 # the joiner's name): the handshake hash differs, the code does not. With a code taken from the
 # hash, a man in the middle could vary the step 2 payload it sends to the inviter until the
 # inviter's code equals the joiner's (~1e6 cheap tries); taken from the keys, it has nothing to vary.
 psk, e_i, e_r = os.urandom(32), os.urandom(32), os.urandom(32)
-inv0 = P.Inviter(RELAYS_A, rng, T0)
+prologue = P.Inviter(RELAYS_A, rng, T0).invite.prologue(bytes(32), bytes(32))
 codes, hashes = set(), set()
 for name in ('Bob', 'Bob ', 'Bob  ', 'Robert'):
-    i = noise.HandshakeState(P.NOISE_PATTERN, True, inv0.invite.prologue(), psk, e_i)
-    r = noise.HandshakeState(P.NOISE_PATTERN, False, inv0.invite.prologue(), psk, e_r)
+    i = noise.HandshakeState(P.NOISE_PATTERN, True, prologue, psk, e_i)
+    r = noise.HandshakeState(P.NOISE_PATTERN, False, prologue, psk, e_r)
     r.read_message(i.write_message(P.encode_plaintext({'t': 'pair1'}, P.SIZE_CONTROL)))
     i.read_message(r.write_message(P.encode_plaintext({'t': 'pair2', 'name': name, 'relays': RELAYS_B},
                                                       P.SIZE_CONTROL)))
@@ -154,43 +268,95 @@ for name in ('Bob', 'Bob ', 'Bob  ', 'Robert'):
     codes.add(P.sas_digits(i.ss.split()[2]))
 check(len(hashes) == 4 and len(codes) == 1, 'code independent of payloads (handshake hash is not)')
 
-# Man in the middle who knows the PSK (intercepted invite) runs one handshake with each side. Its key
-# towards Alice is committed before it sees Alice's, and Bob's key is committed before the MITM must
-# choose its key towards Bob; each side takes one event per step, so it cannot retry.
+# A link rewritten in transit (Mallory's own invite) gives a full man in the middle: the protocol
+# cannot see it, the codes differ, and the contacts stay unverified until the users compare them.
 alice = P.Inviter(RELAYS_A, rng, T0)
-bob = P.Joiner(alice.invite, 'Bob', RELAYS_B, rng, T0)
-mitm_to_alice = P.Joiner(alice.invite, 'Bob', RELAYS_B, rng, T0)     # pretends to be Bob
-bob_commit = bob.commit_event(rng, T0)                                # intercepted, never reaches Alice
-a1 = alice.on_commit(wire(mitm_to_alice.commit_event(rng, T0)), rng, T0)
-alice_view = alice.on_message2(wire(mitm_to_alice.on_message1(wire(a1), rng, T0)), T0)
-bob.on_message1(wire(forged_step1(alice.invite, rng, T0)), rng, T0)  # the MITM's step 1 towards Bob
-check(alice_view['sas'] != bob.sas, 'MITM with the PSK yields different codes on the two screens')
+mallory_inv = P.Inviter(RELAYS_A, rng, T0)
+bob = P.Joiner(P.Invite.from_link(mallory_inv.invite.link()), 'Bob', RELAYS_B, rng, T0)
+mallory_j = P.Joiner(P.Invite.from_link(alice.invite.link()), 'Bob', RELAYS_B, rng, T0)
+mallory_j.on_event(wire(alice.on_event(wire(mallory_j.commit_event(rng, T0)), rng, T0).publish), rng, T0)
+bob.on_event(wire(mallory_inv.on_event(wire(bob.commit_event(rng, T0)), rng, T0).publish), rng, T0)
+alice_code = alice.on_event(wire(mallory_j.step2), rng, T0).show_code['sas']
+check(alice_code != bob.sas, 'man in the middle with a rewritten link: the two screens show different codes')
+
+# Midnight: the inviter's clock is 4 minutes ahead and it is already the next day there. e_p lags by
+# the accepted skew, so it is never in the joiner's future, and every channel operation works.
+midnight = P.epoch_end(P.epoch_of(T0))
+relay = Relay()
+alice = P.Inviter(RELAYS_A, rng, midnight + 60)
+bob = joiner_starts(alice.invite.link(), 'Bob', relay, midnight - 180)
+online(alice, relay, midnight + 61)
+online(bob, relay, midnight - 179)
+online(alice, relay, midnight + 62)
+relay.publish(alice.decide(True, 'Alice', RELAYS_A, rng, midnight + 63).publish)
+c = online(bob, relay, midnight - 177)[0].contact
+check(c.incoming.epoch == P.epoch_of(midnight - 177), 'pairing epoch not in the joiner\'s future')
+check(P.inbox_filters([c], os.urandom(32), P.epoch_of(midnight - 170), midnight - 170) != [] and
+      P.state_event(c, RELAYS_B, None, rng, midnight - 170) is not None and
+      P.watch_signal(c, midnight, rng, midnight - 170) is not None,
+      'subscriptions, states and signals work right after pairing near midnight')
+# A step 3 whose epoch lies in the joiner's future is refused (as an earlier inviter would have sent it).
+relay = Relay()
+alice = P.Inviter(RELAYS_A, rng, T0)
+bob = joiner_starts(alice.invite.link(), 'Bob', relay, T0)
+online(alice, relay, T0)
+online(bob, relay, T0)
+online(alice, relay, T0)
+future = {'t': 'pair3', 'ok': True, 'name': 'Alice', 'relays': RELAYS_A, 'epoch': P.epoch_of(T0) + 1}
+relay.publish(P.pairing_event(alice.isk, 3, alice.invite, P.seal(future, P.SIZE_CONTROL, P.confirm_key(alice.k1), rng),
+                              rng, T0 + 1))
+check(raises(lambda: online(bob, relay, T0 + 1), P.PairingAborted), 'joiner refuses a pairing epoch in its future')
+# A contact whose chain is ahead of the clock (the clock was set back) no longer breaks the others.
+ahead = P.Contact('x', RELAYS_A, P.Direction(P.epoch_of(T0) + 5, os.urandom(32)),
+                  P.Direction(P.epoch_of(T0) + 5, os.urandom(32)), '')
+f = P.inbox_filters([ahead, a_bob], os.urandom(32), P.epoch_of(T0), T0)
+check(a_bob.incoming.at(P.epoch_of(T0)).pubkey() in f[0]['authors'] and len(f[0]['authors']) == 8,
+      'one contact ahead of the clock does not take down the inbox subscription')
+check(P.state_event(ahead, RELAYS_A, None, rng, T0) is not None, 'a chain ahead of the clock still signs')
 
 # Expired invite.
-check(raises(lambda: P.Joiner(inv.invite, 'Late', RELAYS_B, rng, inv.invite.expires_at)), 'expired invite refused')
+check(raises(lambda: P.Joiner(P.Invite.from_link(link), 'Late', RELAYS_B, rng, T0 + 86400 * 2)),
+      'expired invite refused')
 
 # Relays: wss:// only; ws:// only to a loopback host.
 for url in ('wss://nos.lol', 'ws://127.0.0.1:7777', 'ws://localhost', 'ws://[::1]:7777/'):
     check(P.check_relays([url]) == [url], 'relay url accepted: ' + url)
 for url in ('ws://nos.lol', 'ws://192.168.1.2:7777', 'ws://127.0.0.1.example.com', 'ws://localhost@evil.example',
-            'http://nos.lol', 'wss://' + 'x' * 60):
+            'http://nos.lol', 'wss://' + 'x' * 60, 'wss://', 'wss://nos .lol', 'wss://nös.lol'):
     check(raises(lambda: P.check_relays([url])), 'relay url refused: ' + url)
-plain = P.Invite(os.urandom(32), T0 + 600, ['wss://nos.lol'])
+plain = P.Invite(os.urandom(32), alice.invite.ipk, T0 + 600, ['wss://nos.lol'])
 plain.relays = ['ws://nos.lol']
 check(raises(lambda: P.Invite.from_link(plain.link())), 'invite with a ws:// relay refused')
+check(raises(lambda: P.Invite.from_link(P.Invite(os.urandom(32), bytes(32), T0, RELAYS_A).link())),
+      'invite whose pairing key is not a curve point refused')
+check(raises(lambda: p.b64url_nopad_decode('AB')) and p.b64url_nopad_decode('AA') == b'\x00',
+      'base64url: unused bits must be zero (canonical)')
+check(raises(lambda: p.b64decode('AB==')) and raises(lambda: p.b64decode('AA')) and p.b64decode('AA==') == b'\x00',
+      'base64: canonical with padding only')
+short = P.Invite(os.urandom(32), alice.invite.ipk, T0 + 600, ['wss://ab.io'])  # 82 bytes: 4 unused bits at the end
+tail = short.link()[-1]
+check(len(short.encode()) % 3 == 1 and raises(lambda: P.Invite.from_link(short.link()[:-1] + chr(ord(tail) + 1))) and
+      P.Invite.from_link(short.link()).relays == ['wss://ab.io'], 'non-canonical base64url in an invite refused')
 
 # --- Sharing ---------------------------------------------------------------------------------
 
+
+def deliver(events, views, t):
+    for ev in events:
+        for contact, view in views.items():
+            st = P.read_control(contact, wire(ev), t)
+            if st is not None:
+                view.on_state(st, t)
+
+
 now = T0 + 200
 alice_share = P.Sharer(RELAYS_A)
-evs = alice_share.start({a_bob: now + 3600, a_carol: 0}, rng, now)
-check(len(evs) == 2 and all(e.kind == P.KIND_STORED for e in evs), 'start: one state per recipient')
+start = alice_share.start({a_bob: now + 3600, a_carol: 0}, rng, now)
+evs = start.states
+check(len(evs) == 2 and start.end is None and all(e.kind == P.KIND_STORED for e in evs),
+      'start: one state per recipient, no end')
 bob_view, carol_view = P.Following(), P.Following()
-for ev in evs:
-    for contact, view in ((bob_a, bob_view), (carol_a, carol_view)):
-        st = P.read_control(contact, wire(ev), now + 1)
-        if st:
-            view.on_state(st, now + 1)
+deliver(evs, {bob_a: bob_view, carol_a: carol_view}, now + 1)
 stream = alice_share.stream
 check(bob_view.grant['until'] == now + 3600 and bob_view.grant['pk'] == stream.pubkey(), 'bob reads grant')
 check(carol_view.grant['until'] == 0 and carol_view.grant['pk'] == stream.pubkey(), 'carol reads grant')
@@ -212,44 +378,46 @@ check(r1 and r1['lat'] == 52.5200066 and r1['seq'] == 1 and bob_view.position ==
 check(carol_view.on_stream(wire(loc1), now + 6) is not None, 'carol reads location')
 check(bob_view.on_stream(wire(loc1), now + 6) is None, 'location replay rejected (seq)')
 
-# Tampering: flip a ciphertext byte -> MAC failure; resign so the envelope is valid.
+# Tampering: flip a ciphertext byte -> MAC failure; resign so the envelope is valid. Discarded, not raised.
 raw = bytearray(p.b64decode(loc1.content))
 raw[40] ^= 1
 tampered = P.sign_event(stream.secret, loc1.created_at, loc1.kind, loc1.tags, p.b64encode(bytes(raw)), rng)
-check(raises(lambda: P.read_stream(bob_view.grant, tampered, 0, now + 6)), 'tampered ciphertext rejected')
+check(P.read_stream(bob_view.grant, tampered, 0, now + 6) is None, 'tampered ciphertext discarded silently')
 # A recipient forging a location under its own key is rejected (pubkey must be the stream key).
-forger = P.Stream(os.urandom(32), stream.key)
+forger = P.Stream(P.random_secp_key(rng), stream.key)
 check(P.read_stream(bob_view.grant, forger.location_event(fix, rng, now + 7), 0, now + 7) is None,
       'recipient cannot forge sharer locations')
 # Expired events are ignored.
 check(P.read_stream(bob_view.grant, loc1, 0, now + 5 + P.TTL_LOCATION) is None, 'expired location ignored')
 
+# Adding someone goes through change(): extend() only moves a current recipient's time limit. A
+# newcomer added with extend() would read the latest position, published before its grant.
+dave_c, dave_v = pair('Alice', RELAYS_A, 'Dave', RELAYS_B, T0, checks_on=False)[:2]
+check(raises(lambda: alice_share.extend(dave_c, 0, rng, now + 8)), 'extend() refuses a new recipient')
+check(raises(lambda: alice_share.extend(a_bob, now, rng, now + 8)), 'extend() refuses a time limit in the past')
+g = alice_share.extend(a_bob, now + 7200, rng, now + 8)
+bob_view.on_state(P.read_control(bob_a, wire(g), now + 9), now + 9)
+check(bob_view.grant['until'] == now + 7200 and alice_share.stream is stream, 'extend(): same stream, later until')
+
 # --- Revocation: what a removed recipient sees must not depend on whether the share goes on ---
-
-
-def deliver(events, views, t):
-    for ev in events:
-        for contact, view in views.items():
-            st = P.read_control(contact, wire(ev), t)
-            if st is not None:
-                view.on_state(st, t)
 
 
 def revocation(remove_only_carol: bool):
     """Alice shares with Bob and Carol, then either removes Carol or stops sharing altogether. Returns what
     anyone watching the relays sees, and what Carol can decrypt if she keeps the old stream key."""
-    a_b, b_a = pair('Alice', RELAYS_A, 'Bob', RELAYS_B, T0)
-    a_c, c_a = pair('Alice', RELAYS_A, 'Carol', RELAYS_B, T0)
+    a_b, b_a, _ = pair('Alice', RELAYS_A, 'Bob', RELAYS_B, T0, checks_on=False)
+    a_c, c_a, _ = pair('Alice', RELAYS_A, 'Carol', RELAYS_B, T0, checks_on=False)
     t = T0 + 300
     sh = P.Sharer(RELAYS_A)
     bob, carol = P.Following(), P.Following()
-    deliver(sh.start({a_b: 0, a_c: 0}, rng, t), {b_a: bob, c_a: carol}, t)
+    deliver(sh.start({a_b: 0, a_c: 0}, rng, t).states, {b_a: bob, c_a: carol}, t)
     first = wire(sh.location(fix, rng, t + 1))
     bob.on_stream(first, t + 1)
     carol.on_stream(first, t + 1)
     old_pk, carol_key = carol.grant['pk'], carol.grant['key']
     t += 60
-    published = sh.change({a_b: 0}, rng, t) if remove_only_carol else sh.stop(rng, t)
+    rk = sh.change({a_b: 0}, rng, t) if remove_only_carol else sh.stop(rng, t)
+    published = rk.states + [rk.end]
     observed = [(ev.kind, len(ev.content), [tag[0] for tag in ev.tags], ev.tag_value('d'), ev.pubkey == old_pk)
                 for ev in published]
     carol_reads = []
@@ -261,7 +429,7 @@ def revocation(remove_only_carol: bool):
         elif ev.pubkey == old_pk:      # a Carol who kept the old stream key
             carol_reads.append(('end', sorted(P.open_sealed(ev.content, p.b64decode(carol_key)))))
     return observed, carol_reads, {'sharer': sh, 'bob': bob, 'b_a': b_a, 'carol': carol, 'carol_key': carol_key,
-                                   'published': published, 't': t}
+                                   'rekey': rk, 't': t}
 
 
 seen_remove, carol_remove, ctx = revocation(True)
@@ -274,34 +442,134 @@ check(ctx['carol'].grant is None and ctx['carol'].position is None, 'removed vie
 sh, bob, t = ctx['sharer'], ctx['bob'], ctx['t']
 check(P.REKEY_DELAY_MIN <= sh.not_before - t <= P.REKEY_DELAY_MAX, 'new stream delayed by 30..120 s')
 check(sh.location(fix, rng, sh.not_before - 1) is None, 'new stream silent before the delay')
-deliver(ctx['published'], {ctx['b_a']: bob}, t)
-check(bob.grant['pk'] == sh.stream.pubkey() and bob.position is not None,
-      'Bob switched to the new stream on its grant and keeps the last position meanwhile')
-check(bob.on_stream(wire(ctx['published'][-1]), t) is None and bob.grant is not None,
-      'the old stream\'s end does not end Bob\'s view')
+# States and the end travel over different relays: here the end reaches Bob first. He keeps the last
+# position, marked stale, switches on the grant and is current again with the new stream's first fix.
+pos = bob.position
+check(bob.on_stream(wire(ctx['rekey'].end), t) is not None and bob.grant is None and bob.position == pos and
+      bob.stale, 'end before the grant: Bob erases the stream key but keeps the position, stale')
+deliver(ctx['rekey'].states, {ctx['b_a']: bob}, t + 1)
+check(bob.grant['pk'] == sh.stream.pubkey() and bob.position == pos and bob.stale,
+      'the grant arrives: Bob follows the new stream and still shows the stale position')
+bob.tick(t + P.END_GRACE + 60)
+check(bob.position == pos, 'with a current grant, the stale position stays until the new stream speaks')
 loc2 = wire(sh.location(fix, rng, sh.not_before))
-check(bob.on_stream(loc2, sh.not_before) is not None, 'Bob reads the new stream')
+check(bob.on_stream(loc2, sh.not_before) is not None and not bob.stale, 'Bob is current again with the new stream')
 check(raises(lambda: P.open_sealed(loc2.content, p.b64decode(ctx['carol_key']))),
       'Carol cannot decrypt the new stream with the old key')
+# Stop, with the end first: stale until the share-less state, which removes the dot.
+_, _, ctx2 = revocation(False)
+bob2 = P.Following()
+bob2.grant, bob2.position = {'pk': ctx2['rekey'].end.pubkey, 'key': ctx2['carol_key'], 'until': 0}, {'lat': 1}
+bob2.on_stream(wire(ctx2['rekey'].end), ctx2['t'])
+check(bob2.stale and bob2.position is not None, 'stop, end first: position kept, stale')
+deliver(ctx2['rekey'].states, {ctx2['b_a']: bob2}, ctx2['t'] + 1)
+check(bob2.position is None and bob2.grant is None, 'the share-less state then removes it')
+# An end with nothing after it: the stale position goes after END_GRACE.
+bob3 = P.Following()
+bob3.grant, bob3.position = {'pk': ctx2['rekey'].end.pubkey, 'key': ctx2['carol_key'], 'until': 0}, {'lat': 1}
+bob3.on_stream(wire(ctx2['rekey'].end), ctx2['t'])
+bob3.tick(ctx2['t'] + P.END_GRACE - 1)
+check(bob3.position is not None, 'kept during the grace period')
+bob3.tick(ctx2['t'] + P.END_GRACE)
+check(bob3.position is None, 'dropped when the grace period is over')
 
 # Time limits end on time: Carol's `until` passes and she is removed exactly as above.
-a_b, b_a = pair('Alice', RELAYS_A, 'Bob', RELAYS_B, T0)
-a_c, c_a = pair('Alice', RELAYS_A, 'Carol', RELAYS_B, T0)
+a_b, b_a, _ = pair('Alice', RELAYS_A, 'Bob', RELAYS_B, T0, checks_on=False)
+a_c, c_a, _ = pair('Alice', RELAYS_A, 'Carol', RELAYS_B, T0, checks_on=False)
 t = T0 + 300
 sh = P.Sharer(RELAYS_A)
 carol = P.Following()
-deliver(sh.start({a_b: 0, a_c: t + 600}, rng, t), {c_a: carol}, t)
-check(sh.tick(rng, t + 599) == [], 'nothing changes before the time limit')
+deliver(sh.start({a_b: 0, a_c: t + 600}, rng, t).states, {c_a: carol}, t)
+check(sh.tick(rng, t + 599) is None, 'nothing changes before the time limit')
 check(carol.on_stream(wire(sh.location(fix, rng, t + 599)), t + 600) is None and carol.grant is None,
       'the viewer enforces until locally as well')
 expired = sh.tick(rng, t + 600)
-check([(e.kind, len(e.content)) for e in expired] == [(P.KIND_STORED, 772)] * 2 + [(P.KIND_STORED, 432)] and
-      list(sh.grants) == [a_b], 'at until: states, then the end, and Carol is no longer a recipient')
+check([(e.kind, len(e.content)) for e in expired.states + [expired.end]] == [(P.KIND_STORED, 772)] * 2 +
+      [(P.KIND_STORED, 432)] and list(sh.grants) == [a_b],
+      'at until: states, then the end, and Carol is no longer a recipient')
 # The epoch change re-keys too.
 old_pk = sh.stream.pubkey()
 midnight = P.epoch_end(P.epoch_of(t))
 rekey = sh.tick(rng, midnight)
-check(len(rekey) == 2 and sh.stream.pubkey() != old_pk, 'a new stream at the epoch change')
+check(len(rekey.states) == 1 and rekey.end is not None and sh.stream.pubkey() != old_pk,
+      'a new stream at the epoch change')
+
+# --- Receiving rules: discard silently, and agree with a strict JSON parser ----------------------
+
+e0 = P.epoch_of(now)
+a_erin, erin_a, _ = pair('Alice', RELAYS_A, 'Erin', RELAYS_B, T0, checks_on=False)
+d_ae = a_erin.outgoing.at(e0)
+
+
+def raw_state(text: bytes, t: int) -> Event:
+    """A state event from Alice to Erin whose plaintext is exactly `text`."""
+    return P.sign_event(d_ae.signing_key(), t, P.KIND_STORED, [['d', ''], ['expiration', str(P.epoch_end(e0) + 3600)]],
+                        nip44.encrypt(text, d_ae.conversation_key(), os.urandom(32)), rng)
+
+
+garbage = P.sign_event(d_ae.signing_key(), now + 20, P.KIND_STORED, [['d', ''], ['expiration', str(now + 9999)]],
+                       p.b64encode(b'\x02' + os.urandom(200)), rng)
+check(P.read_control(erin_a, wire(garbage), now + 21) is None, 'undecryptable state discarded silently')
+seq = [1000]
+
+
+def state_text(**over):
+    seq[0] += 1
+    body = {'t': 'state', 'seq': seq[0], 'ts': now, 'relays': RELAYS_A}
+    body.update(over)
+    return json.dumps(body).encode()
+
+
+good_share = {'until': 0, 'pk': stream.pubkey(), 'key': p.b64encode(stream.key)}
+check(P.read_control(erin_a, raw_state(state_text(share=good_share), now + 22), now + 22) is not None,
+      'a well-formed state is accepted')
+bad_texts = {
+    'NaN': state_text().replace(b'"ts": %d' % now, b'"ts": NaN'),
+    'Infinity': state_text().replace(b'"ts": %d' % now, b'"ts": Infinity'),
+    'number overflow': state_text().replace(b'"ts": %d' % now, b'"ts": 1e400'),
+    'integer beyond 2^53': state_text(ts=2 ** 53),
+    'float as integer': state_text().replace(b'"ts": %d' % now, b'"ts": %d.0' % now),
+    'bool as integer': state_text(seq=True),
+    'duplicate member': state_text()[:-1] + b', "seq": 1}',
+    'unpaired surrogate': state_text().replace(b'"t": "state"', b'"t": "state", "x": "\\ud800"'),
+    'invalid UTF-8': state_text().replace(b'"t": "state"', b'"t": "state", "x": "\xff"'),
+    'share.pk not hex': state_text(share=dict(good_share, pk='Z' * 64)),
+    'share.pk upper case': state_text(share=dict(good_share, pk=stream.pubkey().upper())),
+    'share.pk off the curve': state_text(share=dict(good_share, pk='00' * 32)),
+    'share.key 31 bytes': state_text(share=dict(good_share, key=p.b64encode(os.urandom(31)))),
+    'share.key non-canonical': state_text(share=dict(good_share, key=p.b64encode(stream.key)[:-2] + 'B=')),
+    'share.until negative': state_text(share=dict(good_share, until=-1)),
+    'share.until bool': state_text(share=dict(good_share, until=False)),
+    'share missing key': state_text(share={'until': 0, 'pk': stream.pubkey()}),
+    'relays ws://': state_text(relays=['ws://nos.lol']),
+}
+for what, text in bad_texts.items():
+    t = now + 23 + len(what)
+    check(raises(lambda: P.check_state(P.decode_plaintext(text))) and
+          P.read_control(erin_a, raw_state(text, t), t) is None, 'state discarded: ' + what)
+check(raises(lambda: P.parse_json(b'{"t":"x","a":-Infinity}')), 'parse_json refuses -Infinity')
+check(P.parse_json(b'{"t":"x","a":-0.5,"b":9007199254740991}') == {'t': 'x', 'a': -0.5, 'b': 2 ** 53 - 1},
+      'parse_json keeps ordinary numbers')
+grant = {'pk': stream.pubkey(), 'key': p.b64encode(stream.key), 'until': 0}
+
+
+def raw_loc(text: bytes, t: int) -> Event:
+    return P.sign_event(stream.secret, t, P.KIND_STORED, [['d', ''], ['expiration', str(t + 900)]],
+                        nip44.encrypt(text, stream.key, os.urandom(32)), rng)
+
+
+ok_loc = {'t': 'loc', 'seq': 50, 'ts': 1, 'lat': 1.5, 'lon': -2, 'acc': 3}
+check(P.read_stream(grant, raw_loc(json.dumps(ok_loc).encode(), now + 60), 0, now + 60) is not None,
+      'a well-formed location is accepted')
+for what, over in {'lat 91': {'lat': 91}, 'lon -181': {'lon': -181}, 'acc -1': {'acc': -1}, 'brg 360': {'brg': 360},
+                   'spd -1': {'spd': -1}, 'seq 0': {'seq': 0}, 'seq bool': {'seq': True}, 'lat string': {'lat': '1'},
+                   'low not bool': {'low': 1}, 'nav.dest too long': {'nav': {'dest': 'x' * 49}}}.items():
+    body = dict(ok_loc, **over)
+    check(raises(lambda: P.check_loc(body)) and
+          P.read_stream(grant, raw_loc(json.dumps(body).encode(), now + 61), 0, now + 61) is None,
+          'location discarded: ' + what)
+check(P.read_stream(grant, raw_loc(b'{"t":"end","seq":51}', now + 62), 0, now + 62) is None,
+      'end without ts discarded')
 
 # --- Forward secrecy -----------------------------------------------------------------------------
 
@@ -327,6 +595,9 @@ w = P.read_signal(a_bob, sig, later + 11)
 check(w and w['t'] == 'watch' and w['until'] == later + 120, 'alice reads watch signal')
 check(P.read_signal(a_carol, sig, later + 11) is None, 'watch signal bound to its channel')
 check(P.read_signal(a_bob, sig, later + 10 + P.SIGNAL_MAX_AGE + 1) is None, 'stale signal ignored')
+d_ba = bob_a.outgoing.at(P.epoch_of(later))
+junk_sig = P.sign_event(d_ba.signing_key(), later + 12, P.KIND_SIGNAL, [], p.b64encode(b'\x02' + os.urandom(150)), rng)
+check(P.read_signal(a_bob, wire(junk_sig), later + 12) is None, 'undecryptable signal discarded silently')
 
 # --- Subscriptions ---------------------------------------------------------------------------
 

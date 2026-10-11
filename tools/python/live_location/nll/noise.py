@@ -109,7 +109,15 @@ class HandshakeState:
         self.msg_index = 0
 
     def _dh_ee(self) -> bytes:
-        return p.x25519(self.e_secret, self.re)
+        # A low-order public key makes X25519 return all zeros. PyCA refuses it, Monocypher returns the
+        # zeros; NLL makes both abort (spec §3), as RFC 7748 §6.1 allows.
+        try:
+            shared = p.x25519(self.e_secret, self.re)
+        except ValueError:
+            shared = bytes(32)
+        if shared == bytes(32):
+            raise ValueError('all-zero DH result: low-order public key')
+        return shared
 
     def write_message(self, payload: bytes) -> bytes:
         tokens = self.messages[self.msg_index]

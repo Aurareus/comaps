@@ -80,6 +80,17 @@ def secp_is_valid_secret(sk: bytes) -> bool:
     return len(sk) == 32 and 0 < v < SECP256K1_N
 
 
+def secp_is_valid_xonly(xonly_pub: bytes) -> bool:
+    """32 bytes that are the x coordinate of a curve point (BIP-340 lift_x succeeds)."""
+    if len(xonly_pub) != 32:
+        return False
+    try:
+        coincurve.PublicKeyXOnly(xonly_pub)
+        return True
+    except Exception:
+        return False
+
+
 def secp_xonly_pub(sk: bytes) -> bytes:
     """BIP-340 x-only public key of a secret key."""
     return coincurve.PrivateKey(sk).public_key.format(compressed=True)[1:]
@@ -108,7 +119,12 @@ def b64encode(data: bytes) -> str:
 
 
 def b64decode(text: str) -> bytes:
-    return base64.b64decode(text.encode('ascii'), validate=True)
+    """Strict: only the alphabet, correct padding, and canonical (the input is what encoding gives back).
+    A lax decoder accepts inputs a strict one refuses, so two implementations would disagree."""
+    data = base64.b64decode(text.encode('ascii'), validate=True)
+    if b64encode(data) != text:
+        raise ValueError('non-canonical base64')
+    return data
 
 
 def b64url_nopad_encode(data: bytes) -> str:
@@ -116,6 +132,10 @@ def b64url_nopad_encode(data: bytes) -> str:
 
 
 def b64url_nopad_decode(text: str) -> bytes:
+    """Strict, like b64decode: alphabet, no padding, canonical."""
     if any(c not in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_' for c in text):
         raise ValueError('invalid base64url')
-    return base64.urlsafe_b64decode(text + '=' * (-len(text) % 4))
+    data = base64.urlsafe_b64decode(text + '=' * (-len(text) % 4))
+    if b64url_nopad_encode(data) != text:
+        raise ValueError('non-canonical base64url')
+    return data

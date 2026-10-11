@@ -59,36 +59,40 @@ def main():
     inviter = P.Inviter(relays_a, rng, T)
     inv_rand = rng.take()
     invite = inviter.invite
-    pairing = {'now': T, 'invite': {'psk': invite.psk.hex(), 'expires_at': invite.expires_at, 'relays': relays_a,
-                                    'encoded_hex': invite.encode().hex(), 'link': invite.link(),
-                                    'rendezvous_secret': inviter.rv_sk.hex(),
-                                    'rendezvous_pubkey': inviter.rendezvous_pubkey(),
-                                    'prologue_hex': invite.prologue().hex()},
-               'inviter_random': inv_rand}   # [psk, inviter's Noise ephemeral secret]
+    pairing = {'now': T, 'invite': {'psk': invite.psk.hex(), 'inviter_pairing_secret': inviter.isk.hex(),
+                                    'inviter_pairing_pubkey': invite.ipk.hex(), 'expires_at': invite.expires_at,
+                                    'relays': relays_a, 'encoded_hex': invite.encode().hex(), 'link': invite.link(),
+                                    'mac_key': inviter.mac_key.hex()},
+               'inviter_random': inv_rand}   # [psk, inviter's pairing secret, inviter's Noise ephemeral secret]
     joiner = P.Joiner(P.Invite.from_link(invite.link()), 'Bob', relays_b, rng, T + 5)
-    pairing['joiner_random'] = rng.take()   # [joiner's Noise ephemeral secret]
+    pairing['joiner_random'] = rng.take()   # [joiner's pairing secret, joiner's Noise ephemeral secret]
     m0 = joiner.commit_event(rng, T + 5)
-    pairing['step0_commit'] = {'joiner_ephemeral_public': p.x25519_public(joiner.e).hex(),
-                               'commitment': P.commitment(p.x25519_public(joiner.e)).hex(),
+    pairing['step0_commit'] = {'joiner_pairing_secret': joiner.jsk.hex(), 'joiner_pairing_pubkey': joiner.jpk.hex(),
+                               'joiner_ephemeral_public': p.x25519_public(joiner.e).hex(),
+                               'commitment': joiner.c.hex(),
+                               'mac': p.hmac_sha256(joiner.mac_key, joiner.jpk + joiner.c).hex(),
                                'random': rng.take(), 'event': ev_dict(m0)}
-    m1 = inviter.on_commit(m0, rng, T + 6)
+    pairing['prologue_hex'] = invite.prologue(joiner.jpk, joiner.c).hex()
+    m1 = inviter.on_event(m0, rng, T + 6).publish
     pairing['step1_noise1'] = {'payload_hex': P.encode_plaintext({'t': 'pair1'}, P.SIZE_CONTROL).hex(),
                                'random': rng.take(), 'noise_message_hex': p.b64decode(m1.content).hex(),
                                'event': ev_dict(m1)}
-    m2 = joiner.on_message1(m1, rng, T + 7)
+    m2 = joiner.on_event(m1, rng, T + 7).publish
     pairing['step2_noise2'] = {'payload_hex': P.encode_plaintext({'t': 'pair2', 'name': 'Bob', 'relays': relays_b},
                                                                  P.SIZE_CONTROL).hex(),
                                'random': rng.take(), 'noise_message_hex': p.b64decode(m2.content).hex(),
                                'event': ev_dict(m2)}
     k_i2r, k_r2i = joiner.k1, joiner.k2
-    req = inviter.on_message2(m2, T + 8)
-    e_p = P.epoch_of(T + 20)
+    req = inviter.on_event(m2, rng, T + 8).show_code
+    decided_at = T + 20
+    e_p = P.epoch_of(decided_at - P.MAX_FUTURE_SKEW)
     pair3 = {'t': 'pair3', 'ok': True, 'name': 'Alice', 'relays': relays_a, 'epoch': e_p}
-    m3, c_a = inviter.message3(True, 'Alice', relays_a, rng, T + 20)
-    pairing['step3_confirm'] = {'confirm_key': P.confirm_key(k_i2r).hex(),
+    done = inviter.decide(True, 'Alice', relays_a, rng, decided_at)
+    m3, c_a = done.publish, done.contact
+    pairing['step3_confirm'] = {'now': decided_at, 'confirm_key': P.confirm_key(k_i2r).hex(),
                                 'plaintext_hex': P.encode_plaintext(pair3, P.SIZE_CONTROL).hex(),
                                 'random': rng.take(), 'event': ev_dict(m3)}
-    c_b = joiner.on_message3(m3, T + 21)
+    c_b = joiner.on_event(m3, rng, T + 21).contact
     pairing['result'] = {'handshake_hash': inviter.handshake_hash.hex(), 'split_i2r': k_i2r.hex(),
                          'split_r2i': k_r2i.hex(), 'sas': c_a.sas, 'pairing_epoch': e_p,
                          'shown_to_inviter': req}

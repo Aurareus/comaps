@@ -1,0 +1,177 @@
+{
+ "measured_at": 1791677905,
+ "results": [
+  {
+   "url": "wss://nos.lol",
+   "p_accept": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 140
+   },
+   "p_live": {
+    "received": true,
+    "latency_ms": 191
+   },
+   "second_author": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 155
+   },
+   "inviter_event": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 141
+   },
+   "p_stored": {
+    "both_authors": true,
+    "count": 2,
+    "error": null
+   },
+   "own_newer": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 140
+   },
+   "own_replace": {
+    "newer_served": true,
+    "older_gone": true,
+    "other_author_kept": true,
+    "error": null
+   },
+   "authors": {
+    "served": true,
+    "error": null
+   }
+  },
+  {
+   "url": "wss://nostr.mom",
+   "p_accept": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 142
+   },
+   "p_live": {
+    "received": true,
+    "latency_ms": 225
+   },
+   "second_author": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 174
+   },
+   "inviter_event": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 148
+   },
+   "p_stored": {
+    "both_authors": true,
+    "count": 2,
+    "error": null
+   },
+   "own_newer": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 135
+   },
+   "own_replace": {
+    "newer_served": true,
+    "older_gone": true,
+    "other_author_kept": true,
+    "error": null
+   },
+   "authors": {
+    "served": true,
+    "error": null
+   }
+  },
+  {
+   "url": "wss://relay.nostr.net",
+   "error": "InvalidStatus(Response(status_code=500, reason_phrase='Internal Server Error', headers=Headers([('Date', 'Sun, 11 Oct 2026 00:18:25 GMT'), ('Content-Type', 'text/html'), ('Content-Length', '170'), ('C"
+  },
+  {
+   "url": "wss://relay.primal.net",
+   "p_accept": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 158
+   },
+   "p_live": {
+    "received": true,
+    "latency_ms": 252
+   },
+   "second_author": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 154
+   },
+   "inviter_event": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 189
+   },
+   "p_stored": {
+    "both_authors": true,
+    "count": 2,
+    "error": null
+   },
+   "own_newer": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 157
+   },
+   "own_replace": {
+    "newer_served": true,
+    "older_gone": true,
+    "other_author_kept": true,
+    "error": null
+   },
+   "authors": {
+    "served": true,
+    "error": null
+   }
+  },
+  {
+   "url": "wss://nostr.data.haus",
+   "p_accept": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 884
+   },
+   "p_live": {
+    "received": true,
+    "latency_ms": 939
+   },
+   "second_author": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 298
+   },
+   "inviter_event": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 343
+   },
+   "p_stored": {
+    "both_authors": true,
+    "count": 2,
+    "error": null
+   },
+   "own_newer": {
+    "ok": true,
+    "msg": "",
+    "latency_ms": 196
+   },
+   "own_replace": {
+    "newer_served": true,
+    "older_gone": true,
+    "other_author_kept": true,
+    "error": null
+   },
+   "authors": {
+    "served": true,
+    "error": null
+   }
+  }
+ ]
+}
