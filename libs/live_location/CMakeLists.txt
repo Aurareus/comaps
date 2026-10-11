@@ -34,6 +34,8 @@ set(SRC
   manager/marks.cpp
   manager/marks.hpp
   manager/types.hpp
+  manager/views_json.cpp
+  manager/views_json.hpp
   nostr/event.cpp
   nostr/event.hpp
   nostr/filter.cpp
