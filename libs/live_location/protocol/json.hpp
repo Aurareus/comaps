@@ -89,6 +89,9 @@ private:
   std::vector<std::pair<std::string, Value>> m_members;
 };
 
+/// Not std::isfinite, which the project's -ffast-math may fold to true (see json.cpp).
+bool IsFinite(double d);
+
 /// The shortest decimal that reads back as `v`, written like Python's repr(float): "8.0", "52.5200066",
 /// "1e-05", "1e+16". Throws std::invalid_argument for a value that is not finite.
 std::string FormatDouble(double v);

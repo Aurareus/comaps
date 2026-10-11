@@ -82,6 +82,8 @@ public:
 
   /// Closes every connection and forgets every subscription and publication, without callbacks.
   void CloseAll();
+  /// Whether a publication still waits for its relays' answers.
+  bool HasPendingPublications() const { return !m_publications.empty(); }
 
   /// Whether `url` is backing off after a failure.
   bool IsFailing(std::string const & url) const;

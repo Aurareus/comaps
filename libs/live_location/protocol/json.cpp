@@ -12,19 +12,19 @@
 
 namespace live_location::json
 {
-namespace
-{
-size_t constexpr kMaxDepth = 512;  // plaintexts are at most 512 bytes, so 256 levels at most
-
 // Not std::isfinite: unless the optimiser inlines it, it is an inline function shared between translation
 // units, and the linker may keep the copy of one built with the project's -ffast-math, which folds it to
-// true (debug builds then accept 1e400). Internal linkage keeps this one ours.
+// true (debug builds then accept 1e400). Not inline, so this definition built here is the only one.
 bool IsFinite(double d)
 {
   uint64_t bits;
   std::memcpy(&bits, &d, sizeof(bits));
   return ((bits >> 52) & 0x7ff) != 0x7ff;
 }
+
+namespace
+{
+size_t constexpr kMaxDepth = 512;  // plaintexts are at most 512 bytes, so 256 levels at most
 
 char LocaleDecimalPoint()
 {

@@ -88,6 +88,9 @@ public:
   std::vector<PairingInfo> Pairings() const;
   std::vector<PositionInfo> Positions() const;
   SharingInfo Sharing() const;
+  /// Whether something sent still waits for relays' answers, e.g. the ends of a share just stopped.
+  /// An app that stops keeps the manager until it has none, so that a stop reaches the relays.
+  bool HasPendingPublications() const { return m_pool->HasPendingPublications(); }
   /// For tests and diagnostics.
   relay::RelayPool const & Pool() const { return *m_pool; }
 

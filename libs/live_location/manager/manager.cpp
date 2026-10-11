@@ -3,6 +3,7 @@
 #include "live_location/encoding/binary.hpp"
 #include "live_location/protocol/common.hpp"
 #include "live_location/protocol/constants.hpp"
+#include "live_location/protocol/json.hpp"
 #include "live_location/protocol/persist.hpp"
 
 #include "base/logging.hpp"
@@ -30,6 +31,25 @@ double DistanceM(Location const & a, Location const & b)
   double const h = std::sin(dLat / 2) * std::sin(dLat / 2) +
                    std::cos(a.m_lat * kRad) * std::cos(b.m_lat * kRad) * std::sin(dLon / 2) * std::sin(dLon / 2);
   return 2 * kEarthRadiusM * std::asin(std::min(1.0, std::sqrt(h)));
+}
+
+// A provider's fix as receivers accept it (spec §9): without a usable time, position or accuracy,
+// nothing; an optional field out of range is left out.
+std::optional<Location> Checked(Location fix)
+{
+  using json::IsFinite;
+  if (fix.m_ts < 0 || fix.m_ts > kMaxJsonInt || !IsFinite(fix.m_lat) || !IsFinite(fix.m_lon) || !IsFinite(fix.m_acc) ||
+      std::abs(fix.m_lat) > 90 || std::abs(fix.m_lon) > 180 || fix.m_acc < 0)
+  {
+    return {};
+  }
+  if (fix.m_spd && (!IsFinite(*fix.m_spd) || *fix.m_spd < 0))
+    fix.m_spd.reset();
+  if (fix.m_brg && (!IsFinite(*fix.m_brg) || *fix.m_brg < 0 || *fix.m_brg >= 360))
+    fix.m_brg.reset();
+  if (fix.m_alt && !IsFinite(*fix.m_alt))
+    fix.m_alt.reset();
+  return fix;
 }
 }  // namespace
 
@@ -298,6 +318,7 @@ void Manager::DeleteAllData()
   Cancel(m_viewTimer);
   m_store.Erase();
   Fresh();
+  m_started = true;  // also after a store that could not be read
   m_lastFix.reset();
   m_lastPublished.reset();
   m_liveUntil = 0;
@@ -1164,7 +1185,10 @@ void Manager::UpdateLocationRequest()
 
 void Manager::OnLocation(Location const & fix)
 {
-  m_lastFix = fix;
+  auto checked = Checked(fix);
+  if (!checked)
+    return;
+  m_lastFix = std::move(checked);
   MaybePublishLocation(false);
 }
 

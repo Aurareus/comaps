@@ -9,6 +9,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <map>
 #include <memory>
@@ -55,8 +56,8 @@ public:
   Phone(World & world, std::string const & name);
   ~Phone();
 
-  /// The process dies and starts again from its store.
-  void Restart();
+  /// The process dies and starts again from its store. False when the store cannot be read.
+  bool Restart(bool expectReadable = true);
 
   Manager & M() { return *m_manager; }
   Recorder & Events() { return m_events; }
@@ -120,12 +121,22 @@ Phone::~Phone()
   std::remove(m_path.c_str());
 }
 
-void Phone::Restart()
+bool Phone::Restart(bool expectReadable)
 {
   m_manager.reset();
   m_store = std::make_unique<store::Store>(m_path, m_keys, m_rng);
   m_manager = std::make_unique<Manager>(m_world.m_executor, m_world.m_transport, *m_store, m_rng, m_events);
-  TEST(m_manager->Start(), ());
+  bool const started = m_manager->Start();
+  if (expectReadable)
+    TEST(started, ());
+  return started;
+}
+
+double FromBits(uint64_t bits)
+{
+  double d;
+  std::memcpy(&d, &bits, sizeof(d));
+  return d;
 }
 
 Location FixAt(World & world, double lat, double lon)
@@ -413,5 +424,79 @@ UNIT_TEST(Manager_DeletingAContactStopsSharingAndRotates)
   TEST(!alice.Contact("Bob") && !alice.Events().m_sharing.m_active, ());
   TEST(*alice.Keys().Aliases().begin() != alias, ("the contact's keys are erased: rotated"));
   TEST(!bob.Contact("Alice")->m_sharesWithMeUntil, ("Bob was told the share ended"));
+}
+
+UNIT_TEST(Manager_DeletingUnreadableDataStartsAfresh)
+{
+  World world;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+
+  // The key store lost the wrapping key, e.g. after the app's data was restored to another phone.
+  alice.Keys().DeleteAllExcept("");
+  TEST(!alice.Restart(false /* expectReadable */), ());
+  TEST_EQUAL(alice.Events().m_storeErrors, 1, ());
+  TEST(!alice.M().CreateInvite(false), ("nothing works on a store that cannot be read"));
+
+  alice.M().DeleteAllData();
+  TEST(alice.Events().m_contacts.empty(), ());
+  TEST(alice.M().SetName("Alice"), ());
+  TEST(alice.M().CreateInvite(false), ("a fresh start"));
+  alice.Restart();
+  TEST_EQUAL(alice.Events().m_storeErrors, 1, ("the new store reads"));
+}
+
+UNIT_TEST(Manager_StopWaitsForTheRelaysBeforeItIsFreed)
+{
+  World world;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+  alice.M().OnLocation(FixAt(world, 1, 2));
+  world.Run(2'000);
+  TEST(bob.Position("Alice") && !alice.M().HasPendingPublications(), ());
+
+  // The app turns the feature off: it frees the manager only once the stop has its answers.
+  alice.M().StopSharing();
+  TEST(alice.M().HasPendingPublications(), ("the states and the stream's end wait for their OKs"));
+  int64_t const stopped = world.m_executor.NowMs();
+  while (alice.M().HasPendingPublications() && world.m_executor.NowMs() < stopped + 30'000)
+    world.Run(100);
+  TEST(!alice.M().HasPendingPublications(), ());
+  alice.Restart();
+  world.Run(5'000);
+  TEST(!bob.Contact("Alice")->m_sharesWithMeUntil, ("Bob was told the share ended"));
+  TEST(!bob.Position("Alice") || bob.Position("Alice")->m_stale, ());
+}
+
+UNIT_TEST(Manager_SendsOnlyFixesReceiversAccept)
+{
+  World world;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+
+  // A fix without a usable position is dropped: nothing to publish. (Non-finite values from their bits:
+  // this file is built with -ffast-math.)
+  Location broken = FixAt(world, FromBits(0x7ff8000000000000), 13.4);
+  alice.M().OnLocation(broken);
+  broken = FixAt(world, 91, 13.4);
+  alice.M().OnLocation(broken);
+  world.Run(2'000);
+  TEST(!bob.Position("Alice"), ("no position from broken fixes"));
+
+  // A field out of range is left out; the rest goes through.
+  Location fix = FixAt(world, 52.52, 13.405);
+  fix.m_brg = 360;
+  fix.m_spd = FromBits(0x7ff0000000000000);
+  fix.m_alt = 34;
+  alice.M().OnLocation(fix);
+  world.Run(2'000);
+  PositionInfo const * seen = bob.Position("Alice");
+  TEST(seen && std::abs(seen->m_location.m_lat - 52.52) < 1e-9, ("Bob sees Alice"));
+  TEST(seen && !seen->m_location.m_brg && !seen->m_location.m_spd && seen->m_location.m_alt == 34.0, ());
 }
 }  // namespace manager_tests
