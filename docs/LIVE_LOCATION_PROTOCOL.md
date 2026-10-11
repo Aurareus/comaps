@@ -139,8 +139,15 @@ invite with three relays, a 183-character link, QR version 10 at error correctio
 reject an invite with trailing bytes, an `ipk` that is not a valid x-only key, or relays that break
 §5. Each invite is **single-use** (§6.3).
 
-QR invites live 10 minutes and link invites 24 hours. Every pairing event stays on the relays until
-the invite expires, so the two apps need not be open at the same moment. Each step is taken when the
+QR invites live 10 minutes and link invites 24 hours. An invite MUST NOT live longer than 24 hours,
+and a joiner MUST refuse one whose `expires_at` is more than 86400 + 300 s ahead of its clock. The
+inviter chooses the relays that the joiner watches until `expires_at` (§6.3). Without the cap, an
+inviter running one of them could keep a joiner's phone connecting to it, and so learn its IP
+address, for years. A joiner also applies relay consent (§11) to the invite's relays before
+connecting to them.
+
+Every pairing event stays on the relays until the invite expires, so the two apps need not be open at
+the same moment. Each step is taken when the
 app that owes it is next open. Implementations therefore keep the pairing state (encrypted, design
 doc §8.5) until the pairing ends or the invite expires.
 
@@ -213,7 +220,12 @@ Subscriptions on the invite's relays, kept until the invite expires:
 4. It shows the joiner's name and the code (§6.4), and the user decides. Step 3 carries the
    decision. On acceptance it also carries the inviter's name, relays and
    `e_p = epoch(now − 300)`. The lag of 300 s, the accepted clock skew (§12), keeps `e_p` from ever
-   being in the joiner's future.
+   being in the joiner's future. The inviter MUST NOT send step 3 once the invite has expired:
+   relays would refuse it, and the joiner has stopped listening.
+5. Its new contact is **unconfirmed** until a state arrives on the contact's channel towards it (the
+   joiner's confirmation, below). Until then the app shows it as waiting for the joiner and offers to
+   remove it. The joiner may never get step 3: it may come back after the invite expired, refuse
+   the code, or abort on a late conflict.
 
 **Joiner.**
 
@@ -226,6 +238,9 @@ Subscriptions on the invite's relays, kept until the invite expires:
    what follows.
 4. It accepts the first step 3 signed by `ipk`. That step MUST decrypt under `confirm_key` and, on
    acceptance, carry `e_p` with `epoch(now) − 1 ≤ e_p ≤ epoch(now)`. Otherwise the pairing aborts.
+5. Right after accepting step 3, it MUST publish one state without `share` on the new channel, to the
+   inviter's relays from step 3 (§8, under relay consent, §11). This is the **confirmation**:
+   completion is two-sided only when the inviter has received it.
 
 **Conflicts.** Both sides watch their subscriptions until the invite expires, whenever they are
 online. The joiner's `#p` subscription also returns its own events, which it ignores: nobody else
@@ -351,6 +366,8 @@ Each direction has a single addressable slot (kind `30484`, `d = ""`, pubkey `ct
   Receivers MUST ignore a state whose `seq` is not greater than the last one accepted from that
   contact. This stops a relay replaying an old grant after the share ended.
 - `relays` are the sender's current home relays.
+- The joiner's first state, sent right after pairing, carries no `share`. It confirms the pairing to
+  the inviter (§6.3).
 - `share` is present while the sender shares with this recipient. `until` is when this
   recipient's access ends (0 = until stopped). A state without `share` ends any earlier grant.
 - Encryption: `content = NIP-44(ctl_ck(e), plaintext)`, control class.
@@ -480,6 +497,23 @@ linkable.
 Publishers send each event to all relevant relays and treat it as delivered when at least one relay
 answers `OK true`. Receivers deduplicate by event id.
 
+**Relay consent.** Every relay a phone connects to learns that phone's IP address, hence its rough
+location and provider, and when the connection happens. Contacts name relays: a sharer its home
+relays in its states, a joiner its relays in step 2, an inviter its relays in the invite and in step
+3. A contact who runs one of them would learn your IP address whenever your phone uses it for that
+contact. That happens when you view its share or send it watch signals, when you pair with it, and
+when you send it states, including when you stop sharing with it. So:
+
+- Implementations MUST NOT connect, to read or to publish, to a relay outside the user's own home
+  relays, the built-in default list, and relays the user has approved.
+- For any other relay a contact names, the app asks once, naming the contact: "Bob's location comes
+  through relay.example.org, which isn't one of yours. Its operator would see your internet address
+  whenever you view Bob." An approval is remembered per relay, and can be revoked in the settings.
+- Until approved, a relay is skipped. The app reads, publishes and pairs through the contact's
+  remaining relays, if any. Skipping a removed recipient's relay when sending it a state without
+  `share` costs nothing: revocation is cryptographic (§9).
+- Hiding a contact stops every connection made for it: no stream, no signals.
+
 ## 12. Receiving rules
 
 Every event must pass all of these checks. Cheap ones may run first, but the signature MUST be
@@ -551,7 +585,10 @@ Further obligations:
 - Rotate the stream on every membership change and every epoch, in the order of §9.
 - One epoch per connection, decoys in the inbox subscription (§11).
 - Never publish anything for a contact the user has not explicitly shared with. After the user
-  stops sharing, publish nothing but the final states and the `end`.
+  stops sharing, publish nothing but the final states and the `end`. The one exception is the
+  joiner's confirmation, a single state without `share` right after pairing (§6.3).
+- Connect only to the user's own, the default and approved relays (relay consent, §11).
+- Invites live at most 24 hours; joiners refuse longer ones (§6.1).
 - Strictly increasing `created_at` per event pubkey (§4).
 
 ## 14. Constants
@@ -571,6 +608,7 @@ Further obligations:
 | stale position kept after an `end` | ≤ 120 s |
 | pairing epoch | `e_p = epoch(now − 300)` at the inviter; the joiner accepts `epoch(now) − 1 ≤ e_p ≤ epoch(now)` |
 | invite | 70 bytes plus the relay list (123 bytes with the three default relays) |
+| invite lifetime | at most 86400 s; joiners refuse `expires_at` more than 86400 + 300 s ahead |
 | JSON integers | within ±(2⁵³ − 1) |
 | relay lists | 1–4 `wss://` URLs of ≤ 64 bytes (`ws://` only to loopback) |
 | authors per REQ filter | ≤ 50 |
@@ -584,6 +622,7 @@ Further obligations:
 - all four pairing steps (the commitment with its MAC, both Noise messages, the confirmation with the
   inviter's name, relays and pairing epoch), the handshake hash (for debugging only), the split keys
   and the SAS;
+- the joiner's confirmation state after pairing;
 - channel keys for three epochs in both directions;
 - a state with a grant and a state without one;
 - a location, a stream end and a watch signal;
