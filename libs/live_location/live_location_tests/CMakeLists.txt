@@ -7,6 +7,7 @@ set(SRC
   fake_relay.hpp
   json_profile_tests.cpp
   manager_tests.cpp
+  marks_tests.cpp
   pairing_tests.cpp
   relay_pool_tests.cpp
   scenario.cpp
@@ -15,6 +16,7 @@ set(SRC
   store_tests.cpp
   test_helpers.cpp
   test_helpers.hpp
+  thread_executor_tests.cpp
   vectors_tests.cpp
 )
 

@@ -31,6 +31,8 @@ set(SRC
   executor.hpp
   manager/manager.cpp
   manager/manager.hpp
+  manager/marks.cpp
+  manager/marks.hpp
   manager/types.hpp
   nostr/event.cpp
   nostr/event.hpp
@@ -60,6 +62,8 @@ set(SRC
   relay/transport.hpp
   store/store.cpp
   store/store.hpp
+  thread_executor.cpp
+  thread_executor.hpp
 )
 
 omim_add_library(${PROJECT_NAME} ${SRC})
