@@ -3,6 +3,7 @@
 #include "live_location/crypto/chacha.hpp"
 #include "live_location/crypto/sha256.hpp"
 #include "live_location/crypto/x25519.hpp"
+#include "live_location/encoding/binary.hpp"
 
 #include <stdexcept>
 #include <string_view>
@@ -165,5 +166,46 @@ HandshakeState::SplitKeys HandshakeState::Split() const
     throw std::logic_error("Noise: Split() before the handshake is complete");
   auto const out = NoiseHkdf(m_ck, ByteSpan(), false /* threeOutputs */);
   return {out.m_out1, out.m_out2};
+}
+void CipherState::Save(binary::Writer & writer) const
+{
+  writer.Secret(m_key);
+  writer.Bool(m_hasKey);
+  writer.I64(static_cast<int64_t>(m_n));
+}
+
+void CipherState::Load(binary::Reader & reader)
+{
+  m_key = reader.Secret();
+  m_hasKey = reader.Bool();
+  m_n = static_cast<uint64_t>(reader.I64());
+}
+
+void HandshakeState::Save(binary::Writer & writer) const
+{
+  writer.Bool(m_initiator);
+  writer.Secret(m_psk);
+  writer.Secret(m_e);
+  writer.Raw(m_re);
+  writer.Raw(m_h);
+  writer.Secret(m_ck);
+  m_cipher.Save(writer);
+  writer.U8(static_cast<uint8_t>(m_messageIndex));
+}
+
+HandshakeState HandshakeState::Load(binary::Reader & reader)
+{
+  HandshakeState out;
+  out.m_initiator = reader.Bool();
+  out.m_psk = reader.Secret();
+  out.m_e = reader.Secret();
+  out.m_re = reader.Array<kDhLen>();
+  out.m_h = reader.Array<32>();
+  out.m_ck = reader.Secret();
+  out.m_cipher.Load(reader);
+  out.m_messageIndex = reader.U8();
+  if (out.m_messageIndex > 2)
+    throw binary::FormatError("Noise message index");
+  return out;
 }
 }  // namespace live_location::noise

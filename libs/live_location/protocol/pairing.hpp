@@ -8,6 +8,7 @@
 #include "live_location/protocol/invite.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -19,8 +20,18 @@
 //   1  inviter (isk)              Noise NNpsk0 message 1 (psk, e)   payload pair1 (nothing else)
 //   2  joiner  (jsk)  ["p", ipk]  Noise NNpsk0 message 2 (e, ee)    payload pair2: name, relays
 //   3  inviter (isk)              NIP-44 under the confirm key      payload pair3: ok, name, relays, epoch
+namespace live_location::binary
+{
+class Reader;
+class Writer;
+}  // namespace live_location::binary
+
 namespace live_location
 {
+/// How the store names the contact a pairing made: its own ids, not the protocol's.
+using ContactIdOf = std::function<std::string(ContactPtr const &)>;
+using ContactById = std::function<ContactPtr(std::string const &)>;
+
 /// A pairing step was duplicated or invalid: someone else holds the invite. The pairing has stopped and
 /// erased its secrets; tell the user.
 class PairingAborted : public std::runtime_error
@@ -102,7 +113,13 @@ public:
   std::optional<Key> const & K1() const { return m_k1; }
   std::optional<Key> const & K2() const { return m_k2; }
 
+  /// The whole pairing, secrets included, as the store keeps it (design doc §8.5): a link pairing can
+  /// take days of app restarts. Load() throws binary::FormatError.
+  void Save(binary::Writer & writer, ContactIdOf const & idOf) const;
+  static std::unique_ptr<Joiner> Load(binary::Reader & reader, ContactById const & contactById);
+
 private:
+  Joiner() = default;
   Outcome Conflict(char const * why);
   void EraseSecrets();
 
@@ -153,7 +170,12 @@ public:
   ByteArray<32> const & HandshakeHash() const { return m_handshakeHash; }
   Key MacKeyForVectors() const { return *m_macKey; }
 
+  /// As Joiner::Save() and Joiner::Load().
+  void Save(binary::Writer & writer, ContactIdOf const & idOf) const;
+  static std::unique_ptr<Inviter> Load(binary::Reader & reader, ContactById const & contactById);
+
 private:
+  Inviter() = default;
   Outcome Conflict(char const * why);
   void EraseSecrets();
 

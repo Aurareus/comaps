@@ -5,6 +5,12 @@
 #include <cstdint>
 #include <optional>
 
+namespace live_location::binary
+{
+class Reader;
+class Writer;
+}  // namespace live_location::binary
+
 namespace live_location::noise
 {
 size_t constexpr kDhLen = 32;
@@ -20,6 +26,9 @@ public:
   bool HasKey() const { return m_hasKey; }
   Bytes EncryptWithAd(ByteSpan ad, ByteSpan plaintext);
   std::optional<SecretBytes> DecryptWithAd(ByteSpan ad, ByteSpan ciphertext);
+
+  void Save(binary::Writer & writer) const;
+  void Load(binary::Reader & reader);
 
 private:
   ByteArray<12> Nonce() const;
@@ -57,7 +66,13 @@ public:
   /// Noise Split(), returning its raw keys. Only once the handshake is complete.
   SplitKeys Split() const;
 
+  /// The whole state, secrets included, for the store: a pairing may span days of app restarts.
+  void Save(binary::Writer & writer) const;
+  static HandshakeState Load(binary::Reader & reader);
+
 private:
+  HandshakeState() = default;
+
   void MixHash(ByteSpan data);
   void MixKey(ByteSpan ikm);
   void MixKeyAndHash(ByteSpan ikm);
@@ -65,7 +80,7 @@ private:
   Bytes EncryptAndHash(ByteSpan plaintext);
   std::optional<SecretBytes> DecryptAndHash(ByteSpan ciphertext);
 
-  bool m_initiator;
+  bool m_initiator = false;
   Key m_psk;
   Key m_e;
   ByteArray<kDhLen> m_re{};

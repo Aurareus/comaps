@@ -11,6 +11,7 @@ set(SRC
   scenario.cpp
   scenario.hpp
   sharing_tests.cpp
+  store_tests.cpp
   test_helpers.cpp
   test_helpers.hpp
   vectors_tests.cpp

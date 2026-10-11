@@ -7,6 +7,7 @@
 #include "live_location/encoding/base64.hpp"
 #include "live_location/protocol/common.hpp"
 #include "live_location/protocol/constants.hpp"
+#include "live_location/protocol/persist.hpp"
 
 namespace live_location
 {
@@ -386,5 +387,158 @@ void Inviter::Abort()
 bool Inviter::HasSecrets() const
 {
   return m_invite.m_psk || m_isk || m_e || m_hs || m_k1 || m_k2;
+}
+// --- Store ----------------------------------------------------------------------------------
+
+namespace
+{
+void WriteAccepted(binary::Writer & writer, std::map<int, std::string> const & accepted)
+{
+  writer.U32(static_cast<uint32_t>(accepted.size()));
+  for (auto const & [step, id] : accepted)
+  {
+    writer.U8(static_cast<uint8_t>(step));
+    writer.String(id);
+  }
+}
+
+std::map<int, std::string> ReadAccepted(binary::Reader & reader)
+{
+  std::map<int, std::string> out;
+  uint32_t const n = reader.Count(5);
+  for (uint32_t i = 0; i < n; ++i)
+  {
+    int const step = reader.U8();
+    if (step > 3)
+      throw binary::FormatError("pairing step");
+    out[step] = reader.String();
+  }
+  return out;
+}
+
+void WriteHandshake(binary::Writer & writer, std::unique_ptr<noise::HandshakeState> const & hs)
+{
+  writer.Bool(hs != nullptr);
+  if (hs)
+    hs->Save(writer);
+}
+
+std::unique_ptr<noise::HandshakeState> ReadHandshake(binary::Reader & reader)
+{
+  if (!reader.Bool())
+    return nullptr;
+  return std::make_unique<noise::HandshakeState>(noise::HandshakeState::Load(reader));
+}
+
+ContactPtr ReadContactId(binary::Reader & reader, ContactById const & contactById)
+{
+  std::string const id = reader.String();
+  if (id.empty())
+    return nullptr;
+  ContactPtr contact = contactById(id);
+  if (!contact)
+    throw binary::FormatError("unknown contact");
+  return contact;
+}
+}  // namespace
+
+void Joiner::Save(binary::Writer & writer, ContactIdOf const & idOf) const
+{
+  persist::WriteInvite(writer, m_invite);
+  writer.String(m_name);
+  persist::WriteRelays(writer, m_relays);
+  writer.OptionalSecret(m_macKey);
+  writer.OptionalSecret(m_jsk);
+  writer.Raw(m_jpk);
+  writer.OptionalSecret(m_e);
+  writer.Raw(m_c);
+  WriteHandshake(writer, m_hs);
+  persist::WriteOptionalEvent(writer, m_step0);
+  WriteAccepted(writer, m_accepted);
+  persist::WriteOptionalEvent(writer, m_step2);
+  writer.OptionalSecret(m_k1);
+  writer.OptionalSecret(m_k2);
+  writer.String(m_sas);
+  writer.String(m_contact ? idOf(m_contact) : std::string());
+  writer.Bool(m_done);
+  writer.Raw(m_handshakeHash);
+}
+
+std::unique_ptr<Joiner> Joiner::Load(binary::Reader & reader, ContactById const & contactById)
+{
+  std::unique_ptr<Joiner> joiner(new Joiner());
+  joiner->m_invite = persist::ReadInvite(reader);
+  joiner->m_name = reader.String();
+  joiner->m_relays = persist::ReadRelays(reader);
+  joiner->m_macKey = reader.OptionalSecret();
+  joiner->m_jsk = reader.OptionalSecret();
+  joiner->m_jpk = reader.Array<32>();
+  joiner->m_e = reader.OptionalSecret();
+  joiner->m_c = reader.Array<32>();
+  joiner->m_hs = ReadHandshake(reader);
+  joiner->m_step0 = persist::ReadOptionalEvent(reader);
+  joiner->m_accepted = ReadAccepted(reader);
+  joiner->m_step2 = persist::ReadOptionalEvent(reader);
+  joiner->m_k1 = reader.OptionalSecret();
+  joiner->m_k2 = reader.OptionalSecret();
+  joiner->m_sas = reader.String();
+  joiner->m_contact = ReadContactId(reader, contactById);
+  joiner->m_done = reader.Bool();
+  joiner->m_handshakeHash = reader.Array<32>();
+  return joiner;
+}
+
+void Inviter::Save(binary::Writer & writer, ContactIdOf const & idOf) const
+{
+  persist::WriteInvite(writer, m_invite);
+  writer.OptionalSecret(m_isk);
+  writer.OptionalSecret(m_macKey);
+  writer.OptionalSecret(m_e);
+  WriteAccepted(writer, m_accepted);
+  writer.Bool(m_jpk.has_value());
+  if (m_jpk)
+    writer.Raw(*m_jpk);
+  writer.Raw(m_commit);
+  WriteHandshake(writer, m_hs);
+  writer.Bool(m_request.has_value());
+  if (m_request)
+  {
+    writer.String(m_request->m_name);
+    persist::WriteRelays(writer, m_request->m_relays);
+  }
+  writer.OptionalSecret(m_k1);
+  writer.OptionalSecret(m_k2);
+  writer.String(m_sas);
+  writer.String(m_contact ? idOf(m_contact) : std::string());
+  writer.Bool(m_decided);
+  writer.Raw(m_handshakeHash);
+}
+
+std::unique_ptr<Inviter> Inviter::Load(binary::Reader & reader, ContactById const & contactById)
+{
+  std::unique_ptr<Inviter> inviter(new Inviter());
+  inviter->m_invite = persist::ReadInvite(reader);
+  inviter->m_isk = reader.OptionalSecret();
+  inviter->m_macKey = reader.OptionalSecret();
+  inviter->m_e = reader.OptionalSecret();
+  inviter->m_accepted = ReadAccepted(reader);
+  if (reader.Bool())
+    inviter->m_jpk = reader.Array<32>();
+  inviter->m_commit = reader.Array<32>();
+  inviter->m_hs = ReadHandshake(reader);
+  if (reader.Bool())
+  {
+    Pair2 request;
+    request.m_name = reader.String();
+    request.m_relays = persist::ReadRelays(reader);
+    inviter->m_request = std::move(request);
+  }
+  inviter->m_k1 = reader.OptionalSecret();
+  inviter->m_k2 = reader.OptionalSecret();
+  inviter->m_sas = reader.String();
+  inviter->m_contact = ReadContactId(reader, contactById);
+  inviter->m_decided = reader.Bool();
+  inviter->m_handshakeHash = reader.Array<32>();
+  return inviter;
 }
 }  // namespace live_location
