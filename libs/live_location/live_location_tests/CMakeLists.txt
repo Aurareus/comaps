@@ -3,8 +3,11 @@ project(live_location_tests)
 set(SRC
   channel_tests.cpp
   crypto_tests.cpp
+  fake_relay.cpp
+  fake_relay.hpp
   json_profile_tests.cpp
   pairing_tests.cpp
+  relay_pool_tests.cpp
   scenario.cpp
   scenario.hpp
   sharing_tests.cpp

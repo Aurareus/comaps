@@ -26,10 +26,13 @@ set(SRC
   crypto/x25519.hpp
   encoding/base64.cpp
   encoding/base64.hpp
+  executor.hpp
   nostr/event.cpp
   nostr/event.hpp
   nostr/filter.cpp
   nostr/filter.hpp
+  nostr/relay_message.cpp
+  nostr/relay_message.hpp
   protocol/channel.cpp
   protocol/channel.hpp
   protocol/common.cpp
@@ -45,6 +48,9 @@ set(SRC
   protocol/pairing.hpp
   protocol/stream.cpp
   protocol/stream.hpp
+  relay/relay_pool.cpp
+  relay/relay_pool.hpp
+  relay/transport.hpp
 )
 
 omim_add_library(${PROJECT_NAME} ${SRC})
