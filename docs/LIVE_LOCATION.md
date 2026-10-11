@@ -190,7 +190,8 @@ Full byte-level detail: [LIVE_LOCATION_PROTOCOL.md](LIVE_LOCATION_PROTOCOL.md). 
 ### 4.1 Pairing
 
 1. A shows a QR code (or sends a link) containing a 32-byte one-time secret, A's one-time pairing
-   public key, an expiry and A's relays (123 bytes, a 183-character link).
+   public key, an expiry and A's relays (122 bytes and a 182-character link with the default
+   relays).
 2. B's app makes a one-time pairing key of its own. With it, it publishes on A's relays a commitment
    to its fresh Noise key, authenticated with the secret.
 3. A's app answers with Noise `NNpsk0_25519_ChaChaPoly_SHA256` message 1, signed with A's pairing
@@ -954,7 +955,7 @@ You signed off D1–D14 on 2026-10-10 (D8 after your camera test), and D15–D18
 | D5 | Default relays | **nos.lol, nostr.mom, relay.nostr.net** (§6.3). Your note: for a small private circle, two self-hosted relays on different hosts cut third-party operators out entirely. The relay settings and the docs will say so, together with the caveat in §6.3 | Approved |
 | D6 | Feature minimum Android, key storage | **API 24+; Keystore-wrapped data key; file in `noBackupFilesDir`** | Approved, with key rotation on erasure (§8.5, §10.4) |
 | D7 | WebSocket library | **OkHttp 4.12** | Approved |
-| D8 | QR scanning | **No in-app scanner**: the system camera or a QR app opens the link, plus "Paste invite" | Approved: the stock cameras of three phones opened CoMaps from the test QR. The invite has since grown from 91 to 123 bytes (the inviter's pairing key), so its QR code goes from version 8 to 10 (49 → 57 modules a side, still well within what phone cameras read). A re-scan of the new image is optional |
+| D8 | QR scanning | **No in-app scanner**: the system camera or a QR app opens the link, plus "Paste invite" | Approved: the stock cameras of three phones opened CoMaps from the test QR. The invite has since grown by 32 bytes (the inviter's pairing key), from 90 to 122 with the default relays (from 91 to 123 in the test image, which encodes the vectors' example), so its QR code goes from version 8 to 10 (49 → 57 modules a side, still well within what phone cameras read). A re-scan of the new image is optional |
 | D9 | SHA-256 source | **Shim over libsecp256k1's internal implementation** | Approved. Later, as a separate change: once CoMaps has Boost ≥ 1.88, switch to `boost::hash2::sha2_256` and `hmac_sha2_256` and delete the shim |
 | D10 | Names | **Protocol "NLL v1", labels `nll1:`, kinds 30484/20484, link `comaps://live/pair#…`** | Approved |
 | **D11** | When a viewer connects | **While the app is in the foreground and at least one contact exists**, to discover shares. Never in the background | Approved |
@@ -1078,7 +1079,7 @@ protocol checks pass, and the vectors are regenerated.
 | 4. Pairing just before midnight breaks the joiner | **Right** | Your fix: `e_p = epoch(now − 300)`, and the joiner rejects `e_p > epoch(now)`. Also, `inbox_filters` now skips a contact whose chain is ahead of the clock instead of failing for every contact, and a chain ahead of the clock (after the clock was set back) still signs. Tested with the skew in both directions | spec §6.3 |
 | 5. Receiving rules and consistency between implementations | **Right on all four.** More of the same kind turned up: Python counts `true` as an integer; `json.loads` turns `1e400` into infinity and accepts duplicate names and lone surrogates; the base64 decoder accepted non-canonical input; relay URLs were checked with a URL parser whose quirks another implementation would not share | Every read path discards silently. The spec now has: a field-check table for every message type; an I-JSON profile with an exact definition of an integer; strict, canonical base64 and lowercase hex; relay URLs as an explicit pattern; an abort on an all-zero `ee`; exact rules for `kind`, `created_at`, `expiration` and reading tags. Each rejection is tested for its reason, not just for a `None` | spec §2, §3, §5, §12 |
 | 6. The joiner keeps the PSK and the rendezvous key | **Right**, and the inviter kept its rendezvous key as well | When the pairing ends, both sides erase the PSK, their pairing secret, the ephemeral key, the Noise state and the roots. Until the invite expires they keep only the MAC key and public data. Tested on both sides | spec §6.3, §13 |
-| Decisions | D8 passed on three phones; D15: none in v1; D16: about daily; D17: one listening connection | Recorded. The invite grew to 123 bytes, so its QR code is now version 10 | §14 |
+| Decisions | D8 passed on three phones; D15: none in v1; D16: about daily; D17: one listening connection | Recorded. The invite grew to 122 bytes with the default relays (123 in the vectors' example), so its QR code is now version 10 | §14 |
 
 ## 18. Third review changes (2026-10-11)
 

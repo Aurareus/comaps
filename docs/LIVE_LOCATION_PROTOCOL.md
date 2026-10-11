@@ -134,8 +134,9 @@ invite = u8(1)                      version
 link   = "comaps://live/pair#" || base64url(invite)
 ```
 
-The invite is shown as a QR code of `link` or sent as `link` over any channel. Example: a 123-byte
-invite with three relays, a 183-character link, QR version 10 at error correction M. Receivers
+The invite is shown as a QR code of `link` or sent as `link` over any channel. With the three
+default relays it is 122 bytes, a 182-character link, QR version 10 at error correction M (the
+vectors' example, whose third relay is longer, is 123 bytes and 183 characters). Receivers
 reject an invite with trailing bytes, an `ipk` that is not a valid x-only key, or relays that break
 §5. Each invite is **single-use** (§6.3).
 
@@ -639,7 +640,7 @@ Further obligations:
 | pairing epoch | `e_p = epoch(now − 300)` at the inviter; the joiner accepts `epoch(now) − 1 ≤ e_p ≤ epoch(now)` |
 | joiner's confirmation | a state right after step 3, then one on each UTC day the joiner runs, through epoch `e_p + 7` |
 | removal offered for an unconfirmed contact | from `epoch_end(e_p + 7) + 3600` |
-| invite | 70 bytes plus the relay list (123 bytes with the three default relays) |
+| invite | 70 bytes plus the relay list (122 bytes with the three default relays) |
 | invite lifetime | at most 86400 s; joiners refuse `expires_at` more than 86400 + 300 s ahead |
 | JSON integers | within ±(2⁵³ − 1) |
 | relay lists | 1–4 `wss://` URLs of ≤ 64 bytes (`ws://` only to loopback) |
