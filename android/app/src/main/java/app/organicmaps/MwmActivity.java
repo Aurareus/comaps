@@ -69,6 +69,10 @@ import app.organicmaps.intent.IntentProcessor;
 import app.organicmaps.leftbutton.LeftButton;
 import app.organicmaps.leftbutton.LeftButtonsHolder;
 import app.organicmaps.leftbutton.LeftToggleButton;
+import app.organicmaps.livelocation.LiveLocationActivity;
+import app.organicmaps.livelocation.LiveLocationFeature;
+import app.organicmaps.livelocation.LiveLocationInviteProcessor;
+import app.organicmaps.livelocation.LiveLocationMapUi;
 import app.organicmaps.location.TrackRecordingService;
 import app.organicmaps.maplayer.MapButtonsController;
 import app.organicmaps.maplayer.MapButtonsViewModel;
@@ -202,6 +206,8 @@ public class MwmActivity extends BaseMwmFragmentActivity
 
   private PlacePageViewModel mPlacePageViewModel;
   private MapButtonsViewModel mMapButtonsViewModel;
+  @Nullable
+  private LiveLocationMapUi mLiveLocationMapUi; // Live location (NLL)
   private MapButtonsController.LayoutMode mPreviousMapLayoutMode;
 
   @Nullable
@@ -334,6 +340,7 @@ public class MwmActivity extends BaseMwmFragmentActivity
     }
 
     final IntentProcessor[] mIntentProcessors = {
+        new LiveLocationInviteProcessor(), // Live location (NLL): before the comaps:// short links
         new Factory.UrlProcessor(),
         new Factory.KmzKmlProcessor(),
     };
@@ -506,6 +513,7 @@ public class MwmActivity extends BaseMwmFragmentActivity
     // We don't need to manually handle removing the observers it follows the activity lifecycle
     mMapButtonsViewModel.getBottomButtonsHeight().observe(this, this::onMapBottomButtonsHeightChange);
     mMapButtonsViewModel.getLayoutMode().observe(this, this::initNavigationButtons);
+    mLiveLocationMapUi = new LiveLocationMapUi(this, findViewById(R.id.map_container)); // Live location (NLL)
 
     mSearchController = new FloatingSearchToolbarController(this, this);
     mSearchController.getToolbar().setBackground(ContextCompat.getDrawable(this, R.drawable.bg_search_radius));
@@ -1234,6 +1242,8 @@ public class MwmActivity extends BaseMwmFragmentActivity
     MwmApplication.from(this).getLocationHelper().addListener(this);
     mSearchController.attach(this);
     Utils.keepScreenOn(Config.isKeepScreenOnEnabled() || RoutingController.get().isNavigating(), getWindow());
+    if (mLiveLocationMapUi != null) // Live location (NLL)
+      mLiveLocationMapUi.onStart();
   }
 
   @Override
@@ -1243,6 +1253,8 @@ public class MwmActivity extends BaseMwmFragmentActivity
     Framework.nativeRemovePlacePageActivationListener(this);
     BookmarkManager.INSTANCE.removeLoadingListener(this);
     MwmApplication.from(this).getLocationHelper().removeListener(this);
+    if (mLiveLocationMapUi != null) // Live location (NLL)
+      mLiveLocationMapUi.onStop();
     if (mDisplayManager.isDeviceDisplayUsed() && !RoutingController.get().isNavigating())
     {
       LocationState.nativeRemoveListener();
@@ -2542,6 +2554,10 @@ public class MwmActivity extends BaseMwmFragmentActivity
 
       items.add(new MenuBottomSheetItem(R.string.share_my_location, R.drawable.ic_share,
                                         this::onShareLocationOptionSelected));
+
+      if (LiveLocationFeature.isEnabled(this)) // Live location (NLL)
+        items.add(new MenuBottomSheetItem(R.string.live_location, R.drawable.ic_groups,
+                                          () -> startActivity(LiveLocationActivity.contactsIntent(this))));
 
       if (!BUTTON_HELP_CODE.equals(activeLeftButton))
         items.add(new MenuBottomSheetItem(R.string.about_help, R.drawable.ic_logo_monochrome, this::showHelp));

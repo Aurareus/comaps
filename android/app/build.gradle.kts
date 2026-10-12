@@ -391,6 +391,7 @@ dependencies {
     // https://github.com/organicmaps/organicmaps/issues/6106
     implementation(libs.google.guava)
     implementation(libs.appdevnext.androidchart)
+    implementation(libs.qrcodegen) // Live location (NLL): invite QR codes
 
     // Test Dependencies
     androidTestImplementation(libs.androidx.test.junit)

@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Live location (NLL): docs/LIVE_LOCATION.md §11. English only for now. -->
+<resources>
+  <string name="pref_live_location" translatable="false">LiveLocation</string>
+
+  <!-- The feature -->
+  <string name="live_location">Live location</string>
+  <string name="live_location_setting">Live location sharing (experimental)</string>
+  <string name="live_location_setting_summary">Share your location with people you choose. It is encrypted end to end and travels through relays.</string>
+  <string name="live_location_turned_off_title">Live location is off</string>
+  <string name="live_location_turned_off_message">Your contacts stay on this phone until you delete them.</string>
+  <string name="live_location_delete_all">Delete all live location data</string>
+  <string name="live_location_delete_all_confirm">Delete your contacts, their keys and your live location settings from this phone? You will have to connect with your contacts again.</string>
+  <string name="live_location_keep">Keep</string>
+  <string name="live_location_delete">Delete</string>
+  <string name="live_location_store_error">The live location data on this phone cannot be read, for example because the app\'s data was restored on another phone. Delete it to start afresh.</string>
+  <string name="live_location_stopped_unseen">Sharing stopped because its notification was turned off. Sharing needs the notification, so that nobody can share your location without you seeing it.</string>
+
+  <!-- Notification -->
+  <string name="live_location_channel">Live location sharing</string>
+  <string name="live_location_channel_description">Shown while you share your location. If these notifications are turned off, sharing stops.</string>
+  <string name="live_location_notification_title">Sharing your live location</string>
+  <string name="live_location_notification_with">With %s</string>
+  <string name="live_location_notification_with_until">%1$s · until %2$s</string>
+  <string name="live_location_stop">Stop</string>
+  <string name="live_location_two_names">%1$s and %2$s</string>
+  <string name="live_location_more_names">%1$s and %2$d others</string>
+
+  <!-- Contacts -->
+  <string name="live_location_contacts">Contacts</string>
+  <string name="live_location_add_contact">Add contact</string>
+  <string name="live_location_share_my_location">Share my location</string>
+  <string name="live_location_no_contacts">No contacts yet. To add someone, show them a QR code or send them a link.</string>
+  <string name="live_location_sharing_with_you">Sharing with you</string>
+  <string name="live_location_sharing_with_you_until">Sharing with you until %s</string>
+  <string name="live_location_you_share">You share your location</string>
+  <string name="live_location_you_share_until">You share until %s</string>
+  <string name="live_location_waiting_for">Waiting for %s to finish connecting</string>
+  <string name="live_location_offer_removal">Nothing has arrived from %1$s since you connected. %1$s may not have finished connecting, or may not have opened CoMaps since. You can remove the contact, or keep it.</string>
+  <string name="live_location_verified">Verified</string>
+  <string name="live_location_unverified">Not verified</string>
+  <string name="live_location_flagged">Compare codes</string>
+  <string name="live_location_live_updates_off">Live updates off</string>
+  <string name="live_location_hidden">Hidden</string>
+  <plurals name="live_location_sharing_with_count">
+    <item quantity="one">Sharing with %d person</item>
+    <item quantity="other">Sharing with %d people</item>
+  </plurals>
+  <string name="live_location_manage">Manage</string>
+
+  <!-- Adding a contact -->
+  <string name="live_location_your_name_title">Your name</string>
+  <string name="live_location_your_name_message">Contacts see this name when you connect.</string>
+  <string name="live_location_name_empty">Enter a name.</string>
+  <string name="live_location_name_too_long">This name is too long.</string>
+  <string name="live_location_invite_hint">Let the other person scan this code with their camera.</string>
+  <string name="live_location_share_link">Share a link instead</string>
+  <string name="live_location_paste_invite">Paste invite</string>
+  <string name="live_location_paste_invite_hint">comaps://live/pair#…</string>
+  <string name="live_location_expires_in">Expires in %s</string>
+  <string name="live_location_waiting">Waiting…</string>
+  <string name="live_location_link_waiting">The other person can open this link within 24 hours. Connecting finishes once you have both opened CoMaps; it is quickest while you both have it open.</string>
+  <string name="live_location_joiner_waiting">Waiting for the other phone. You can close CoMaps; connecting continues the next time you open it.</string>
+  <string name="live_location_connecting">Connecting…</string>
+  <string name="live_location_check_code">Check that the other phone shows</string>
+  <string name="live_location_codes_match">Codes match</string>
+  <string name="live_location_codes_differ">They differ</string>
+  <string name="live_location_codes_differ_message">Connecting was stopped. Don\'t connect with this invite: someone may have tried to intercept it.</string>
+  <string name="live_location_wants_to_connect_in_person">%1$s wants to connect. Check that %1$s\'s screen shows</string>
+  <string name="live_location_wants_to_connect_by_link">%1$s wants to connect. Compare this code with %1$s, by phone or in person:</string>
+  <string name="live_location_codes_match_connect">Codes match, connect</string>
+  <string name="live_location_connect_without_comparing">Connect without comparing</string>
+  <string name="live_location_decline">Decline</string>
+  <string name="live_location_connected_with">Connected with %s</string>
+  <string name="live_location_connected">Connected</string>
+  <string name="live_location_pairing_declined">The other person declined.</string>
+  <string name="live_location_pairing_cancelled">Connecting was cancelled.</string>
+  <string name="live_location_pairing_conflict">Someone else used this invite too, so it was cancelled. Make a new invite and share it only with the person you want to connect with.</string>
+  <string name="live_location_pairing_expired">The invite expired. Make a new one.</string>
+  <string name="live_location_invalid_invite">This isn\'t a valid invite, or it has expired.</string>
+  <string name="live_location_invite_failed">Could not make an invite.</string>
+  <string name="live_location_invite_subject">Connect with me on CoMaps</string>
+
+  <!-- Relay consent -->
+  <string name="live_location_consent_title">Use another relay?</string>
+  <string name="live_location_consent_pairing">This invite uses %s, which isn\'t one of yours. Its operator would see your internet address while you connect.</string>
+  <string name="live_location_consent_viewing">%1$s\'s location comes through %2$s, which isn\'t one of yours. Its operator would see your internet address whenever you view %1$s.</string>
+  <string name="live_location_consent_live_updates">Live updates from %1$s need %2$s, which isn\'t one of yours. Without it, %1$s\'s position updates only after a move of 50 m, or every 5 minutes. Its operator would see your internet address whenever you view %1$s.</string>
+  <string name="live_location_consent_sending">Messages to %1$s go through %2$s, which isn\'t one of yours. Its operator would see your internet address when you send them, for example when you stop sharing with %1$s.</string>
+  <string name="live_location_allow">Allow</string>
+  <string name="live_location_not_now">Not now</string>
+
+  <!-- Sharing -->
+  <string name="live_location_share_with">Share with</string>
+  <string name="live_location_for">For</string>
+  <string name="live_location_15_min">15 min</string>
+  <string name="live_location_1_hour">1 hour</string>
+  <string name="live_location_8_hours">8 hours</string>
+  <string name="live_location_until_stopped">Until I stop</string>
+  <string name="live_location_start">Start</string>
+  <string name="live_location_unverified_warning">You haven\'t compared codes with %s. If the link was intercepted, someone else could receive your location.</string>
+  <string name="live_location_flagged_warning">Someone else also used the invite you connected with. Compare the code with %s before you share your location.</string>
+  <string name="live_location_waiting_warning">%s may not have finished connecting, and may not receive this.</string>
+  <string name="live_location_notifications_needed">Sharing needs its notification, so that nobody can share your location without you seeing it. Turn on notifications for CoMaps, including \"Live location sharing\".</string>
+  <string name="live_location_open_settings">Open settings</string>
+  <string name="live_location_location_needed">Sharing needs access to your precise location.</string>
+  <string name="live_location_share_failed">Sharing could not start.</string>
+  <string name="live_location_resume_title">Resume sharing?</string>
+  <string name="live_location_resume">CoMaps was closed while you shared your location with %s. Share it again?</string>
+  <string name="live_location_resume_until">CoMaps was closed while you shared your location with %1$s until %2$s. Share it again?</string>
+  <string name="live_location_resume_button">Resume</string>
+  <string name="live_location_dont_resume">Don\'t resume</string>
+
+  <!-- Managing a share -->
+  <string name="live_location_manage_sharing">Manage sharing</string>
+  <string name="live_location_add_people">Add people</string>
+  <string name="live_location_extend">+1 hour</string>
+  <string name="live_location_stop_all">Stop all</string>
+  <string name="live_location_until">Until %s</string>
+  <string name="live_location_until_you_stop">Until you stop</string>
+  <string name="live_location_live_now">Someone is watching: updates every few seconds.</string>
+
+  <!-- A contact -->
+  <string name="live_location_rename">Rename</string>
+  <string name="live_location_compare_code">Compare code</string>
+  <string name="live_location_compare_code_message">Check that %s\'s phone shows the same code:</string>
+  <string name="live_location_hide">Hide on the map</string>
+  <string name="live_location_hide_summary">Stops every connection made to see this contact.</string>
+  <string name="live_location_delete_contact">Delete contact</string>
+  <string name="live_location_delete_contact_confirm">Delete %s? Any share with them stops, and you will have to connect again.</string>
+  <string name="live_location_live_updates_off_message">Live updates from %s need a relay you haven\'t allowed. Its position updates only after a move of 50 m, or every 5 minutes.</string>
+  <string name="live_location_last_seen">Last update %s</string>
+  <string name="live_location_accuracy">Accuracy ±%d m</string>
+  <string name="live_location_show_on_map">Show on the map</string>
+
+  <!-- Settings -->
+  <string name="live_location_settings">Live location settings</string>
+  <string name="live_location_your_name">Your name</string>
+  <string name="live_location_relays">Your relays</string>
+  <string name="live_location_relays_summary">Your phone listens on the first one that works. Only wss:// addresses are accepted.</string>
+  <string name="live_location_add_relay">Add relay</string>
+  <string name="live_location_relay_hint">wss://relay.example.org</string>
+  <string name="live_location_relay_invalid">A relay address starts with wss://</string>
+  <string name="live_location_relays_first_not_default">Contacts get live updates from you only if they use or allow %s too.</string>
+  <string name="live_location_relays_few">With fewer than two relays, sharing stops working whenever that relay is down.</string>
+  <string name="live_location_move_up">Move up</string>
+  <string name="live_location_remove">Remove</string>
+  <string name="live_location_approved_relays">Relays you allowed for contacts</string>
+  <string name="live_location_approved_for">Allowed for %s</string>
+  <string name="live_location_revoke">Revoke</string>
+  <string name="live_location_request_live">Request live updates when viewing</string>
+  <string name="live_location_allow_live">Allow viewers to request live updates</string>
+  <string name="live_location_low_battery">Sharing stops at %d%% battery.</string>
+
+  <!-- What relays can see: docs/LIVE_LOCATION.md §11.6 -->
+  <string name="live_location_what_relays_see">What relays can see</string>
+  <string name="live_location_explain_title">How live location stays private</string>
+  <string name="live_location_explain_1">Your location is encrypted on your phone. Only the people you choose can decrypt it.</string>
+  <string name="live_location_explain_2">It travels through relays: independent servers run by volunteers or companies (you can pick your own). Relays cannot see your location, your name or your contacts\' names.</string>
+  <string name="live_location_explain_3">Relays can see:</string>
+  <string name="live_location_explain_4">• your phone\'s internet address, which reveals your rough region and your provider;\n• the internet addresses of the phones that follow your location, so a relay could tell which phones you share with, though not whose they are;\n• when you send updates and how often (moving phones send more often, and so do phones that someone is watching);\n• that the app uses this live location feature, and roughly how many contacts you have.</string>
+  <string name="live_location_explain_5">Your contacts may use relays other than yours. Before your phone connects to one of those, the app asks you, because whoever runs it would see your internet address.</string>
+  <string name="live_location_explain_6">Relays that follow the rules keep only your latest encrypted position, and delete it 15 minutes after it was sent. A relay that breaks the rules, or anyone else, could keep copies. They stay encrypted, and the phones delete the keys that could open them within about a day.</string>
+  <string name="live_location_explain_7">Your location is never sent while you are not sharing. While the app is open and you have contacts, it asks the relays whether anyone is sharing with you. People you stop sharing with cannot read anything you send afterwards.</string>
+  <string name="live_location_got_it">Got it</string>
+  <string name="live_location_turn_on">Turn on live location</string>
+  <string name="live_location_pending_invite">Invite waiting</string>
+  <string name="live_location_cancel_invite">Cancel invite</string>
+  <string name="live_location_new_invite">Make a new invite</string>
+  <string name="live_location_not_sharing">You are not sharing your location.</string>
+  <string name="live_location_stop_sharing_with">Stop sharing with %s</string>
+</resources>

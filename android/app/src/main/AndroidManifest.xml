@@ -404,6 +404,14 @@
         android:parentActivityName="app.organicmaps.MwmActivity"
         android:windowSoftInputMode="stateVisible|adjustResize" />
 
+    <!-- Live location (NLL) -->
+    <activity
+        android:name="app.organicmaps.livelocation.LiveLocationActivity"
+        android:configChanges="orientation|screenLayout|screenSize"
+        android:screenOrientation="fullUser"
+        android:exported="false"
+        android:parentActivityName="app.organicmaps.MwmActivity" />
+
     <activity
         android:name="app.organicmaps.settings.SettingsActivity"
         android:configChanges="orientation|screenLayout|screenSize"
@@ -501,6 +509,14 @@
         android:stopWithTask="false"/>
 
     <service android:name=".location.TrackRecordingService"
+      android:foregroundServiceType="location"
+      android:exported="false"
+      android:enabled="true"
+      android:stopWithTask="false"
+      />
+
+    <!-- Live location (NLL): docs/LIVE_LOCATION.md §10.2 -->
+    <service android:name=".livelocation.LiveLocationService"
       android:foregroundServiceType="location"
       android:exported="false"
       android:enabled="true"

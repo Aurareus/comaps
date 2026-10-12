@@ -28,5 +28,15 @@
     android:key="@string/pref_custom_map_download_url"
     android:title="@string/download_resources_custom_url_title"
     app:icon="@drawable/ic_cloud_download" />
+  <!-- Live location (NLL): docs/LIVE_LOCATION.md §8.4 -->
+  <SwitchPreferenceCompat
+    android:defaultValue="false"
+    android:key="@string/pref_live_location"
+    android:persistent="false"
+    android:summary="@string/live_location_setting_summary"
+    android:title="@string/live_location_setting"
+    android:widgetLayout="@layout/preference_switch"
+    app:icon="@drawable/ic_groups"
+    app:singleLineTitle="false" />
 
 </androidx.preference.PreferenceScreen>
