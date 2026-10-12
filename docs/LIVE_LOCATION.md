@@ -8,7 +8,10 @@ Status: **approved for implementation**, after five review rounds:
 - 2026-10-11: one more fix, to the pairing confirmation, mapped in §19.
 - 2026-10-11: relay consent and the listening relay, mapped in §20.
 
-All decisions are made ([§14](#14-decisions)). No feature code has been written yet.
+All decisions are made ([§14](#14-decisions)). Phase 2 implemented them: [§22](#22-phase-2-report)
+reports on it, [§21](#21-implementation-notes-phase-2) lists what the code decided where this
+document left a choice, and [LIVE_LOCATION_DEVICE_TESTS.md](LIVE_LOCATION_DEVICE_TESTS.md) is the
+checklist for phones.
 
 The normative protocol is in [LIVE_LOCATION_PROTOCOL.md](LIVE_LOCATION_PROTOCOL.md) ("NLL v1"). The
 reference implementation, test vectors and the relay test harness are in
@@ -38,6 +41,7 @@ reference implementation, test vectors and the relay test harness are in
 19. [Fourth review changes (2026-10-11)](#19-fourth-review-changes-2026-10-11)
 20. [Fifth review changes (2026-10-11)](#20-fifth-review-changes-2026-10-11)
 21. [Implementation notes (Phase 2)](#21-implementation-notes-phase-2)
+22. [Phase 2 report](#22-phase-2-report)
 
 ## 0. Summary
 
@@ -1149,4 +1153,111 @@ users or relays see.
 | A contact's relays | Each state's relay list replaces the one from pairing. | A contact can change its relays; its states name the current ones. |
 | Changing one's relays while sharing (**review**) | The running share keeps the relays it started with, because its states named them. The inbox moves at once. | Changing a share's relays would need new states for every recipient. Stopping and starting the share does that. |
 | Sending to a relay that needs consent | Asked about once, as "sending"; skipped until allowed. | Spec §11. |
+
+The Android app (`android/app/.../livelocation`, `android/sdk/.../livelocation`) decided these:
+
+| Topic | What the app does | Why |
+|---|---|---|
+| Where the switch is (**review**) | Settings → Advanced → "Live location sharing (experimental)". | There is no "Experimental" section (§11.1 assumed one). |
+| The sharing notification (**review**) | Its channel has default importance without sound or vibration, so its icon shows in the status bar. On the lock screen it reads "Sharing your live location", without names. | Seen without being noisy; the names stay private on a locked phone. |
+| "Re-checks before every publish" (§11.3) | Before passing on each fix, and on the system's block broadcasts (Android 9+). A heartbeat, which publishes without a new fix, is not checked on its own. | Fixes arrive every 2–30 s while sharing, so a blocked notification stops the share within one fix. A check per publish would need the core to ask the app each time. |
+| Background location pace (**review**) | Only while a share alone keeps location running in the background: 2 s at high accuracy when someone watches, else 30 s at balanced accuracy (§10.3). Navigation, track recording, Android Auto and the "waiting for position" mode keep their own pace; in the foreground the map's 500 ms applies. | Balanced accuracy is a hint: the fused providers honour it, a plain GPS provider does not. |
+| Low battery | The share stops at 5 % only when the phone is not plugged in. | Stopping a share on a charging phone helps nobody. |
+| A fix without accuracy | Dropped, as are fixes with values out of range; out-of-range optional fields are left out. | The protocol requires an accuracy, and receivers drop a message with a bad field. Fused and GPS fixes carry one. |
+| Turning the feature off | Stops any share, closes connections, and frees the core once the stop's messages have their relays' answers (at most 30 s). Deleting the data while it is off deletes the file and the Keystore keys without starting anything. | "No traffic when unused" includes the moment of deletion. |
+| The "Sharing with N" chip (**review**) | Top centre of the map. Hidden in route planning and navigation, and while a place page hides the map buttons. | Those modes use the top of the map. The notification still shows the share. |
+| Adding a contact (**review**) | The screen opens with a QR invite (10 min). "Share a link instead" cancels it and makes a link invite (24 h). "Paste invite" cancels the user's own open QR invite before joining. | One open invite per screen, so the two codes are never confused. |
+| Share durations | 15 min, 1 h (preselected), 8 h, until stopped. | §11.3's list. |
+| Resuming after the process died | The map offers it in a dialog. "Resume" restarts the share with the same people and ends; without the permissions it needs, the share screen opens with them picked. | §8.5. |
+| Relay consent questions | Queued; whichever live location screen or the map is in front asks them, one at a time. A question the user has not answered is asked again; it is not a refusal. | Questions arrive at any time, often while the user is on the map. |
+| A contact's dot | Not tappable yet; the contact screen shows the last update, the accuracy and "Show on the map". | §8.3 marked the tap as optional; it needs a change in `BookmarkManager`. |
+| Strings | English only, in `strings_live_location.xml`, outside the translation pipeline. | Experimental feature; translations once the texts settle. |
+| Fixes across JNI | Unknown accuracy, speed and bearing are negative and altitude has a flag: no NaN crosses JNI, since the native side builds with `-ffast-math`. Strings cross as UTF-16 both ways. | JNI's "modified UTF-8" would turn a name with an emoji into text the core's strict JSON refuses. |
+
+## 22. Phase 2 report
+
+Phase 2 built the feature: the core in C++, the Android app around it, and tools to test it
+without phones. Nothing has run on a phone yet; [LIVE_LOCATION_DEVICE_TESTS.md](LIVE_LOCATION_DEVICE_TESTS.md)
+is the checklist for that.
+
+### What was built
+
+| Part | Where | Size |
+|---|---|---|
+| Core: crypto (BIP-340 through libsecp256k1, NIP-44 v2, Noise NNpsk0, HKDF), Nostr events and the strict JSON profile, NLL v1 (invites, pairing, channels, streams, signals, receiving rules), relay pool, encrypted store, manager | `libs/live_location` | 9,300 lines |
+| Tests of the core | `libs/live_location/live_location_tests` | 4,200 lines, 71 tests |
+| Contacts' dots on the map | `libs/map/live_location_marks.*` | |
+| Desktop test peer (the core driven by line commands, plain `ws://`) | `libs/live_location/peer` | |
+| JNI host: the core's thread, OkHttp sockets, Keystore key wrapping | `android/sdk/src/main/cpp/.../livelocation` | 660 lines |
+| SDK: facade, OkHttp transport, Keystore wrapper, models; location pace | `android/sdk/src/main/java/.../livelocation`, `LocationHelper` | 1,060 lines |
+| App: foreground service, the switch, screens, hooks | `android/app/src/main/java/.../livelocation` | 2,500 lines |
+| Python reference implementation, test peer, cross test, fixtures | `tools/python/live_location` | 4,600 lines |
+
+### How it was tested
+
+- **C++ tests**, with clang and GCC: the published NIP-44 and BIP-340 vectors; the NLL v1 vectors,
+  reproduced byte for byte from the Python reference; the JSON profile's verdicts on the shared
+  cases; and integration tests of whole phones against in-process fake relays that drop, refuse,
+  duplicate, go silent or go down (two of three). Mutating the code under test (a removed check, a
+  wrong bound) makes the matching tests fail; that was checked for the protocol, the manager and
+  the conversions.
+- **Cross-implementation, over a real relay** (strfry): the C++ core and the Python reference pair
+  in both directions with matching codes, follow each other's shares, switch to live updates, and
+  revoke. After a removal, the removed peer's old key opens none of the events published
+  afterwards (12 of 12 refused). 13 checks, all passing. Between two C++ peers a live fix arrives in
+  about 0.1 s.
+- **Android**: the APK builds (fdroid debug, arm64). All 30 native methods are exported, and their
+  JNI descriptors match the C++ parameter types. The Java parsers are tested on the JVM against
+  views recorded from the C++ core (7 tests). Android lint, app and SDK: no errors. Its first run
+  found seven in this code, of two kinds (posting the notification without an explicit
+  notification-permission check, and Keystore calls without an API-level guard), now fixed; release
+  builds abort on lint errors. One warning remains in new code: the ripple background of list rows,
+  as in upstream's layouts.
+- **Not as planned (§12):** no JVM tests of the OkHttp transport or the Keystore wrapper. Robolectric
+  cannot fetch its Android runtime in this sandbox (upstream's own Robolectric test fails here the
+  same way), and with mocks such tests would check little. Both run on every phone check.
+
+### Definition of Done
+
+| Item | Status |
+|---|---|
+| Two phones on different networks | To check on phones (device checklist, all checks) |
+| Pairing in under a minute | Desktop: seconds over a relay. Phones: check 1 |
+| A's marker follows within about 5 s | Desktop: about 0.1 s per fix once live. Phones: check 3 |
+| Stop and revocation, with a test peer | Desktop and cross-implementation: passing. Phones: checks 4 and 5 |
+| Time-limited shares end on time | Manager tests: passing. Phones: check 6 |
+| Works with any 2 of 3 relays down | Manager and pool tests: passing. Phones: check 7 |
+| No traffic when unused | Manager test: no connection without a reason. Phones: check 8 |
+| Works without Play services | By construction (Android's own location providers, OkHttp). Phones: check 9 |
+| Tests pass | Yes, as above |
+| Battery and data measured for one hour | Only on phones: check 10 |
+| A one-screen explanation of what relays see | In the app ("What relays can see"); check 11 |
+
+### What to review
+
+The rows marked **review** in §21: five in the core, five in the app. The app's are where the
+switch lives, the notification's importance, the background location pace, where the map's chip
+sits, and how the invite screen moves between a QR code and a link.
+
+### Known gaps
+
+- No screen has been seen yet. Layouts, the chip's place and the QR code's size may need work.
+- Contacts' dots cannot be tapped; the contact screen has their details instead (§21).
+- English only.
+- Phones whose makers kill background apps aggressively may stop the sharing service; only
+  phones can show how often.
+- The battery and data figures in §10.3 are still estimates until check 10.
+
+### Building and testing
+
+```bash
+# C++ core and tests (desktop)
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DSKIP_TOOLS=OFF && cmake --build build --target live_location_tests live_location_peer
+build/live_location_tests
+# Cross-implementation test (tools/python/live_location, see its README)
+.venv/bin/python -I cross_test.py ../../../build/live_location_peer path/to/strfry
+# Android
+cd android && ./gradlew assembleFdroidDebug -Parm64 -PdisableHWAsan
+./gradlew :sdk:testDebugUnitTest --tests 'app.organicmaps.sdk.livelocation.*'
+```
 
