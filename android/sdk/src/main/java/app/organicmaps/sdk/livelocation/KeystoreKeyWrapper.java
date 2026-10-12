@@ -1,10 +1,12 @@
 package app.organicmaps.sdk.livelocation;
 
+import android.os.Build;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import androidx.annotation.Keep;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.RequiresApi;
 import app.organicmaps.sdk.util.log.Logger;
 import java.security.GeneralSecurityException;
 import java.security.Key;
@@ -28,6 +30,7 @@ import javax.crypto.spec.GCMParameterSpec;
  * here, and the arrays holding it are zeroed.
  */
 @Keep
+@RequiresApi(Build.VERSION_CODES.M) // the feature itself needs Android 7 (LiveLocation.isSupported())
 public final class KeystoreKeyWrapper
 {
   private static final String TAG = KeystoreKeyWrapper.class.getSimpleName();

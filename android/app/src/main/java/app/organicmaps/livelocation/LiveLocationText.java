@@ -28,7 +28,9 @@ final class LiveLocationText
       return names.get(0);
     if (names.size() == 2)
       return context.getString(R.string.live_location_two_names, names.get(0), names.get(1));
-    return context.getString(R.string.live_location_more_names, names.get(0) + ", " + names.get(1), names.size() - 2);
+    final int others = names.size() - 2;
+    return context.getResources().getQuantityString(R.plurals.live_location_more_names, others,
+                                                    names.get(0) + ", " + names.get(1), others);
   }
 
   @NonNull

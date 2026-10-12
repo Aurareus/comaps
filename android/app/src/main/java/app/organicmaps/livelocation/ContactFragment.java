@@ -47,7 +47,13 @@ public class ContactFragment extends LiveLocationFragment
       views.outlinedButton(getString(R.string.live_location_delete_contact), v -> delete(contact));
     }
     if (contact.liveUpdatesOff)
-      views.text(getString(R.string.live_location_live_updates_off_message, contact.name));
+    {
+      // The label is where the user changes their mind about the relay (§11.4).
+      views.text(getString(R.string.live_location_live_updates_off_message, contact.name, contact.liveRelay));
+      if (!contact.liveRelay.isEmpty())
+        views.outlinedButton(getString(R.string.live_location_allow_relay, contact.liveRelay),
+                             v -> LiveLocation.setConsent(contact.liveRelay, true, contact.name));
+    }
 
     final Position position = positionOf(contact.id);
     if (position != null)

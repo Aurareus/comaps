@@ -24,7 +24,10 @@
   <string name="live_location_notification_with_until">%1$s · until %2$s</string>
   <string name="live_location_stop">Stop</string>
   <string name="live_location_two_names">%1$s and %2$s</string>
-  <string name="live_location_more_names">%1$s and %2$d others</string>
+  <plurals name="live_location_more_names">
+    <item quantity="one">%1$s and %2$d other</item>
+    <item quantity="other">%1$s and %2$d others</item>
+  </plurals>
 
   <!-- Contacts -->
   <string name="live_location_contacts">Contacts</string>
@@ -128,7 +131,8 @@
   <string name="live_location_hide_summary">Stops every connection made to see this contact.</string>
   <string name="live_location_delete_contact">Delete contact</string>
   <string name="live_location_delete_contact_confirm">Delete %s? Any share with them stops, and you will have to connect again.</string>
-  <string name="live_location_live_updates_off_message">Live updates from %s need a relay you haven\'t allowed. Its position updates only after a move of 50 m, or every 5 minutes.</string>
+  <string name="live_location_live_updates_off_message">Live updates from %1$s need %2$s, which isn\'t one of your relays. Without it, %1$s\'s position updates only after a move of 50 m, or every 5 minutes. Its operator would see your internet address whenever you view %1$s.</string>
+  <string name="live_location_allow_relay">Allow %s</string>
   <string name="live_location_last_seen">Last update %s</string>
   <string name="live_location_accuracy">Accuracy ±%d m</string>
   <string name="live_location_show_on_map">Show on the map</string>

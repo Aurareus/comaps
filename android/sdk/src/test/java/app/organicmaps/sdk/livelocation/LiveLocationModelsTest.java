@@ -1,0 +1,184 @@
+package app.organicmaps.sdk.livelocation;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+
+import app.organicmaps.sdk.livelocation.LiveLocationModels.ConsentRequest;
+import app.organicmaps.sdk.livelocation.LiveLocationModels.Contact;
+import app.organicmaps.sdk.livelocation.LiveLocationModels.LocationMode;
+import app.organicmaps.sdk.livelocation.LiveLocationModels.Pairing;
+import app.organicmaps.sdk.livelocation.LiveLocationModels.Position;
+import app.organicmaps.sdk.livelocation.LiveLocationModels.Settings;
+import app.organicmaps.sdk.livelocation.LiveLocationModels.Sharing;
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import org.json.JSONObject;
+import org.junit.BeforeClass;
+import org.junit.Test;
+
+/**
+ * Live location (NLL): the Java side reads the core's views as the core writes them. The views were
+ * recorded from two C++ peers that paired and shared over a local relay
+ * (tools/python/live_location/view_fixtures.py).
+ */
+public final class LiveLocationModelsTest
+{
+  private static final Map<String, JSONObject> sViews = new HashMap<>();
+
+  @BeforeClass
+  public static void load() throws Exception
+  {
+    try (InputStream in = LiveLocationModelsTest.class.getResourceAsStream("/live_location/views.jsonl"))
+    {
+      assertNotNull("views.jsonl", in);
+      final BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8));
+      for (String line = reader.readLine(); line != null; line = reader.readLine())
+      {
+        final JSONObject view = new JSONObject(line);
+        sViews.put(view.getString("name"), view.getJSONObject("event"));
+      }
+    }
+  }
+
+  private static JSONObject view(String name)
+  {
+    final JSONObject view = sViews.get(name);
+    assertNotNull(name, view);
+    return view;
+  }
+
+  @Test
+  public void invites()
+  {
+    final Pairing link = new Pairing(view("pairing_inviter_link"));
+    assertTrue(link.inviter);
+    assertTrue(link.byLink);
+    assertEquals(Pairing.Stage.Waiting, link.stage);
+    assertTrue(link.link.startsWith("comaps://live/pair#"));
+    assertTrue(link.expiresAt > 1_700_000_000L);
+    assertFalse(link.id.isEmpty());
+
+    final Pairing qr = new Pairing(view("pairing_inviter_qr"));
+    assertFalse(qr.byLink);
+    assertTrue(qr.link.startsWith("comaps://live/pair#"));
+    // A QR invite lives 10 minutes, a link a day.
+    assertTrue(link.expiresAt - qr.expiresAt > 20 * 3600);
+  }
+
+  @Test
+  public void codesAndConnection()
+  {
+    final Pairing joiner = new Pairing(view("pairing_joiner_compare"));
+    final Pairing inviter = new Pairing(view("pairing_inviter_compare"));
+    assertFalse(joiner.inviter);
+    assertEquals(Pairing.Stage.CompareCode, joiner.stage);
+    assertEquals(Pairing.Stage.CompareCode, inviter.stage);
+    assertTrue(joiner.sas.matches("\\d{3} \\d{3}"));
+    assertEquals(joiner.sas, inviter.sas);
+    // The joiner learns the inviter's name only with its confirmation.
+    assertEquals("", joiner.peerName);
+    assertEquals("Alice", inviter.peerName);
+
+    final Pairing connected = new Pairing(view("pairing_joiner_connected"));
+    assertEquals(Pairing.Stage.Connected, connected.stage);
+    assertEquals("Bob", connected.peerName);
+    assertFalse(connected.contactId.isEmpty());
+    assertEquals(Pairing.Stage.Waiting, new Pairing(view("pairing_joiner_waiting")).stage);
+  }
+
+  @Test
+  public void relayConsent()
+  {
+    final Pairing pairing = new Pairing(view("pairing_needs_consent"));
+    assertEquals(Pairing.Stage.NeedsConsent, pairing.stage);
+    assertEquals("", pairing.id);
+    assertEquals(Collections.singletonList("ws://127.0.0.1:9"), pairing.needsConsent);
+
+    final ConsentRequest request = new ConsentRequest(view("consent_live_updates"));
+    assertEquals("ws://127.0.0.1:9", request.url);
+    assertEquals("Bob", request.contactName);
+    assertEquals(ConsentRequest.Purpose.LiveUpdates, request.purpose);
+  }
+
+  @Test
+  public void contacts() throws Exception
+  {
+    final List<Contact> viewer = Contact.list(view("contacts_viewer"));
+    assertEquals(1, viewer.size());
+    final Contact bob = viewer.get(0);
+    assertEquals("Bob", bob.name);
+    assertEquals(Long.valueOf(0), bob.sharesWithMeUntil);
+    assertNull(bob.iShareUntil);
+    assertTrue(bob.verified);
+    assertFalse(bob.flagged || bob.waiting || bob.offerRemoval || bob.hidden);
+    // Bob's first relay, which live updates need, is not one Alice allowed.
+    assertTrue(bob.liveUpdatesOff);
+    assertEquals("ws://127.0.0.1:9", bob.liveRelay);
+    assertEquals(new Pairing(view("pairing_joiner_compare")).sas, bob.sas);
+
+    final Contact alice = Contact.list(view("contacts_sharer")).get(0);
+    assertEquals("Alice", alice.name);
+    assertFalse(alice.liveUpdatesOff);
+    assertEquals("", alice.liveRelay);
+    assertEquals(Long.valueOf(0), alice.iShareUntil);
+    assertNull(alice.sharesWithMeUntil);
+  }
+
+  @Test
+  public void positions() throws Exception
+  {
+    final List<Position> positions = Position.list(view("positions"));
+    assertEquals(1, positions.size());
+    final Position bob = positions.get(0);
+    assertEquals("Bob", bob.name);
+    assertEquals(Contact.list(view("contacts_viewer")).get(0).id, bob.contactId);
+    assertEquals(52.5200066, bob.lat, 0);
+    assertEquals(13.404954, bob.lon, 0);
+    assertEquals(8.0, bob.accuracy, 0);
+    assertTrue(bob.timeMs > 1_700_000_000_000L);
+    assertFalse(bob.stale);
+  }
+
+  @Test
+  public void sharing() throws Exception
+  {
+    final Sharing active = new Sharing(view("sharing_active"));
+    assertTrue(active.active);
+    assertEquals(1, active.recipients.size());
+    assertEquals(new Pairing(view("pairing_inviter_connected")).contactId, active.recipients.get(0).contactId);
+    assertEquals(0, active.recipients.get(0).until);
+    assertTrue(active.resumable.isEmpty());
+
+    final Sharing stopped = new Sharing(view("sharing_stopped"));
+    assertFalse(stopped.active);
+    assertTrue(stopped.recipients.isEmpty());
+
+    assertEquals(LocationMode.Idle, LocationMode.valueOf(view("location_idle").getString("mode")));
+    assertEquals(LocationMode.Live, LocationMode.valueOf(view("location_live").getString("mode")));
+  }
+
+  @Test
+  public void settings() throws Exception
+  {
+    final Settings settings = new Settings(view("settings"));
+    assertEquals("Alice", settings.name);
+    assertFalse(settings.homeRelays.isEmpty());
+    assertEquals(1, settings.approved.size());
+    assertEquals("ws://127.0.0.1:9", settings.approved.get(0)[0]);
+    assertEquals("Bob", settings.approved.get(0)[1]);
+    assertTrue(settings.declined.isEmpty());
+    assertEquals(3, settings.defaultRelays.size());
+    assertEquals("wss://nos.lol", settings.defaultRelays.get(0));
+    assertTrue(settings.requestLive && settings.allowLive);
+    assertEquals(5, settings.lowBatteryStop);
+  }
+}

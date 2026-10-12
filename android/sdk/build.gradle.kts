@@ -128,6 +128,7 @@ dependencies {
     implementation(libs.okhttp) // Live location (NLL)
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
+    testImplementation(libs.org.json) // Live location (NLL): the model tests run on the plain JVM
     coreLibraryDesugaring(libs.android.tools.desugar)
 }
 

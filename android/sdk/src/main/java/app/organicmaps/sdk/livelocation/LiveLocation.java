@@ -5,6 +5,7 @@ import android.location.Location;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import androidx.annotation.ChecksSdkIntAtLeast;
 import androidx.annotation.Keep;
 import androidx.annotation.MainThread;
 import androidx.annotation.NonNull;
@@ -66,6 +67,7 @@ public final class LiveLocation
   private LiveLocation() {}
 
   /** The feature needs Android 7 (docs/LIVE_LOCATION.md §10.1, D6). */
+  @ChecksSdkIntAtLeast(api = Build.VERSION_CODES.N)
   public static boolean isSupported()
   {
     return Build.VERSION.SDK_INT >= Build.VERSION_CODES.N;
@@ -123,7 +125,8 @@ public final class LiveLocation
       Logger.e(TAG, "Cannot delete " + file);
     // noinspection ResultOfMethodCallIgnored
     new File(file.getPath() + ".tmp").delete();
-    KeystoreKeyWrapper.deleteAllExcept("");
+    if (isSupported())
+      KeystoreKeyWrapper.deleteAllExcept("");
   }
 
   // The store: one file, in a directory that is not backed up (docs/LIVE_LOCATION.md §8.5).

@@ -53,6 +53,9 @@ public final class LiveLocationModels
     public final Long iShareUntil;
     /** Live updates need a relay this user has not allowed. */
     public final boolean liveUpdatesOff;
+    /** The relay live updates need, when they are off: the user may allow it. */
+    @NonNull
+    public final String liveRelay;
 
     Contact(@NonNull JSONObject json)
     {
@@ -67,6 +70,7 @@ public final class LiveLocationModels
       sharesWithMeUntil = optionalLong(json, "shares_with_me");
       iShareUntil = optionalLong(json, "i_share");
       liveUpdatesOff = json.optBoolean("live_updates_off");
+      liveRelay = json.optString("live_relay");
     }
 
     @NonNull

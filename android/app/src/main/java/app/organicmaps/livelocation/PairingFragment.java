@@ -33,6 +33,7 @@ public class PairingFragment extends LiveLocationFragment
   @Nullable
   private String mPairingId;
   private boolean mStarted;
+  private boolean mNeedsName;
   private boolean mInvalid;
   private boolean mFailed;
   private boolean mDiffered;
@@ -78,6 +79,11 @@ public class PairingFragment extends LiveLocationFragment
     if (mStarted)
       return;
     mStarted = true;
+    begin();
+  }
+
+  private void begin()
+  {
     final String link = getArguments() != null ? getArguments().getString(LiveLocationActivity.EXTRA_LINK) : null;
     withName(() -> {
       if (link != null)
@@ -107,7 +113,12 @@ public class PairingFragment extends LiveLocationFragment
     final Pairing pairing = mPairingId != null ? LiveLocation.getPairing(mPairingId) : null;
     if (pairing == null)
     {
-      if (mFailed)
+      if (mNeedsName)
+      {
+        views.text(getString(R.string.live_location_your_name_message));
+        views.button(getString(R.string.live_location_your_name_title), v -> begin());
+      }
+      else if (mFailed)
       {
         views.text(getString(R.string.live_location_invite_failed));
       }
@@ -254,11 +265,16 @@ public class PairingFragment extends LiveLocationFragment
       then.run();
       return;
     }
+    mNeedsName = true;
+    refresh();
     LiveLocationDialogs.showText(
         requireActivity(), R.string.live_location_your_name_title, getString(R.string.live_location_your_name_message),
         "", null, InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS, this::checkName, name -> {
           if (isAdded() && LiveLocation.setName(name))
+          {
+            mNeedsName = false;
             then.run();
+          }
         });
   }
 

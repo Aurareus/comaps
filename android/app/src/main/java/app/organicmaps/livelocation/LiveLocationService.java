@@ -1,5 +1,7 @@
 package app.organicmaps.livelocation;
 
+import static android.Manifest.permission.POST_NOTIFICATIONS;
+
 import android.app.ForegroundServiceStartNotAllowedException;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -8,6 +10,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
 import android.location.Location;
 import android.os.BatteryManager;
@@ -174,9 +177,9 @@ public class LiveLocationService extends Service implements LocationListener, Li
         Logger.i(TAG, "Stopped from the notification");
         LiveLocation.stopSharing(); // the share's end stops the service
       }
-      else if (LiveLocation.getSharing().active && canNotify(this))
+      else if (LiveLocation.getSharing().active)
       {
-        NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, buildNotification());
+        updateNotification();
       }
       if (!mForeground)
         stopSelf(); // a stale notification's intent started it
@@ -290,8 +293,12 @@ public class LiveLocationService extends Service implements LocationListener, Li
 
   private void updateNotification()
   {
-    if (canNotify(this))
-      NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, buildNotification());
+    if (!canNotify(this))
+      return;
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+        && ContextCompat.checkSelfPermission(this, POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+      return;
+    NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, buildNotification());
   }
 
   @NonNull
