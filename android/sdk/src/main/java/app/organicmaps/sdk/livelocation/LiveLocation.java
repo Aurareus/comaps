@@ -18,6 +18,8 @@ import app.organicmaps.sdk.livelocation.LiveLocationModels.Recipient;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Settings;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Sharing;
 import app.organicmaps.sdk.util.log.Logger;
+import java.io.File;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -84,7 +86,7 @@ public final class LiveLocation
     if (sRunning)
       return true;
     sRunning = true;
-    final boolean started = nativeStart(context.getNoBackupFilesDir().getAbsolutePath());
+    final boolean started = nativeStart(storeFile(context).getAbsolutePath());
     nativeSetForeground(sForeground);
     return started;
   }
@@ -104,11 +106,31 @@ public final class LiveLocation
     sPairings.clear();
   }
 
+  /**
+   * "Delete all live location data": contacts, keys, settings. While the feature is off, without
+   * starting anything: the file and the Keystore keys go.
+   */
   @MainThread
-  public static void deleteAllData()
+  public static void deleteAllData(@NonNull Context context)
   {
     if (sRunning)
+    {
       nativeDeleteAllData();
+      return;
+    }
+    final File file = storeFile(context);
+    if (!file.delete() && file.exists())
+      Logger.e(TAG, "Cannot delete " + file);
+    // noinspection ResultOfMethodCallIgnored
+    new File(file.getPath() + ".tmp").delete();
+    KeystoreKeyWrapper.deleteAllExcept("");
+  }
+
+  // The store: one file, in a directory that is not backed up (docs/LIVE_LOCATION.md §8.5).
+  @NonNull
+  private static File storeFile(@NonNull Context context)
+  {
+    return new File(context.getNoBackupFilesDir(), "live_location.dat");
   }
 
   /** The app is in the foreground: contacts' positions are wanted (D11). Kept for a later start. */
@@ -211,6 +233,13 @@ public final class LiveLocation
   public static Pairing getPairing(@NonNull String pairingId)
   {
     return sPairings.get(pairingId);
+  }
+
+  /** The pairings this run has heard of, the ones that ended too. */
+  @NonNull
+  public static List<Pairing> getPairings()
+  {
+    return new ArrayList<>(sPairings.values());
   }
 
   // --- Contacts ---------------------------------------------------------------------------------
@@ -433,7 +462,7 @@ public final class LiveLocation
     return out;
   }
 
-  private static native boolean nativeStart(@NonNull String directory);
+  private static native boolean nativeStart(@NonNull String path);
   private static native void nativeStop();
   private static native void nativeDeleteAllData();
   private static native void nativeSetForeground(boolean foreground);

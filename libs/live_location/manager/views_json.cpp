@@ -1,6 +1,7 @@
 #include "live_location/manager/views_json.hpp"
 
 #include "live_location/manager/manager.hpp"
+#include "live_location/protocol/constants.hpp"
 
 namespace live_location
 {
@@ -37,6 +38,7 @@ json::Value PairingJson(PairingInfo const & p)
   out.Set("event", json::Value::String("pairing"))
       .Set("id", json::Value::String(p.m_id))
       .Set("inviter", json::Value::Bool(p.m_inviter))
+      .Set("by_link", json::Value::Bool(p.m_byLink))
       .Set("stage", json::Value::String(StageName(p.m_stage)))
       .Set("link", json::Value::String(p.m_link))
       .Set("expires", json::Value::Int(p.m_expiresAt))
@@ -147,12 +149,16 @@ json::Value SettingsJson(Settings const & settings)
   auto declined = json::Value::Array();
   for (auto const & url : settings.m_declined)
     declined.Push(json::Value::String(url));
+  auto defaults = json::Value::Array();
+  for (auto const & url : kDefaultRelays)
+    defaults.Push(json::Value::String(std::string(url)));
   auto out = json::Value::Object();
   out.Set("event", json::Value::String("settings"))
       .Set("name", json::Value::String(settings.m_name))
       .Set("relays", std::move(relays))
       .Set("approved", std::move(approved))
       .Set("declined", std::move(declined))
+      .Set("default_relays", std::move(defaults))
       .Set("request_live", json::Value::Bool(settings.m_requestLive))
       .Set("allow_live", json::Value::Bool(settings.m_allowLive))
       .Set("low_battery_stop", json::Value::Int(settings.m_lowBatteryStop));

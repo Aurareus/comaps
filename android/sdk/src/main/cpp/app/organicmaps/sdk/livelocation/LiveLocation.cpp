@@ -319,7 +319,7 @@ public:
     });
   }
 
-  bool Start(std::string const & directory)
+  bool Start(std::string const & path)
   {
     bool ok = false;
     m_executor.RunSync([&]
@@ -327,7 +327,7 @@ public:
       ++m_generation;  // a stop still waiting for the relays is called off: the manager carries on
       if (!m_manager)
       {
-        m_store = std::make_unique<store::Store>(directory + "/live_location.dat", m_keys, crypto::SystemRng());
+        m_store = std::make_unique<store::Store>(path, m_keys, crypto::SystemRng());
         m_manager = std::make_unique<Manager>(m_executor, m_transport, *m_store, crypto::SystemRng(), *this);
         m_started = m_manager->Start();
       }
@@ -460,12 +460,12 @@ extern "C"
 // --- app.organicmaps.sdk.livelocation.LiveLocation ----------------------------------------------------
 
 JNIEXPORT jboolean JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeStart(JNIEnv * env, jclass,
-                                                                                          jstring directory)
+                                                                                          jstring path)
 {
   InitJni(env);
   if (g_host.load() == nullptr)
     g_host = new Host();
-  return g_host.load()->Start(ToUtf8(env, directory));
+  return g_host.load()->Start(ToUtf8(env, path));
 }
 
 JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeStop(JNIEnv *, jclass)

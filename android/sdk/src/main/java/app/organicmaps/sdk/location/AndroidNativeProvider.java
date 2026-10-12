@@ -85,7 +85,8 @@ public class AndroidNativeProvider extends BaseLocationProvider
         new LocationRequestCompat
             .Builder(interval)
             // The quality is a hint to providers on how they should weigh power vs accuracy tradeoffs.
-            .setQuality(LocationRequestCompat.QUALITY_HIGH_ACCURACY)
+            .setQuality(mBalancedPower ? LocationRequestCompat.QUALITY_BALANCED_POWER_ACCURACY
+                                       : LocationRequestCompat.QUALITY_HIGH_ACCURACY)
             .build();
 
     if (mLocationManager.isProviderEnabled(LocationUtils.FUSED_PROVIDER))

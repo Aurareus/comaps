@@ -55,6 +55,7 @@ struct PairingInfo
 
   std::string m_id;
   bool m_inviter = false;
+  bool m_byLink = false;  // a link invite rather than a QR code: the codes are compared at a distance
   Stage m_stage = Stage::Waiting;
   std::string m_link;  // the inviter's invite
   int64_t m_expiresAt = 0;

@@ -502,6 +502,7 @@ PairingInfo Manager::Info(Session const & session) const
   PairingInfo info;
   info.m_id = session.m_id;
   info.m_inviter = session.m_inviter != nullptr;
+  info.m_byLink = session.m_byLink;
   info.m_stage = session.m_stage;
   info.m_expiresAt = session.GetInvite().m_expiresAt;
   if (session.m_inviter && session.GetInvite().m_psk && session.m_stage == PairingInfo::Stage::Waiting)

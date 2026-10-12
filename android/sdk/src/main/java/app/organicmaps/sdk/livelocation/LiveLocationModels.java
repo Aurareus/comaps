@@ -97,6 +97,8 @@ public final class LiveLocationModels
     @NonNull
     public final String id;
     public final boolean inviter;
+    /** A link invite rather than a QR code: the codes are compared at a distance. */
+    public final boolean byLink;
     @NonNull
     public final Stage stage;
     /** The inviter's invite link while it waits; empty otherwise. */
@@ -117,6 +119,7 @@ public final class LiveLocationModels
     {
       id = json.optString("id");
       inviter = json.optBoolean("inviter");
+      byLink = json.optBoolean("by_link");
       Stage parsed;
       try
       {
@@ -244,6 +247,14 @@ public final class LiveLocationModels
     @NonNull
     public final Purpose purpose;
 
+    /** For the relays a pairing needs, which come with the pairing rather than as an event. */
+    public ConsentRequest(@NonNull String url, @NonNull String contactName, @NonNull Purpose purpose)
+    {
+      this.url = url;
+      this.contactName = contactName;
+      this.purpose = purpose;
+    }
+
     ConsentRequest(@NonNull JSONObject json)
     {
       url = json.optString("url");
@@ -277,6 +288,9 @@ public final class LiveLocationModels
     public final List<String[]> approved;
     @NonNull
     public final List<String> declined;
+    /** The relays a new user starts with. */
+    @NonNull
+    public final List<String> defaultRelays;
     public final boolean requestLive;
     public final boolean allowLive;
     public final int lowBatteryStop;
@@ -292,6 +306,7 @@ public final class LiveLocationModels
           list.add(new String[] {array.getJSONObject(i).optString("url"), array.getJSONObject(i).optString("contact")});
       approved = Collections.unmodifiableList(list);
       declined = strings(json.optJSONArray("declined"));
+      defaultRelays = strings(json.optJSONArray("default_relays"));
       requestLive = json.optBoolean("request_live", true);
       allowLive = json.optBoolean("allow_live", true);
       lowBatteryStop = json.optInt("low_battery_stop", 5);
