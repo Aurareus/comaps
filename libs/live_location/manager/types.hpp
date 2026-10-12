@@ -36,7 +36,8 @@ struct ContactInfo
   bool m_hidden = false;
   std::optional<int64_t> m_sharesWithMeUntil;  // 0: until stopped
   std::optional<int64_t> m_iShareUntil;        // 0: until stopped
-  bool m_liveUpdatesOff = false;               // live updates need a relay the user has not allowed
+  bool m_liveUpdatesOff = false;               // live updates need a relay the user has not allowed ...
+  std::string m_liveRelay;                     // ... this one
 };
 
 struct PairingInfo

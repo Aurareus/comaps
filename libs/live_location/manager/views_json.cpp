@@ -65,7 +65,8 @@ json::Value ContactsJson(std::vector<ContactInfo> const & contacts)
         .Set("hidden", json::Value::Bool(c.m_hidden))
         .Set("shares_with_me", Optional(c.m_sharesWithMeUntil))
         .Set("i_share", Optional(c.m_iShareUntil))
-        .Set("live_updates_off", json::Value::Bool(c.m_liveUpdatesOff));
+        .Set("live_updates_off", json::Value::Bool(c.m_liveUpdatesOff))
+        .Set("live_relay", json::Value::String(c.m_liveRelay));
     list.Push(std::move(item));
   }
   auto out = json::Value::Object();

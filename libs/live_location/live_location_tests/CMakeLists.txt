@@ -17,6 +17,7 @@ set(SRC
   test_helpers.cpp
   test_helpers.hpp
   thread_executor_tests.cpp
+  utf16_tests.cpp
   vectors_tests.cpp
 )
 

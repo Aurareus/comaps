@@ -353,12 +353,14 @@ UNIT_TEST(Manager_LiveUpdatesNeedTheListeningRelay)
   world.Run(70'000);
   TEST(bob.Position("Alice"), ("Bob still sees Alice through her other relay"));
   TEST(bob.Contact("Alice")->m_liveUpdatesOff, ("but without live updates, and says so"));
+  TEST_EQUAL(bob.Contact("Alice")->m_liveRelay, "wss://relay.alice.example", ("the relay Bob may allow"));
   TEST(alice.Events().m_location == LocationRequest::Idle, ("Alice never heard Bob's signals"));
 
-  bob.M().SetConsent("wss://relay.alice.example", true, "Alice");
+  bob.M().SetConsent(bob.Contact("Alice")->m_liveRelay, true, "Alice");
   world.Run(70'000);
   TEST(!bob.Contact("Alice")->m_liveUpdatesOff && alice.Events().m_location == LocationRequest::Live,
        ("allowed: live updates start"));
+  TEST(bob.Contact("Alice")->m_liveRelay.empty(), ());
 }
 
 UNIT_TEST(Manager_SurvivesRestartsAndRotatesKeys)

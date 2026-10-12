@@ -28,6 +28,8 @@ set(SRC
   encoding/base64.hpp
   encoding/binary.cpp
   encoding/binary.hpp
+  encoding/utf16.cpp
+  encoding/utf16.hpp
   executor.hpp
   manager/manager.cpp
   manager/manager.hpp

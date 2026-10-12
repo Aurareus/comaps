@@ -1508,7 +1508,11 @@ std::vector<ContactInfo> Manager::Contacts() const
     if (auto const & grant = peer->m_following.Grant())
     {
       info.m_sharesWithMeUntil = grant->m_until;
-      info.m_liveUpdatesOff = m_settings.m_requestLive && MissingListeningRelay(contact.m_relays, trusted).has_value();
+      if (auto relay = MissingListeningRelay(contact.m_relays, trusted); relay && m_settings.m_requestLive)
+      {
+        info.m_liveUpdatesOff = true;
+        info.m_liveRelay = std::move(*relay);
+      }
     }
     if (m_sharer && m_sharer->IsSharing())
       for (auto const & [c, until] : m_sharer->GetGrants())

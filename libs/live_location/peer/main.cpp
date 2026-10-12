@@ -193,6 +193,11 @@ bool Execute(Manager & manager, Executor const & executor, std::vector<std::stri
     Print(SharingJson(manager.Sharing()));
     return true;
   }
+  if (command == "settings")
+  {
+    Print(SettingsJson(manager.GetSettings()));
+    return true;
+  }
   if (command == "pairings")
   {
     for (auto const & pairing : manager.Pairings())
