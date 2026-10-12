@@ -8,7 +8,8 @@
 #include <stdint.h>
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
 /* Opaque incremental states, large and aligned enough for libsecp256k1's structs (checked in the .c

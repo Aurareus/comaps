@@ -33,6 +33,8 @@ public final class OkHttpTransport
                                                  .retryOnConnectionFailure(false)
                                                  .build();
   private static final Map<Long, WebSocket> SOCKETS = new ConcurrentHashMap<>();
+  // The core reads relay messages of up to 64 KiB; longer ones are not even copied to it.
+  private static final int MAX_MESSAGE_CHARS = 64 * 1024;
 
   private OkHttpTransport() {}
 
@@ -59,7 +61,8 @@ public final class OkHttpTransport
       @Override
       public void onMessage(@NonNull WebSocket webSocket, @NonNull String text)
       {
-        nativeOnMessage(id, text);
+        if (text.length() <= MAX_MESSAGE_CHARS)
+          nativeOnMessage(id, text);
       }
 
       @Override

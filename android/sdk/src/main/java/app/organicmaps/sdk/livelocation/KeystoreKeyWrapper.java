@@ -49,11 +49,12 @@ public final class KeystoreKeyWrapper
       new SecureRandom().nextBytes(name);
       final String alias = PREFIX + toHex(name);
       final KeyGenerator generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE);
-      generator.init(new KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
-                         .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                         .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                         .setKeySize(256)
-                         .build());
+      generator.init(
+          new KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
+              .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+              .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+              .setKeySize(256)
+              .build());
       final Cipher cipher = Cipher.getInstance(TRANSFORMATION);
       cipher.init(Cipher.ENCRYPT_MODE, generator.generateKey());
       final byte[] iv = cipher.getIV();

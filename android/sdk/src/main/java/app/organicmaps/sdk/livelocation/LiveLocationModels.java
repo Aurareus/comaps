@@ -32,9 +32,12 @@ public final class LiveLocationModels
 
   public static final class Contact
   {
-    @NonNull public final String id;
-    @NonNull public final String name;
-    @NonNull public final String sas;
+    @NonNull
+    public final String id;
+    @NonNull
+    public final String name;
+    @NonNull
+    public final String sas;
     public final boolean verified;
     public final boolean flagged;
     /** The joiner has not confirmed yet (D18). */
@@ -43,9 +46,11 @@ public final class LiveLocationModels
     public final boolean offerRemoval;
     public final boolean hidden;
     /** Seconds since the epoch, 0 until stopped; null when the contact does not share with this user. */
-    @Nullable public final Long sharesWithMeUntil;
+    @Nullable
+    public final Long sharesWithMeUntil;
     /** The same for this user's share with the contact. */
-    @Nullable public final Long iShareUntil;
+    @Nullable
+    public final Long iShareUntil;
     /** Live updates need a relay this user has not allowed. */
     public final boolean liveUpdatesOff;
 
@@ -89,17 +94,24 @@ public final class LiveLocationModels
       Expired
     }
 
-    @NonNull public final String id;
+    @NonNull
+    public final String id;
     public final boolean inviter;
-    @NonNull public final Stage stage;
+    @NonNull
+    public final Stage stage;
     /** The inviter's invite link while it waits; empty otherwise. */
-    @NonNull public final String link;
+    @NonNull
+    public final String link;
     public final long expiresAt;
-    @NonNull public final String sas;
-    @NonNull public final String peerName;
-    @NonNull public final String contactId;
+    @NonNull
+    public final String sas;
+    @NonNull
+    public final String peerName;
+    @NonNull
+    public final String contactId;
     /** Relays the user must allow before joining. */
-    @NonNull public final List<String> needsConsent;
+    @NonNull
+    public final List<String> needsConsent;
 
     Pairing(@NonNull JSONObject json)
     {
@@ -126,8 +138,10 @@ public final class LiveLocationModels
 
   public static final class Position
   {
-    @NonNull public final String contactId;
-    @NonNull public final String name;
+    @NonNull
+    public final String contactId;
+    @NonNull
+    public final String name;
     public final double lat;
     public final double lon;
     public final double accuracy;
@@ -161,7 +175,8 @@ public final class LiveLocationModels
   /** A recipient of a share: a contact id and the share's end (seconds since the epoch, 0: until stopped). */
   public static final class Recipient
   {
-    @NonNull public final String contactId;
+    @NonNull
+    public final String contactId;
     public final long until;
 
     public Recipient(@NonNull String contactId, long until)
@@ -186,9 +201,11 @@ public final class LiveLocationModels
     public final boolean active;
     /** A viewer asked for live updates. */
     public final boolean live;
-    @NonNull public final List<Recipient> recipients;
+    @NonNull
+    public final List<Recipient> recipients;
     /** What the user may resume after the app's process died while sharing. */
-    @NonNull public final List<Recipient> resumable;
+    @NonNull
+    public final List<Recipient> resumable;
 
     Sharing(@NonNull JSONObject json) throws JSONException
     {
@@ -219,10 +236,13 @@ public final class LiveLocationModels
       Sending
     }
 
-    @NonNull public final String url;
+    @NonNull
+    public final String url;
     /** Empty for a pairing: the inviter's name is not known yet. */
-    @NonNull public final String contactName;
-    @NonNull public final Purpose purpose;
+    @NonNull
+    public final String contactName;
+    @NonNull
+    public final Purpose purpose;
 
     ConsentRequest(@NonNull JSONObject json)
     {
@@ -248,11 +268,15 @@ public final class LiveLocationModels
 
   public static final class Settings
   {
-    @NonNull public final String name;
-    @NonNull public final List<String> homeRelays;
+    @NonNull
+    public final String name;
+    @NonNull
+    public final List<String> homeRelays;
     /** Relays approved under relay consent, with the contact each was approved for. */
-    @NonNull public final List<String[]> approved;
-    @NonNull public final List<String> declined;
+    @NonNull
+    public final List<String[]> approved;
+    @NonNull
+    public final List<String> declined;
     public final boolean requestLive;
     public final boolean allowLive;
     public final int lowBatteryStop;

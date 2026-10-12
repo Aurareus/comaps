@@ -1,6 +1,8 @@
 package app.organicmaps.sdk.livelocation;
 
 import android.content.Context;
+import android.location.Location;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import androidx.annotation.Keep;
@@ -48,13 +50,24 @@ public final class LiveLocation
   private static final Handler sMain = new Handler(Looper.getMainLooper());
   private static final List<Listener> sListeners = new CopyOnWriteArrayList<>();
   private static boolean sRunning;
-  @NonNull private static List<Contact> sContacts = Collections.emptyList();
-  @NonNull private static List<Position> sPositions = Collections.emptyList();
-  @NonNull private static Sharing sSharing = Sharing.NONE;
-  @NonNull private static LocationMode sLocationMode = LocationMode.Off;
+  private static boolean sForeground;
+  @NonNull
+  private static List<Contact> sContacts = Collections.emptyList();
+  @NonNull
+  private static List<Position> sPositions = Collections.emptyList();
+  @NonNull
+  private static Sharing sSharing = Sharing.NONE;
+  @NonNull
+  private static LocationMode sLocationMode = LocationMode.Off;
   private static final Map<String, Pairing> sPairings = new LinkedHashMap<>();
 
   private LiveLocation() {}
+
+  /** The feature needs Android 7 (docs/LIVE_LOCATION.md §10.1, D6). */
+  public static boolean isSupported()
+  {
+    return Build.VERSION.SDK_INT >= Build.VERSION_CODES.N;
+  }
 
   public static boolean isRunning()
   {
@@ -71,7 +84,9 @@ public final class LiveLocation
     if (sRunning)
       return true;
     sRunning = true;
-    return nativeStart(context.getNoBackupFilesDir().getAbsolutePath());
+    final boolean started = nativeStart(context.getNoBackupFilesDir().getAbsolutePath());
+    nativeSetForeground(sForeground);
+    return started;
   }
 
   /** The feature is off: stops any share, closes every connection and frees the core. The data stays. */
@@ -96,10 +111,11 @@ public final class LiveLocation
       nativeDeleteAllData();
   }
 
-  /** The map is visible: contacts' positions are wanted (D11). */
+  /** The app is in the foreground: contacts' positions are wanted (D11). Kept for a later start. */
   @MainThread
   public static void setForeground(boolean foreground)
   {
+    sForeground = foreground;
     if (sRunning)
       nativeSetForeground(foreground);
   }
@@ -287,12 +303,15 @@ public final class LiveLocation
       nativeDismissResume();
   }
 
-  /** A fix from the location provider. NaN for what it does not know. */
-  public static void onLocation(double lat, double lon, double accuracy, double speed, double bearing, double altitude,
-                                long timeMs)
+  /** A fix from the location provider. The core drops a fix without accuracy, and values out of range. */
+  public static void onLocation(@NonNull Location location)
   {
-    if (sRunning)
-      nativeOnLocation(lat, lon, accuracy, speed, bearing, altitude, timeMs);
+    if (!sRunning)
+      return;
+    nativeOnLocation(location.getLatitude(), location.getLongitude(),
+                     location.hasAccuracy() ? location.getAccuracy() : -1,
+                     location.hasSpeed() ? location.getSpeed() : -1, location.hasBearing() ? location.getBearing() : -1,
+                     location.hasAltitude(), location.getAltitude(), location.getTime());
   }
 
   public static void onBatteryLevel(int percent)
@@ -442,7 +461,9 @@ public final class LiveLocation
   private static native boolean nativeExtendSharing(@NonNull String id, long until);
   private static native void nativeStopSharing();
   private static native void nativeDismissResume();
+  // Unknown accuracy, speed and bearing are negative: no NaN crosses JNI (the native side is built with
+  // -ffast-math).
   private static native void nativeOnLocation(double lat, double lon, double accuracy, double speed, double bearing,
-                                              double altitude, long timeMs);
+                                              boolean hasAltitude, double altitude, long timeMs);
   private static native void nativeOnBatteryLevel(int percent);
 }
