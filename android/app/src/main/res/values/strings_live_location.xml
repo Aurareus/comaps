@@ -72,6 +72,8 @@
   <string name="live_location_wants_to_connect_in_person">%1$s wants to connect. Check that %1$s\'s screen shows</string>
   <string name="live_location_wants_to_connect_by_link">%1$s wants to connect. Compare this code with %1$s, by phone or in person:</string>
   <string name="live_location_codes_match_connect">Codes match, connect</string>
+  <string name="live_location_join_confirm">Connect with whoever sent this invite? They will see your name, %1$s.</string>
+  <string name="live_location_connect">Connect</string>
   <string name="live_location_connect_without_comparing">Connect without comparing</string>
   <string name="live_location_decline">Decline</string>
   <string name="live_location_connected_with">Connected with %s</string>

@@ -21,8 +21,10 @@ import java.util.ArrayDeque;
 
 /**
  * Live location (NLL): adding a contact (docs/LIVE_LOCATION.md §11.2). The inviter shows a QR code,
- * or shares a link; the joiner opens one, or pastes it. Both compare a code, and the inviter decides.
- * Leaving the screen does not stop the pairing: it goes on, and the contacts screen lists it.
+ * or shares a link; the joiner opens one, or pastes it. A link opened from outside the app asks the
+ * joiner first: opening it must not by itself send the joiner's name or add a contact. Both compare a
+ * code, and the inviter decides. Leaving the screen does not stop the pairing: it goes on, and the
+ * contacts screen lists it.
  */
 public class PairingFragment extends LiveLocationFragment
 {
@@ -34,6 +36,7 @@ public class PairingFragment extends LiveLocationFragment
   private String mPairingId;
   private boolean mStarted;
   private boolean mNeedsName;
+  private boolean mConfirmJoin;
   private boolean mInvalid;
   private boolean mFailed;
   private boolean mDiffered;
@@ -84,13 +87,24 @@ public class PairingFragment extends LiveLocationFragment
 
   private void begin()
   {
-    final String link = getArguments() != null ? getArguments().getString(LiveLocationActivity.EXTRA_LINK) : null;
     withName(() -> {
-      if (link != null)
-        join(link);
+      if (link() != null)
+      {
+        mConfirmJoin = true;
+        refresh();
+      }
       else
+      {
         invite(false);
+      }
     });
+  }
+
+  /** The invite link this screen was opened with, from outside the app. */
+  @Nullable
+  private String link()
+  {
+    return getArguments() != null ? getArguments().getString(LiveLocationActivity.EXTRA_LINK) : null;
   }
 
   @Override
@@ -117,6 +131,18 @@ public class PairingFragment extends LiveLocationFragment
       {
         views.text(getString(R.string.live_location_your_name_message));
         views.button(getString(R.string.live_location_your_name_title), v -> begin());
+      }
+      else if (mConfirmJoin)
+      {
+        final Settings settings = LiveLocation.getSettings();
+        views.text(getString(R.string.live_location_join_confirm, settings != null ? settings.name : ""));
+        views.button(getString(R.string.live_location_connect), v -> {
+          mConfirmJoin = false;
+          final String link = link();
+          if (link != null)
+            join(link);
+        });
+        views.outlinedButton(getString(R.string.cancel), v -> close());
       }
       else if (mFailed)
       {

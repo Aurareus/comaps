@@ -729,10 +729,13 @@ Settings → Experimental → "Live location sharing" → the explanation screen
    - a countdown (10 min for QR, 24 h for a link);
    - "Waiting…".
 2. B scans the QR with any camera or QR app that opens links, or taps the link, or uses **Paste
-   invite** on the same screen. The stock cameras of three test phones all opened CoMaps (D8). If
-   the invite uses relays that are neither B's nor the defaults, B is asked first (relay consent):
-   "This invite uses relay.example.org, which isn't one of yours. Its operator would see your
-   internet address while you connect." B sees "Connecting…".
+   invite** on the same screen. The stock cameras of three test phones all opened CoMaps (D8). A
+   link opened from outside the app asks first: "Connect with whoever sent this invite? They will
+   see your name, Bob." → [Connect] / [Cancel]. Opening a link must not by itself send B's name to
+   whoever made it, nor add them as a contact, under whatever name they chose. If the invite uses
+   relays that are neither B's nor the defaults, B is asked next (relay consent): "This invite uses
+   relay.example.org, which isn't one of yours. Its operator would see your internet address while
+   you connect." B sees "Connecting…".
 3. With both apps open, within seconds (three relay round-trips), B sees "Check that the other phone
    shows **294 805**" → [Codes match] / [They differ]. B does not know A's name yet; it arrives
    with A's confirmation. "They differ" stops the pairing on B's side and tells B not to connect.
