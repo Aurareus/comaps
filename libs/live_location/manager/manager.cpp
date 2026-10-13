@@ -16,11 +16,12 @@ namespace live_location
 {
 namespace
 {
-uint8_t constexpr kStateVersion = 1;
+uint8_t constexpr kStateVersion = 2;      // 2: the previous home relays (spec §11); 1 is still read
 int64_t constexpr kQrLifetime = 600;      // design doc §11.2
 int64_t constexpr kLinkLifetime = 86400;  // spec §6.1: at most a day
 int64_t constexpr kCatchUpMs = 30'000;    // how long the previous epoch's states are read for
 int64_t constexpr kPairingRetryMs = 30'000;
+size_t constexpr kMaxPreviousRelays = 8;  // after several changes within a week
 
 double DistanceM(Location const & a, Location const & b)
 {
@@ -188,6 +189,12 @@ SecretBytes Manager::Encode(std::set<ByteArray<32>> & digests) const
     writer.I64(until);
   }
 
+  // Version 2.
+  writer.U32(static_cast<uint32_t>(m_settings.m_previousRelays.size()));
+  for (auto const & url : m_settings.m_previousRelays)
+    writer.String(url);
+  writer.I64(m_settings.m_relaysChanged);
+
   SecretBytes out = writer.Finish();
   digests = writer.SecretDigests();
   return out;
@@ -196,7 +203,8 @@ SecretBytes Manager::Encode(std::set<ByteArray<32>> & digests) const
 void Manager::Decode(ByteSpan data)
 {
   binary::Reader reader(data);
-  if (reader.U8() != kStateVersion)
+  uint8_t const version = reader.U8();
+  if (version != 1 && version != kStateVersion)
     throw binary::FormatError("store version");
   m_decoySeed = reader.Secret();
   m_settings = Settings();
@@ -257,6 +265,17 @@ void Manager::Decode(ByteSpan data)
     int64_t const until = reader.I64();
     if (FindPeer(id) != nullptr)
       m_resumable.emplace_back(std::move(id), until);
+  }
+  if (version >= 2)
+  {
+    for (uint32_t i = 0, n = reader.Count(kMaxPreviousRelays); i < n; ++i)
+    {
+      std::string url = reader.String();
+      if (!IsValidRelayUrl(url))
+        throw binary::FormatError("relay");
+      m_settings.m_previousRelays.push_back(std::move(url));
+    }
+    m_settings.m_relaysChanged = reader.I64();
   }
   if (!reader.AtEnd())
     throw binary::FormatError("trailing data");
@@ -367,9 +386,26 @@ Manager::Session * Manager::FindSession(std::string const & id)
   return nullptr;
 }
 
+bool Manager::InRelayWeek() const
+{
+  return m_settings.m_relaysChanged != 0 && EpochOf(Now()) <= m_settings.m_relaysChanged + kConfirmEpochs;
+}
+
+Relays Manager::InboxRelays() const
+{
+  Relays relays = m_settings.m_homeRelays;
+  if (InRelayWeek())
+    for (auto const & url : m_settings.m_previousRelays)
+      if (std::find(relays.begin(), relays.end(), url) == relays.end())
+        relays.push_back(url);
+  return relays;
+}
+
 std::set<std::string> Manager::Trusted() const
 {
   std::set<std::string> trusted(m_settings.m_homeRelays.begin(), m_settings.m_homeRelays.end());
+  if (InRelayWeek())
+    trusted.insert(m_settings.m_previousRelays.begin(), m_settings.m_previousRelays.end());
   trusted.insert(kDefaultRelays.begin(), kDefaultRelays.end());
   for (auto const & approved : m_settings.m_approved)
     trusted.insert(approved.first);
@@ -442,17 +478,73 @@ bool Manager::SetHomeRelays(Relays relays)
 {
   if (!m_started || !IsValidRelayList(relays))
     return false;
-  m_settings.m_homeRelays = std::move(relays);
-  Save();
-  // The inbox moves now; a running share keeps naming the relays it started with.
-  if (m_inbox != 0)
+  if (relays == m_settings.m_homeRelays)
+    return true;
+  if (m_peers.empty() && m_sessions.empty())
   {
-    m_pool->Unsubscribe(m_inbox);
-    m_inbox = 0;
+    // Nobody to tell, and nobody who sends to the old relays.
+    m_settings.m_homeRelays = std::move(relays);
+    m_settings.m_previousRelays.clear();
+    m_settings.m_relaysChanged = 0;
+    Save();
+    UpdateConnections();
+    return true;
   }
+  // Contacts still send to the previous relays until they learn the new list: they are read for a
+  // week, together with those of a change earlier in that week.
+  Relays previous = m_settings.m_homeRelays;
+  if (InRelayWeek())
+    for (auto const & url : m_settings.m_previousRelays)
+      if (std::find(previous.begin(), previous.end(), url) == previous.end())
+        previous.push_back(url);
+  previous.erase(std::remove_if(previous.begin(), previous.end(), [&](std::string const & url)
+  { return std::find(relays.begin(), relays.end(), url) != relays.end(); }),
+                 previous.end());
+  if (previous.size() > kMaxPreviousRelays)
+    previous.resize(kMaxPreviousRelays);
+  m_settings.m_previousRelays = std::move(previous);
+  m_settings.m_relaysChanged = EpochOf(Now());
+  m_settings.m_homeRelays = std::move(relays);
+  AnnounceRelays();
   UpdateConnections();
   NotifyContacts();
   return true;
+}
+
+void Manager::AnnounceRelays()
+{
+  // Every contact gets a state naming the new list. A running share is re-keyed, so that its grants,
+  // its stream and its listening relay move too. All the states leave in one shuffled batch: their
+  // order must not tell the relays who receives the share.
+  int64_t const now = Now();
+  Rekey rekey;
+  int64_t oldEpoch = 0;
+  Relays const oldRelays = m_shareRelays;
+  bool const sharing = m_sharer && m_sharer->IsSharing();
+  std::set<ContactPtr> granted;
+  if (sharing)
+  {
+    oldEpoch = m_sharer->StreamEpoch();
+    m_shareRelays = m_settings.m_homeRelays;
+    m_sharer->SetRelays(m_shareRelays);
+    rekey = m_sharer->Change(m_sharer->GetGrants(), m_rng, now);
+    for (auto const & grant : m_sharer->GetGrants())
+      granted.insert(grant.first);
+    m_lastPublished.reset();
+  }
+  for (auto const & peer : m_peers)
+    if (granted.count(peer->m_contact) == 0)
+      rekey.m_states.emplace_back(peer->m_contact,
+                                  StateEvent(*peer->m_contact, m_settings.m_homeRelays, std::nullopt, m_rng, now));
+  Shuffle(rekey.m_states, m_rng);
+  Save();  // the seqs and created_at of these states, and the new stream, before they leave
+  PublishRekey(std::move(rekey), oldEpoch, oldRelays);
+  if (sharing)
+  {
+    ScheduleStreamStart();
+    ScheduleClock();
+    NotifySharing();
+  }
 }
 
 void Manager::SetConsent(std::string const & url, bool allowed, std::string const & forContact)
@@ -977,10 +1069,13 @@ void Manager::SendConfirmations()
   if (!m_started || (!m_foreground && !sharing))
     return;  // "each UTC day it runs": while the app is used, never just for this
   int64_t const now = Now();
+  // In the week after a change of home relays, every contact gets the current state once a day (§11).
+  bool const announcing = InRelayWeek();
   std::vector<std::pair<ContactPtr, nostr::Event>> due;
   for (auto const & peer : m_peers)
   {
-    if (!ConfirmationDue(*peer->m_contact, now))
+    Contact const & contact = *peer->m_contact;
+    if (!ConfirmationDue(contact, now) && !(announcing && EpochOf(contact.m_lastCreatedOut) < EpochOf(now)))
       continue;
     // The current state: with the grant while sharing with the contact, so that it never ends a share.
     due.emplace_back(peer->m_contact,
@@ -1049,7 +1144,7 @@ bool Manager::StartSharing(Recipients const & recipients)
   m_lastPublished.reset();
   m_liveUntil = 0;
   Save();
-  PublishRekey(std::move(rekey), m_sharer->StreamEpoch());
+  PublishRekey(std::move(rekey), m_sharer->StreamEpoch(), m_shareRelays);
   UpdateLocationRequest();
   ScheduleClock();
   UpdateConnections();
@@ -1082,7 +1177,7 @@ bool Manager::ChangeSharing(Recipients const & recipients)
   Rekey rekey = m_sharer->Change(ToGrants(recipients), m_rng, now);
   m_lastPublished.reset();
   Save();
-  PublishRekey(std::move(rekey), oldEpoch);
+  PublishRekey(std::move(rekey), oldEpoch, m_shareRelays);
   ScheduleStreamStart();
   ScheduleClock();
   NotifySharing();
@@ -1124,7 +1219,7 @@ void Manager::StopSharing()
   m_sharer.reset();
   m_resumable.clear();
   Save();
-  PublishRekey(std::move(rekey), oldEpoch);
+  PublishRekey(std::move(rekey), oldEpoch, m_shareRelays);
   EndSharing();
 }
 
@@ -1152,12 +1247,12 @@ void Manager::DismissResume()
   NotifySharing();
 }
 
-void Manager::PublishRekey(Rekey rekey, int64_t oldStreamEpoch)
+void Manager::PublishRekey(Rekey rekey, int64_t oldStreamEpoch, Relays endRelays)
 {
   // States first; the old stream's end once each state has an OK, or after kOkWait (spec §9).
   auto end = std::make_shared<std::optional<nostr::Event>>(std::move(rekey.m_end));
   auto pending = std::make_shared<size_t>(rekey.m_states.size());
-  Relays const relays = m_shareRelays;
+  Relays const relays = std::move(endRelays);
   std::weak_ptr<int> alive = m_alive;
   auto const sendEnd = [this, alive, end, relays, oldStreamEpoch]
   {
@@ -1306,7 +1401,7 @@ void Manager::OnClock()
     if (auto rekey = m_sharer->Tick(m_rng, now))
     {
       Save();
-      PublishRekey(std::move(*rekey), oldEpoch);
+      PublishRekey(std::move(*rekey), oldEpoch, m_shareRelays);
       if (!m_sharer->IsSharing())
       {
         EndSharing();
@@ -1353,7 +1448,11 @@ void Manager::UpdateConnections()
   bool const wantInbox = !filters.empty() && (m_foreground || sharing);
   relay::Scope const scope = relay::EpochScope(epoch);
   relay::Placement const placement = m_foreground ? relay::Placement::All : relay::Placement::FirstReachable;
-  if (m_inbox != 0 && (!wantInbox || scope != m_inboxScope || placement != m_inboxPlacement))
+  // While only sharing, the inbox listens on the listening relay of the home relays alone (D17): viewers
+  // send their signals to the list the share names.
+  Relays const inboxRelays = m_foreground ? InboxRelays() : m_settings.m_homeRelays;
+  if (m_inbox != 0 &&
+      (!wantInbox || scope != m_inboxScope || placement != m_inboxPlacement || inboxRelays != m_inboxRelays))
   {
     m_pool->Unsubscribe(m_inbox);
     m_inbox = 0;
@@ -1362,8 +1461,9 @@ void Manager::UpdateConnections()
   {
     m_inboxScope = scope;
     m_inboxPlacement = placement;
+    m_inboxRelays = inboxRelays;
     m_inboxAuthors = authors;
-    m_inbox = m_pool->Subscribe(scope, m_settings.m_homeRelays, placement, [this, epoch]
+    m_inbox = m_pool->Subscribe(scope, inboxRelays, placement, [this, epoch]
     {
       std::vector<ContactPtr> current;
       for (auto const & peer : m_peers)
@@ -1388,8 +1488,7 @@ void Manager::UpdateConnections()
         previous.push_back(filter);
     if (!previous.empty())
     {
-      m_catchUp =
-          m_pool->Subscribe(relay::EpochScope(epoch - 1), m_settings.m_homeRelays, relay::Placement::All, [previous]
+      m_catchUp = m_pool->Subscribe(relay::EpochScope(epoch - 1), InboxRelays(), relay::Placement::All, [previous]
       { return previous; }, [this](nostr::Event const & event) { OnInboxEvent(event); });
       Later(kCatchUpMs, [this]
       {

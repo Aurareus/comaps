@@ -8,6 +8,7 @@
 #include "live_location/protocol/constants.hpp"
 #include "live_location/store/store.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -16,6 +17,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // Whole phones against in-process relays: pairing, sharing, live updates, relays down, time limits,
@@ -77,6 +79,7 @@ public:
 
   Manager & M() { return *m_manager; }
   Recorder & Events() { return m_events; }
+  std::string const & Path() const { return m_path; }
   TestKeys & Keys() { return m_keys; }
 
   ContactInfo const * Contact(std::string const & name) const
@@ -269,6 +272,128 @@ UNIT_TEST(Manager_OneDishonestRelayCannotHideWhatTheOthersDeliver)
   world.Run(5'000);
   TEST(bob.Position("Alice") && std::abs(bob.Position("Alice")->m_location.m_lat - 48.85) < 1e-9,
        ("the share reaches Bob through the honest relays"));
+}
+
+void SetDown(World & world, std::vector<std::string_view> const & urls, bool down)
+{
+  for (auto const & url : urls)
+    world.Relay(std::string(url)).SetDown(down);
+}
+
+std::vector<std::string_view> const kDefaults(kDefaultRelays.begin(), kDefaultRelays.end());
+
+UNIT_TEST(Manager_ChangedHomeRelaysReachContacts)
+{
+  World world;
+  std::string const kOwn = "wss://own.example";
+  world.m_transport.Add(kOwn);
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Phone carol(world, "Carol");
+  Pair(world, alice, bob);
+  Pair(world, alice, carol);
+  carol.M().SetForeground(false);  // Carol does not open CoMaps for a few days
+
+  // Alice moves to a relay of her own (D5). Bob's app is open: it learns the new list at once, and asks
+  // before sending there.
+  TEST(alice.M().SetHomeRelays({kOwn}), ());
+  world.Run(3'000);
+  bob.M().SetConsent(kOwn, true, "Alice");
+  SetDown(world, kDefaults, true);
+  TEST(bob.M().StartSharing({{bob.Id("Alice"), 0}}), ());
+  world.Run(20'000);
+  TEST(alice.Contact("Bob")->m_sharesWithMeUntil, ("Bob's grant came through the new relay alone"));
+  SetDown(world, kDefaults, false);
+  bob.M().StopSharing();
+  world.Run(20'000);
+
+  // Two days later, nobody having opened CoMaps since, Carol shares: she still sends to the old
+  // relays, which Alice still reads.
+  alice.M().SetForeground(false);
+  bob.M().SetForeground(false);
+  world.Run(2 * 86'400'000);
+  carol.M().SetForeground(true);
+  alice.M().SetForeground(true);
+  TEST(carol.M().StartSharing({{carol.Id("Alice"), 0}}), ());
+  world.Run(5'000);
+  TEST(alice.Contact("Carol")->m_sharesWithMeUntil, ("through the old relays, still read that week"));
+
+  // Alice's app, open again that week, has sent Carol the new list too.
+  carol.M().SetConsent(kOwn, true, "Alice");
+  SetDown(world, kDefaults, true);
+  int64_t const until = world.m_executor.Now() + 3600;
+  TEST(carol.M().ExtendSharing(carol.Id("Alice"), until), ());
+  world.Run(20'000);
+  TEST(alice.Contact("Carol")->m_sharesWithMeUntil == std::optional<int64_t>(until), ("Carol learned the new relay"));
+  SetDown(world, kDefaults, false);
+  carol.M().StopSharing();
+  world.Run(20'000);
+
+  // After the week, the old relays are no longer read.
+  alice.M().SetForeground(false);
+  carol.M().SetForeground(false);
+  world.Run(7 * 86'400'000);
+  alice.M().SetForeground(true);
+  world.Run(120'000);
+  auto const connections = alice.M().Pool().Connections();
+  TEST(!connections.empty(), ());
+  for (auto const & connection : connections)
+    TEST_EQUAL(connection.first, kOwn, ());
+}
+
+UNIT_TEST(Manager_ChangingHomeRelaysMovesARunningShare)
+{
+  World world;
+  std::string const kOwn = "wss://own.example";
+  std::string const kBobs = "wss://bob.example";
+  world.m_transport.Add(kOwn);
+  world.m_transport.Add(kBobs);
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  TEST(bob.M().SetHomeRelays({kBobs}), ());
+  alice.M().SetConsent(kBobs, true, "Bob");
+  bob.M().SetConsent(kOwn, true, "Alice");
+  Pair(world, alice, bob);
+
+  alice.M().SetForeground(false);
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+  alice.M().OnLocation(FixAt(world, 52.52, 13.405));
+  world.Run(3'000);
+  TEST(bob.Position("Alice"), ());
+  TEST(alice.Events().m_location == LocationRequest::Live, ("Bob watches"));
+
+  // Alice moves to her own relay, and her old relays go down: the share carries on there.
+  TEST(alice.M().SetHomeRelays({kOwn}), ());
+  SetDown(world, kDefaults, true);
+  world.Run(125'000);  // the new stream's first 30..120 s are silent (spec §9)
+  alice.M().OnLocation(FixAt(world, 52.53, 13.405));
+  world.Run(5'000);
+  TEST(bob.Position("Alice") && std::abs(bob.Position("Alice")->m_location.m_lat - 52.53) < 1e-9,
+       ("Bob follows the new stream on the new relay"));
+  world.Run(130'000);
+  TEST(alice.Events().m_location == LocationRequest::Live, ("Bob's signals reach the new listening relay"));
+}
+
+UNIT_TEST(Manager_ReadsStoresOfTheFirstVersion)
+{
+  World world;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+
+  // The first version is the second without its last fields: no previous relays (4 bytes), no change (8).
+  store::Store store(alice.Path(), alice.Keys(), ScenarioRng());
+  SecretBytes contents;
+  TEST(store.Load(contents) == store::Store::Result::Loaded, ());
+  TEST_EQUAL(contents[0], 2, ());
+  TEST(std::all_of(contents.end() - 12, contents.end(), [](uint8_t b) { return b == 0; }), ());
+  SecretBytes first(ByteSpan(contents.data(), contents.size() - 12));
+  first[0] = 1;
+  TEST(store.Save(first, {}), ());
+
+  alice.Restart();
+  TEST(alice.Contact("Bob"), ("the contacts of a first-version store"));
+  TEST_EQUAL(alice.M().GetSettings().m_name, "Alice", ());
 }
 
 UNIT_TEST(Manager_TimeLimitsAndStop)

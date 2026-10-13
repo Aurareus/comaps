@@ -61,10 +61,16 @@ std::optional<StreamMessage> ReadStream(Share const & grant, nostr::Event const 
   return message;
 }
 
-Sharer::Sharer(Relays relays) : m_relays(std::move(relays))
+Sharer::Sharer(Relays relays)
 {
-  if (!IsValidRelayList(m_relays))
+  SetRelays(std::move(relays));
+}
+
+void Sharer::SetRelays(Relays relays)
+{
+  if (!IsValidRelayList(relays))
     throw std::invalid_argument("invalid relay list");
+  m_relays = std::move(relays);
 }
 
 std::optional<int64_t> Sharer::UntilOf(ContactPtr const & contact) const

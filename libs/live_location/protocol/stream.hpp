@@ -58,6 +58,9 @@ public:
   /// Throws std::invalid_argument for an invalid relay list.
   explicit Sharer(Relays relays);
 
+  /// The relays the states name, from the next state on. Throws std::invalid_argument for an invalid list.
+  void SetRelays(Relays relays);
+
   bool IsSharing() const { return m_stream.has_value(); }
   Grants const & GetGrants() const { return m_grants; }
   Stream const * GetStream() const { return m_stream ? &*m_stream : nullptr; }

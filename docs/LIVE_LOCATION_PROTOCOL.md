@@ -483,6 +483,22 @@ watches (design doc D17), keeps it to the first relay of its list that it can re
 
 Publishing to another user's relays is limited to those that relay consent allows (below).
 
+**Changing home relays.** Contacts learn a user's home relays only from the `relays` of that user's
+states (§8). When the user changes them, the app:
+
+- sends every contact its current state naming the new list. A running share is re-keyed, as for a
+  change of recipients (§9), so that its grants, its stream and its listening relay all move to the
+  new list; every other contact gets a state without `share`;
+- sends each contact its current state again on each UTC day it runs, through epoch `e_c + 7`, where
+  `e_c` is the epoch of the change, unless it has already sent that contact a state that day. A state
+  can be read only until 01:00 UTC the next day (§8); without the repeats, a contact that did not
+  open its app that day would never learn the new list;
+- until the end of that week, also reads its inbox on the previous home relays, which stay allowed
+  (relay consent, below), so that what contacts still send there arrives.
+
+A contact that does not open its app during that week keeps publishing to the old relays until a
+later state names the new ones, for example when the user next shares with it.
+
 Subscriptions (NIP-01 `REQ`, at most 50 authors per filter; longer lists are split into several
 filters of the same `REQ`):
 
@@ -531,7 +547,8 @@ contact. That happens when you view its share or send it watch signals, when you
 when you send it states, including when you stop sharing with it. So:
 
 - Implementations MUST NOT connect, to read or to publish, to a relay outside the user's own home
-  relays, the built-in default list, and relays the user has approved.
+  relays (and, for the week after a change, the previous ones), the built-in default list, and
+  relays the user has approved.
 - For any other relay a contact names, the app asks once, naming the contact: "Bob's location comes
   through relay.example.org, which isn't one of yours. Its operator would see your internet address
   whenever you view Bob." An approval is remembered per relay, and can be revoked in the settings.

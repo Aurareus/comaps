@@ -45,6 +45,9 @@ public:
 
   Settings const & GetSettings() const { return m_settings; }
   bool SetName(std::string name);
+  /// Contacts learn the new list from a state sent to each of them now, and again each day the app runs
+  /// in the following week, while the previous relays are still read (spec §11). A running share is
+  /// re-keyed onto the new list.
   bool SetHomeRelays(Relays relays);
   /// The user's answer about a relay (relay consent, spec §11). Approvals are kept until revoked; a
   /// refusal means the app does not ask again.
@@ -112,6 +115,10 @@ private:
   Peer * FindPeer(ContactPtr const & contact);
   Session * FindSession(std::string const & id);
   std::set<std::string> Trusted() const;
+  /// The week after a change of home relays (spec §11).
+  bool InRelayWeek() const;
+  /// Where the inbox is read: the home relays, and the previous ones in the week after a change.
+  Relays InboxRelays() const;
   bool IsAllowed(std::string const & url) const;
   Relays Allowed(Relays const & relays) const;
   void AskConsent(std::string const & url, std::string const & contactName, ConsentRequest::Purpose purpose);
@@ -138,7 +145,9 @@ private:
 
   // Sharing
   Grants ToGrants(Recipients const & recipients) const;
-  void PublishRekey(Rekey rekey, int64_t oldStreamEpoch);
+  /// The states, then the old stream's end on `endRelays`, where that stream was published.
+  void PublishRekey(Rekey rekey, int64_t oldStreamEpoch, Relays endRelays);
+  void AnnounceRelays();
   void MaybePublishLocation(bool force);
   void ScheduleStreamStart();
   void EndSharing();
@@ -188,6 +197,7 @@ private:
   relay::RelayPool::SubscriptionId m_inbox = 0;
   relay::Scope m_inboxScope;
   relay::Placement m_inboxPlacement = relay::Placement::All;
+  Relays m_inboxRelays;
   std::vector<std::string> m_inboxAuthors;
   relay::RelayPool::SubscriptionId m_catchUp = 0;  // the previous epoch's states, in the grace hour
   Executor::TaskId m_clock = Executor::kNoTask;

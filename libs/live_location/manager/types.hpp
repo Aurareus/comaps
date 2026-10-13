@@ -15,8 +15,10 @@ namespace live_location
 {
 struct Settings
 {
-  std::string m_name;                             // this user's name, sent when pairing
-  Relays m_homeRelays;                            // in the user's order: the first reachable one listens (D17)
+  std::string m_name;           // this user's name, sent when pairing
+  Relays m_homeRelays;          // in the user's order: the first reachable one listens (D17)
+  Relays m_previousRelays;      // the home relays before the last change, still read and allowed ...
+  int64_t m_relaysChanged = 0;  // ... through this epoch + kConfirmEpochs (spec §11); 0: never changed
   std::map<std::string, std::string> m_approved;  // relay consent: url -> the contact it was approved for
   std::set<std::string> m_declined;               // asked once and refused
   bool m_requestLive = true;                      // ask sharers for live updates while viewing (D4)
