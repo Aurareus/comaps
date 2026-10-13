@@ -23,6 +23,9 @@ public:
   drape_ptr<SymbolNameZoomInfo> GetSymbolNames() const override { return nullptr; }
   drape_ptr<ColoredSymbolZoomInfo> GetColoredSymbols() const override;
   drape_ptr<TitlesInfo> GetTitleDecl() const override;
+  // Names are placed as bookmarks' are: drape's user mark layer places no labels at all.
+  df::DepthLayer GetDepthLayerEx(bool) const override { return df::DepthLayer::SearchMarkLayer; }
+  bool HasTitlePriority() const override { return true; }
   bool IsAvailableForSearch() const override { return false; }
 
 private:

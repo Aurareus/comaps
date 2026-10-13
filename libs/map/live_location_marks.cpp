@@ -52,7 +52,7 @@ LiveLocationMark::LiveLocationMark(m2::PointD const & ptOrg) : UserMark(ptOrg, U
 
   m_title.m_anchor = dp::Top;
   m_title.m_primaryTextFont = dp::FontDecl(kText, kTextSize, dp::Color::White());
-  m_title.m_primaryOffset = m2::PointF(0.0f, kRadius + kOutline + 1.0f);
+  m_title.m_primaryOffset = m2::PointF(0.0f, 1.0f);  // below the dot, whose size drape adds
   m_title.m_primaryOptional = true;
 }
 
