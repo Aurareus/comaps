@@ -1,5 +1,7 @@
 #pragma once
 
+#include "live_location/nostr/event.hpp"
+
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -20,4 +22,9 @@ struct Filter
 
   bool operator==(Filter const &) const = default;
 };
+
+/// NIP-01 matching: every field set in the filter holds for the event; "#p" holds when any p tag
+/// carries one of its values.
+bool Matches(Filter const & filter, Event const & event);
+bool MatchesAny(std::vector<Filter> const & filters, Event const & event);
 }  // namespace live_location::nostr

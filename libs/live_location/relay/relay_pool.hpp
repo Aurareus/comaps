@@ -38,6 +38,8 @@ struct PoolConfig
   int64_t m_backoffMaxMs = 300'000;
   int64_t m_closedRetryMs = 30'000;  // a subscription the relay CLOSED is sent again after this
   size_t m_dedupe = 4096;            // event ids remembered per subscription
+  size_t m_maxInvalidEvents = 32;    // events a connection may send that its REQ did not ask for or that fail
+                                     // verification; one more, and the relay counts as failing
 };
 
 enum class Placement
@@ -69,7 +71,9 @@ public:
   RelayPool & operator=(RelayPool const &) = delete;
 
   /// A subscription on `urls`. `filters` is called whenever the REQ is (re)sent. Events arrive once,
-  /// whichever relays deliver them. `onEose` runs once per relay and REQ.
+  /// whichever relays deliver them, and only if they match the filters their relay was sent and their
+  /// id and signature are valid: a copy that fails cannot keep an intact one from arriving through
+  /// another relay. `onEose` runs once per relay and REQ.
   SubscriptionId Subscribe(Scope scope, Relays urls, Placement placement, FiltersFn filters, EventFn onEvent,
                            EoseFn onEose = {});
   /// Sends the REQs again with the current filters.
@@ -118,7 +122,7 @@ private:
   void Touch(Connection & connection);
   void Linger(Connection & connection);
   void OnPublishResult(uint64_t publicationId, std::string const & url, bool accepted);
-  void Deliver(SubscriptionId id, nostr::Event const & event);
+  void OnEvent(Connection & connection, std::string const & reqId, nostr::Event const & event);
 
   void OnOpen(uint64_t connectionId);
   void OnMessage(uint64_t connectionId, std::string const & text);

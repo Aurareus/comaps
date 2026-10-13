@@ -518,7 +518,10 @@ connection, whatever the IP address. Within one day, keys used over the same con
 linkable.
 
 Publishers send each event to all relevant relays and treat it as delivered when at least one relay
-answers `OK true`. Receivers deduplicate by event id.
+answers `OK true`. Receivers deduplicate by event id, counting an event as received only once its id
+and signature have been checked (§12 item 1) and it matches the filter it was sent for. Otherwise a
+relay that sends a broken or altered copy first would hide the intact copies that the other relays
+deliver.
 
 **Relay consent.** Every relay a phone connects to learns that phone's IP address, hence its rough
 location and provider, and when the connection happens. Contacts name relays: a sharer its home

@@ -98,6 +98,19 @@ class Conn:
             self.reader.cancel()
 
 
+def matches(flt, ev):
+    """NIP-01 filter matching, for the fields NLL uses."""
+    if 'kinds' in flt and ev.kind not in flt['kinds']:
+        return False
+    if 'authors' in flt and ev.pubkey not in flt['authors']:
+        return False
+    if 'since' in flt and ev.created_at < flt['since']:
+        return False
+    if '#p' in flt and not any(len(t) >= 2 and t[0] == 'p' and t[1] in flt['#p'] for t in ev.tags):
+        return False
+    return True
+
+
 class Network:
     """Connections by (relay, scope): a connection never carries keys of two epochs, nor a pairing and a
     channel (spec §11; design doc §21)."""
@@ -130,12 +143,19 @@ class Network:
         handle = []
 
         def deliver(evd):
-            if isinstance(evd, dict) and evd.get('id') not in seen:
-                seen.add(evd.get('id'))
-                try:
-                    on_event(Event.from_dict(evd))
-                except Exception as e:
-                    log('event dropped: %r' % e)
+            # Seen only once verified and asked for: a relay that sends a broken copy first must not
+            # hide the intact one another relay delivers (spec §11).
+            try:
+                ev = Event.from_dict(evd)
+                if ev.id in seen or not any(matches(f, ev) for f in filters) or not ev.verify():
+                    return
+            except Exception:
+                return
+            seen.add(ev.id)
+            try:
+                on_event(ev)
+            except Exception as e:
+                log('event dropped: %r' % e)
 
         for url in urls:
             try:

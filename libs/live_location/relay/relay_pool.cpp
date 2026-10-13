@@ -42,10 +42,17 @@ struct RelayPool::Connection
   Scope m_scope;
   std::unique_ptr<Listener> m_listener;
   std::unique_ptr<Socket> m_socket;
+  struct Req
+  {
+    SubscriptionId m_subscription = 0;
+    std::vector<nostr::Filter> m_filters;  // as last sent: the events the relay may deliver for it
+  };
+
   bool m_open = false;
   std::vector<std::string> m_queue;              // sent once open
-  std::map<std::string, SubscriptionId> m_reqs;  // REQ id -> subscription
+  std::map<std::string, Req> m_reqs;             // REQ id -> subscription
   std::map<std::string, uint64_t> m_awaitingOk;  // event id -> publication
+  size_t m_invalidEvents = 0;
   Executor::TaskId m_connectTimer = Executor::kNoTask;
   Executor::TaskId m_lingerTimer = Executor::kNoTask;
 };
@@ -242,8 +249,10 @@ void RelayPool::Place(SubscriptionId id)
     Connection & connection = GetConnection(url, subscription.m_scope);
     std::string const reqId = ToHex(m_rng.GetBytes(8));  // fresh per REQ: ids must not link connections
     subscription.m_active.emplace(url, reqId);
-    connection.m_reqs.emplace(reqId, id);
-    Send(connection, nostr::ReqMessage(reqId, subscription.m_filters()));
+    auto filters = subscription.m_filters();
+    std::string text = nostr::ReqMessage(reqId, filters);
+    connection.m_reqs.emplace(reqId, Connection::Req{id, std::move(filters)});
+    Send(connection, std::move(text));
   }
 
   // A failing relay that the subscription should use (all of them, or an earlier one than the current
@@ -292,13 +301,19 @@ void RelayPool::Refresh(SubscriptionId id)
   if (it == m_subscriptions.end())
     return;
   Subscription & subscription = *it->second;
+  auto const filters = subscription.m_filters();
   for (auto const & [url, reqId] : subscription.m_active)
   {
     for (auto & entry : m_connections)
     {
       Connection & connection = *entry.second;
-      if (connection.m_url == url && connection.m_scope == subscription.m_scope && connection.m_reqs.count(reqId) != 0)
-        Send(connection, nostr::ReqMessage(reqId, subscription.m_filters()));
+      if (connection.m_url != url || connection.m_scope != subscription.m_scope)
+        continue;
+      auto const req = connection.m_reqs.find(reqId);
+      if (req == connection.m_reqs.end())
+        continue;
+      req->second.m_filters = filters;
+      Send(connection, nostr::ReqMessage(reqId, filters));
     }
   }
 }
@@ -387,14 +402,27 @@ void RelayPool::OnPublishResult(uint64_t publicationId, std::string const & url,
     done(delivered);
 }
 
-void RelayPool::Deliver(SubscriptionId id, nostr::Event const & event)
+void RelayPool::OnEvent(Connection & connection, std::string const & reqId, nostr::Event const & event)
 {
-  auto const it = m_subscriptions.find(id);
+  auto const req = connection.m_reqs.find(reqId);
+  if (req == connection.m_reqs.end())
+    return;
+  auto const it = m_subscriptions.find(req->second.m_subscription);
   if (it == m_subscriptions.end())
     return;
   Subscription & subscription = *it->second;
-  if (!subscription.m_seen.insert(event.m_id).second)
+  if (subscription.m_seen.count(event.m_id) != 0)
     return;  // already delivered by another relay
+  // Only a verified event the REQ asked for counts as seen: a relay that sends a broken or altered
+  // copy first cannot keep the intact one from arriving through another relay (spec §11), and junk
+  // costs the app no more than this check. A relay that keeps sending it counts as failing.
+  if (!nostr::MatchesAny(req->second.m_filters, event) || !nostr::Verify(event))
+  {
+    if (++connection.m_invalidEvents > m_config.m_maxInvalidEvents)
+      Fail(connection.m_id, "invalid events");
+    return;
+  }
+  subscription.m_seen.insert(event.m_id);
   subscription.m_seenOrder.push_back(event.m_id);
   if (subscription.m_seenOrder.size() > m_config.m_dedupe)
   {
@@ -436,9 +464,8 @@ void RelayPool::OnMessage(uint64_t connectionId, std::string const & text)
   {
   case nostr::RelayMessage::Type::Event:
   {
-    auto const req = connection->m_reqs.find(message->m_subscriptionId);
-    if (req != connection->m_reqs.end() && message->m_event)
-      Deliver(req->second, *message->m_event);
+    if (message->m_event)
+      OnEvent(*connection, message->m_subscriptionId, *message->m_event);
     break;
   }
   case nostr::RelayMessage::Type::Ok:
@@ -458,7 +485,7 @@ void RelayPool::OnMessage(uint64_t connectionId, std::string const & text)
     auto const req = connection->m_reqs.find(message->m_subscriptionId);
     if (req == connection->m_reqs.end())
       break;
-    auto const subscription = m_subscriptions.find(req->second);
+    auto const subscription = m_subscriptions.find(req->second.m_subscription);
     if (subscription != m_subscriptions.end() && subscription->second->m_onEose)
     {
       EoseFn const onEose = subscription->second->m_onEose;
@@ -471,7 +498,7 @@ void RelayPool::OnMessage(uint64_t connectionId, std::string const & text)
     auto const req = connection->m_reqs.find(message->m_subscriptionId);
     if (req == connection->m_reqs.end())
       break;
-    SubscriptionId const id = req->second;
+    SubscriptionId const id = req->second.m_subscription;
     connection->m_reqs.erase(req);
     LOG(LINFO, ("Relay closed a subscription:", connection->m_url, message->m_message));
     auto const subscription = m_subscriptions.find(id);
@@ -515,7 +542,7 @@ void RelayPool::Fail(uint64_t connectionId, std::string const & reason)
   connection->m_socket->Close();
   std::vector<SubscriptionId> subscriptions;
   for (auto const & req : connection->m_reqs)
-    subscriptions.push_back(req.second);
+    subscriptions.push_back(req.second.m_subscription);
   std::vector<uint64_t> publications;
   for (auto const & awaiting : connection->m_awaitingOk)
     publications.push_back(awaiting.second);

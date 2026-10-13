@@ -238,6 +238,23 @@ UNIT_TEST(Manager_WorksWithTwoOfThreeRelaysDown)
        ("shared through the one relay left"));
 }
 
+UNIT_TEST(Manager_OneDishonestRelayCannotHideWhatTheOthersDeliver)
+{
+  World world;
+  // nos.lol sends every event with a broken signature, ahead of the other two.
+  world.Relay("wss://nos.lol").m_forge = true;
+  world.Relay("wss://nos.lol").m_latencyMs = 5;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+  TEST(alice.Contact("Bob") && bob.Contact("Alice"), ("paired"));
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+  alice.M().OnLocation(FixAt(world, 48.85, 2.35));
+  world.Run(5'000);
+  TEST(bob.Position("Alice") && std::abs(bob.Position("Alice")->m_location.m_lat - 48.85) < 1e-9,
+       ("the share reaches Bob through the honest relays"));
+}
+
 UNIT_TEST(Manager_TimeLimitsAndStop)
 {
   World world;

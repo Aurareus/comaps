@@ -272,9 +272,10 @@ void FakeRelay::Forward(nostr::Event const & event)
       continue;
     for (auto const & [id, filters] : link->m_subscriptions)
     {
-      if (std::none_of(filters.begin(), filters.end(), [&](auto const & f) { return Matches(f, event); }))
+      if (std::none_of(filters.begin(), filters.end(),
+                       [&](auto const & f) { return live_location_tests::Matches(f, event); }))
         continue;
-      std::string const message = "[\"EVENT\"," + Quoted(id) + "," + nostr::ToJson(event) + "]";
+      std::string const message = EventMessage(id, event);
       SendTo(link, message);
       if (m_duplicate)
         SendTo(link, message);
@@ -286,6 +287,25 @@ void FakeRelay::Inject(nostr::Event const & event)
 {
   Store(event);
   Forward(event);
+}
+
+void FakeRelay::Push(nostr::Event const & event)
+{
+  for (auto const & link : m_links)
+  {
+    if (link->m_clientClosed || link->m_relayClosed)
+      continue;
+    for (auto const & entry : link->m_subscriptions)
+      SendTo(link, EventMessage(entry.first, event));
+  }
+}
+
+std::string FakeRelay::EventMessage(std::string const & subscriptionId, nostr::Event const & event) const
+{
+  nostr::Event sent = event;
+  if (m_forge)
+    sent.m_sig[0] = sent.m_sig[0] == '0' ? '1' : '0';
+  return "[\"EVENT\"," + Quoted(subscriptionId) + "," + nostr::ToJson(sent) + "]";
 }
 
 void FakeRelay::CloseSubscriptions(std::string const & reason)
@@ -338,9 +358,9 @@ void FakeRelay::Receive(std::shared_ptr<Link> const & link, std::string const & 
       filters.push_back(ParseFilter(json_array_get(root, i)));
     link->m_subscriptions[id] = filters;
     for (auto const & event : m_events)
-      if (!Expired(event) &&
-          std::any_of(filters.begin(), filters.end(), [&](auto const & f) { return Matches(f, event); }))
-        SendTo(link, "[\"EVENT\"," + Quoted(id) + "," + nostr::ToJson(event) + "]");
+      if (!Expired(event) && std::any_of(filters.begin(), filters.end(),
+                                         [&](auto const & f) { return live_location_tests::Matches(f, event); }))
+        SendTo(link, EventMessage(id, event));
     SendTo(link, "[\"EOSE\"," + Quoted(id) + "]");
   }
   else if (type == "CLOSE" && json_is_string(json_array_get(root, 1)))

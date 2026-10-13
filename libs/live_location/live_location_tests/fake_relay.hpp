@@ -81,11 +81,14 @@ public:
   void Inject(live_location::nostr::Event const & event);
   /// Ends every subscription with CLOSED, as a rate-limiting relay would.
   void CloseSubscriptions(std::string const & reason);
+  /// Sends an event to every subscription, whether or not it matches: a misbehaving relay.
+  void Push(live_location::nostr::Event const & event);
 
   int64_t m_latencyMs = 40;
   bool m_silent = false;     // accepts connections, then never answers: a dead connection
   bool m_duplicate = false;  // sends every event to subscribers twice
   bool m_refuse = false;     // answers every EVENT with OK false
+  bool m_forge = false;      // sends every event with a broken signature, as a dishonest relay could
 
   size_t OpenConnections() const;
   /// Every message received, per connection id, in order.
@@ -99,6 +102,7 @@ public:
 
 private:
   void SendTo(std::shared_ptr<Link> const & link, std::string text);
+  std::string EventMessage(std::string const & subscriptionId, live_location::nostr::Event const & event) const;
   void Store(live_location::nostr::Event const & event);
   void Forward(live_location::nostr::Event const & event);
   bool Expired(live_location::nostr::Event const & event) const;

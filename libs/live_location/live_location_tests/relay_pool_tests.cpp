@@ -182,6 +182,67 @@ UNIT_TEST(RelayPool_SubscriptionsDeduplicateAndSurviveRestarts)
   TEST(h.m_pool.Connections().empty(), ("without subscriptions, connections close after a minute without traffic"));
 }
 
+UNIT_TEST(RelayPool_ABrokenCopyDoesNotHideTheIntactOne)
+{
+  Harness h;
+  std::vector<nostr::Event> received;
+  h.m_pool.Subscribe(EpochScope(1), kThree, Placement::All, [&] { return h.Filters(); },
+                     [&](nostr::Event const & event) { received.push_back(event); });
+  h.m_executor.RunFor(1000);
+
+  // r1 lies, and its copy arrives first.
+  h.Relay(kR1).m_forge = true;
+  h.Relay(kR1).m_latencyMs = 5;
+  nostr::Event const event = h.Event();
+  for (auto const & url : kThree)
+    h.Relay(url).Inject(event);
+  h.m_executor.RunFor(1000);
+  TEST_EQUAL(received.size(), 1, ());
+  TEST_EQUAL(received[0].m_sig, event.m_sig, ("the intact copy, from the honest relays"));
+
+  // Altered content under the event's id: the same.
+  h.Relay(kR1).m_forge = false;
+  nostr::Event const second = h.Event(kKindStored, "second");
+  nostr::Event altered = second;
+  altered.m_content = "altered";
+  h.Relay(kR1).Push(altered);
+  h.m_executor.RunFor(100);
+  h.Relay(kR2).Inject(second);
+  h.m_executor.RunFor(1000);
+  TEST(received.size() == 2 && received[1].m_content == "second", ());
+}
+
+UNIT_TEST(RelayPool_EventsNotAskedForAreDroppedAndAFloodFailsTheRelay)
+{
+  Harness h;
+  std::vector<std::string> received;
+  auto const id = h.m_pool.Subscribe(EpochScope(1), kThree, Placement::All, [&] { return h.Filters(); },
+                                     [&](nostr::Event const & event) { received.push_back(event.m_id); });
+  h.m_executor.RunFor(1000);
+
+  // Validly signed, but by someone the REQ did not ask for.
+  int64_t const now = h.m_executor.Now();
+  nostr::Event const stranger = SignEvent(RandomSecpKey(ScenarioRng()), now, kKindStored,
+                                          {{"d", ""}, {"expiration", std::to_string(now + 900)}}, "x", ScenarioRng());
+  h.Relay(kR1).Push(stranger);
+  h.m_executor.RunFor(1000);
+  TEST(received.empty(), ("not asked for"));
+  TEST_EQUAL(h.m_pool.PlacementOf(id).size(), 3, ("one is not enough to fail a relay"));
+
+  // A flood of broken events: r1 counts as failing; the others carry on.
+  h.Relay(kR1).m_forge = true;
+  for (int i = 0; i < 40; ++i)
+    h.Relay(kR1).Push(h.Event(kKindStored, "junk " + std::to_string(i)));
+  h.m_executor.RunFor(500);
+  TEST(received.empty(), ());
+  auto const placement = h.m_pool.PlacementOf(id);
+  TEST(placement.size() == 2 && std::find(placement.begin(), placement.end(), kR1) == placement.end(), (placement));
+  nostr::Event const event = h.Event(kKindStored, "intact");
+  h.Relay(kR2).Inject(event);
+  h.m_executor.RunFor(1000);
+  TEST(received == std::vector<std::string>{event.m_id}, ());
+}
+
 UNIT_TEST(RelayPool_ListeningRelayMovesAndComesBack)
 {
   Harness h;
