@@ -1,7 +1,8 @@
 // Live location (NLL): the native side of app.organicmaps.sdk.livelocation (docs/LIVE_LOCATION.md §8.1).
-// The core runs on a thread of its own. Java calls in on the main thread and waits for each call; the
-// core's events go back to LiveLocation.onEvent() as JSON, and positions to the map's marks on the GUI
-// thread. Relay connections are OkHttp's, the store's wrapping keys the Android Keystore's.
+// The core runs on a thread of its own. Java calls in on the main thread: calls with a result wait for
+// it, the others are only queued, so that a busy core never blocks the UI for them. The core's events
+// go back to LiveLocation.onEvent() as JSON, and positions to the map's marks on the GUI thread. Relay
+// connections are OkHttp's, the store's wrapping keys the Android Keystore's.
 
 #include "app/organicmaps/sdk/Framework.hpp"
 #include "app/organicmaps/sdk/core/jni_helper.hpp"
@@ -23,6 +24,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <utility>
@@ -34,6 +36,9 @@ using namespace live_location;
 
 int64_t constexpr kRetireCheckMs = 500;
 int64_t constexpr kRetireWaitMs = 30'000;  // at most, for the relays' answers to a stop
+// Messages of one relay connection waiting for the core's thread. Normal traffic stays far below; a
+// relay that floods the app loses the excess, and the relay pool fails it for the junk it reads.
+size_t constexpr kMaxPendingMessages = 256;
 
 // Made on the first nativeStart(), on a Java thread, where the app's class loader finds the classes.
 jclass g_transportClass;
@@ -101,6 +106,28 @@ class JavaTransport : public relay::Transport
 {
 public:
   explicit JavaTransport(Executor & executor) : m_executor(executor) {}
+
+  /// On OkHttp's thread: queues a message for the core, unless too many of this socket's wait already.
+  void Receive(int64_t id, std::string text)
+  {
+    {
+      std::lock_guard lock(m_pendingMutex);
+      size_t & pending = m_pending[id];
+      if (pending >= kMaxPendingMessages)
+        return;
+      ++pending;
+    }
+    m_executor.Post([this, id, text = std::move(text)]
+    {
+      {
+        std::lock_guard lock(m_pendingMutex);
+        auto const it = m_pending.find(id);
+        if (it != m_pending.end() && --it->second == 0)
+          m_pending.erase(it);
+      }
+      OnMessage(id, text);
+    });
+  }
 
   std::unique_ptr<relay::Socket> Connect(std::string const & url, relay::SocketListener & listener) override
   {
@@ -179,6 +206,8 @@ private:
   Executor & m_executor;
   int64_t m_nextId = 1;
   std::map<int64_t, relay::SocketListener *> m_listeners;
+  std::mutex m_pendingMutex;
+  std::map<int64_t, size_t> m_pending;  // per socket, messages queued for the core's thread
 };
 
 /// The store's data key, wrapped by an Android Keystore key (KeystoreKeyWrapper.java). The Java arrays
@@ -279,6 +308,17 @@ public:
   void Run(Fn && fn)
   {
     m_executor.RunSync([&]
+    {
+      if (m_manager)
+        fn(*m_manager);
+    });
+  }
+
+  /// Runs `fn` with the manager on its thread, after what is queued already, without waiting.
+  template <typename Fn>
+  void Post(Fn && fn)
+  {
+    m_executor.Post([this, fn = std::forward<Fn>(fn)]() mutable
     {
       if (m_manager)
         fn(*m_manager);
@@ -397,6 +437,14 @@ void Run(Fn && fn)
     host->Run(std::forward<Fn>(fn));
 }
 
+/// The same for calls without a result: queued, without waiting.
+template <typename Fn>
+void Post(Fn && fn)
+{
+  if (Host * host = g_host.load())
+    host->Post(std::forward<Fn>(fn));
+}
+
 std::optional<std::string> PairingResult(std::optional<PairingInfo> const & pairing)
 {
   if (!pairing)
@@ -449,7 +497,7 @@ JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_native
 JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeSetForeground(JNIEnv *, jclass,
                                                                                               jboolean foreground)
 {
-  Run([foreground](Manager & manager) { manager.SetForeground(foreground); });
+  Post([foreground](Manager & manager) { manager.SetForeground(foreground); });
 }
 
 JNIEXPORT jstring JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeGetSettings(JNIEnv * env, jclass)
@@ -487,26 +535,26 @@ JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_native
                                                                                            jboolean allowed,
                                                                                            jstring forContact)
 {
-  Run([u = ToUtf8(env, url), allowed, c = ToUtf8(env, forContact)](Manager & manager)
+  Post([u = ToUtf8(env, url), allowed, c = ToUtf8(env, forContact)](Manager & manager)
   { manager.SetConsent(u, allowed, c); });
 }
 
 JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeRevokeConsent(JNIEnv * env, jclass,
                                                                                               jstring url)
 {
-  Run([u = ToUtf8(env, url)](Manager & manager) { manager.RevokeConsent(u); });
+  Post([u = ToUtf8(env, url)](Manager & manager) { manager.RevokeConsent(u); });
 }
 
 JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeSetRequestLive(JNIEnv *, jclass,
                                                                                                jboolean request)
 {
-  Run([request](Manager & manager) { manager.SetRequestLive(request); });
+  Post([request](Manager & manager) { manager.SetRequestLive(request); });
 }
 
 JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeSetAllowLive(JNIEnv *, jclass,
                                                                                              jboolean allow)
 {
-  Run([allow](Manager & manager) { manager.SetAllowLive(allow); });
+  Post([allow](Manager & manager) { manager.SetAllowLive(allow); });
 }
 
 JNIEXPORT jstring JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeCreateInvite(JNIEnv * env, jclass,
@@ -529,7 +577,7 @@ JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_native
                                                                                             jstring pairingId,
                                                                                             jboolean match)
 {
-  Run([id = ToUtf8(env, pairingId), match](Manager & manager) { manager.ConfirmCode(id, match); });
+  Post([id = ToUtf8(env, pairingId), match](Manager & manager) { manager.ConfirmCode(id, match); });
 }
 
 JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeDecide(JNIEnv * env, jclass,
@@ -537,38 +585,38 @@ JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_native
                                                                                        jboolean accept,
                                                                                        jboolean compared)
 {
-  Run([id = ToUtf8(env, pairingId), accept, compared](Manager & manager) { manager.Decide(id, accept, compared); });
+  Post([id = ToUtf8(env, pairingId), accept, compared](Manager & manager) { manager.Decide(id, accept, compared); });
 }
 
 JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeCancelPairing(JNIEnv * env, jclass,
                                                                                               jstring pairingId)
 {
-  Run([id = ToUtf8(env, pairingId)](Manager & manager) { manager.CancelPairing(id); });
+  Post([id = ToUtf8(env, pairingId)](Manager & manager) { manager.CancelPairing(id); });
 }
 
 JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeRenameContact(JNIEnv * env, jclass,
                                                                                               jstring id, jstring name)
 {
-  Run([i = ToUtf8(env, id), n = ToUtf8(env, name)](Manager & manager) mutable
+  Post([i = ToUtf8(env, id), n = ToUtf8(env, name)](Manager & manager) mutable
   { manager.RenameContact(i, std::move(n)); });
 }
 
 JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeDeleteContact(JNIEnv * env, jclass,
                                                                                               jstring id)
 {
-  Run([i = ToUtf8(env, id)](Manager & manager) { manager.DeleteContact(i); });
+  Post([i = ToUtf8(env, id)](Manager & manager) { manager.DeleteContact(i); });
 }
 
 JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeMarkVerified(JNIEnv * env, jclass,
                                                                                              jstring id)
 {
-  Run([i = ToUtf8(env, id)](Manager & manager) { manager.MarkVerified(i); });
+  Post([i = ToUtf8(env, id)](Manager & manager) { manager.MarkVerified(i); });
 }
 
 JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeSetHidden(JNIEnv * env, jclass,
                                                                                           jstring id, jboolean hidden)
 {
-  Run([i = ToUtf8(env, id), hidden](Manager & manager) { manager.SetHidden(i, hidden); });
+  Post([i = ToUtf8(env, id), hidden](Manager & manager) { manager.SetHidden(i, hidden); });
 }
 
 JNIEXPORT jboolean JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeStartSharing(JNIEnv * env, jclass,
@@ -604,12 +652,12 @@ JNIEXPORT jboolean JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_na
 
 JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeStopSharing(JNIEnv *, jclass)
 {
-  Run([](Manager & manager) { manager.StopSharing(); });
+  Post([](Manager & manager) { manager.StopSharing(); });
 }
 
 JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeDismissResume(JNIEnv *, jclass)
 {
-  Run([](Manager & manager) { manager.DismissResume(); });
+  Post([](Manager & manager) { manager.DismissResume(); });
 }
 
 // Unknown speed and bearing are negative. Never a NaN: this file is built with -ffast-math, and the
@@ -629,13 +677,13 @@ JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_native
     fix.m_brg = bearing;
   if (hasAltitude)
     fix.m_alt = altitude;
-  Run([&fix](Manager & manager) { manager.OnLocation(fix); });
+  Post([fix](Manager & manager) { manager.OnLocation(fix); });
 }
 
 JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeOnBatteryLevel(JNIEnv *, jclass,
                                                                                                jint percent)
 {
-  Run([percent](Manager & manager) { manager.OnBatteryLevel(percent); });
+  Post([percent](Manager & manager) { manager.OnBatteryLevel(percent); });
 }
 
 // --- app.organicmaps.sdk.livelocation.OkHttpTransport, on OkHttp's threads --------------------------
@@ -650,7 +698,7 @@ JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_OkHttpTransport_nat
                                                                                              jlong id, jstring text)
 {
   if (Host * host = g_host.load())
-    host->GetExecutor().Post([host, id, t = ToUtf8(env, text)] { host->GetTransport().OnMessage(id, t); });
+    host->GetTransport().Receive(id, ToUtf8(env, text));
 }
 
 JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_OkHttpTransport_nativeOnClosed(JNIEnv * env, jclass,
