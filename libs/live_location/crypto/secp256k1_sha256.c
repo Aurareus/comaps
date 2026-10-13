@@ -25,7 +25,9 @@ void nll_sha256_final(nll_sha256_ctx * ctx, unsigned char out32[32])
 
 void nll_hmac_sha256_init(nll_hmac_sha256_ctx * ctx, unsigned char const * key, size_t keySize)
 {
-  secp256k1_hmac_sha256_initialize((secp256k1_hmac_sha256 *)ctx, key, keySize);
+  /* An empty key (HKDF's empty salt) may come as a null pointer, which memcpy must not get. */
+  static unsigned char const kEmpty[1] = {0};
+  secp256k1_hmac_sha256_initialize((secp256k1_hmac_sha256 *)ctx, keySize == 0 ? kEmpty : key, keySize);
 }
 
 void nll_hmac_sha256_update(nll_hmac_sha256_ctx * ctx, unsigned char const * data, size_t size)

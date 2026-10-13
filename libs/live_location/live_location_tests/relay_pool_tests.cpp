@@ -3,6 +3,7 @@
 #include "live_location/live_location_tests/fake_relay.hpp"
 #include "live_location/live_location_tests/scenario.hpp"
 
+#include "live_location/crypto/schnorr.hpp"
 #include "live_location/nostr/relay_message.hpp"
 #include "live_location/protocol/common.hpp"
 #include "live_location/protocol/constants.hpp"

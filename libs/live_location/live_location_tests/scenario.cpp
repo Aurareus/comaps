@@ -2,6 +2,7 @@
 
 #include "testing/testing.hpp"
 
+#include "live_location/protocol/common.hpp"
 #include "live_location/protocol/constants.hpp"
 
 #include <algorithm>

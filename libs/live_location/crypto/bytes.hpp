@@ -75,7 +75,7 @@ std::optional<ByteArray<N>> FromHexArray(std::string_view hex)
   auto const bytes = FromHex(hex);
   if (!bytes)
     return {};
-  ByteArray<N> out;
+  ByteArray<N> out{};
   std::copy(bytes->begin(), bytes->end(), out.begin());
   return out;
 }
