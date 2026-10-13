@@ -173,6 +173,37 @@ std::set<ByteArray<32>> Digests(std::vector<Key> const & keys)
   return writer.SecretDigests();
 }
 
+UNIT_TEST(Store_AFileThatCannotBeReadNowKeepsItsKeys)
+{
+  std::string const path = TempPath("unavailable");
+  std::remove(path.c_str());
+  store::InsecureKeyWrapper keys;
+  {
+    store::Store store(path, keys, ScenarioRng());
+    SecretBytes contents;
+    TEST(store.Load(contents) == store::Store::Result::Empty, ());
+    TEST(store.Save(AsBytes("contacts"), {}), ());
+  }
+  auto const aliases = keys.Aliases();
+  TEST_EQUAL(aliases.size(), 1, ());
+
+  // Opening fails for another reason than a missing file (here ENOTDIR; on a phone, say, no free file
+  // descriptor), then reading fails (a directory): nothing is deleted.
+  for (std::string const & other : {path + "/store", std::filesystem::temp_directory_path().string()})
+  {
+    store::Store store(other, keys, ScenarioRng());
+    SecretBytes contents;
+    TEST(store.Load(contents) == store::Store::Result::Unavailable, (other));
+  }
+  TEST(keys.Aliases() == aliases, ("the wrapping key stays"));
+
+  store::Store store(path, keys, ScenarioRng());
+  SecretBytes contents;
+  TEST(store.Load(contents) == store::Store::Result::Loaded, ("the file reads once it can be opened"));
+  TEST(std::string(contents.begin(), contents.end()) == "contacts", ());
+  std::remove(path.c_str());
+}
+
 UNIT_TEST(Store_EncryptsAndRotatesOnErasure)
 {
   auto & rng = ScenarioRng();

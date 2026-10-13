@@ -39,14 +39,16 @@ public:
   enum class Result
   {
     Loaded,
-    Empty,       // no file: nothing stored yet
-    Unreadable,  // a file that cannot be decrypted: its wrapping key is gone, or it is damaged
+    Empty,        // no file: nothing stored yet
+    Unreadable,   // a file that cannot be decrypted: its wrapping key is gone or failed, or it is damaged
+    Unavailable,  // a file that cannot be opened or read now, e.g. without a free file descriptor
   };
 
   Store(std::string path, KeyWrapper & wrapper, crypto::Rng & rng);
 
-  /// Reads the file. Wrapping keys that no file uses any more (a crash during rotation) are deleted.
-  /// The caller then passes the secret digests of what it read to SetBaseline().
+  /// Reads the file. Wrapping keys that no file uses any more (a crash during rotation) are deleted,
+  /// but only once the file was read, or when there is no file at all. The caller then passes the
+  /// secret digests of what it read to SetBaseline().
   Result Load(SecretBytes & contents);
   /// The secrets in the file as loaded, so that the next Save() can tell whether one was erased.
   void SetBaseline(std::set<ByteArray<32>> digests) { m_digests = std::move(digests); }

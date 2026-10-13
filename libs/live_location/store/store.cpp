@@ -5,6 +5,7 @@
 #include "base/logging.hpp"
 
 #include <algorithm>
+#include <cerrno>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -37,21 +38,25 @@ Bytes Header(KeyWrapper::Wrapped const & wrapped)
   return Bytes(header.begin(), header.end());
 }
 
-std::optional<Bytes> ReadFile(std::string const & path)
+enum class FileStatus
+{
+  Read,
+  Missing,
+  Failed,  // there may be a file, but it could not be opened or read now
+};
+
+FileStatus ReadFile(std::string const & path, Bytes & out)
 {
   std::FILE * file = std::fopen(path.c_str(), "rb");
   if (file == nullptr)
-    return {};
-  Bytes out;
+    return errno == ENOENT ? FileStatus::Missing : FileStatus::Failed;
   uint8_t buffer[4096];
   size_t n;
   while ((n = std::fread(buffer, 1, sizeof(buffer), file)) > 0)
     out.insert(out.end(), buffer, buffer + n);
   bool const ok = std::ferror(file) == 0;
   std::fclose(file);
-  if (!ok)
-    return Bytes();  // unreadable, but present
-  return out;
+  return ok ? FileStatus::Read : FileStatus::Failed;
 }
 
 void SyncDirectory(std::string const & path)
@@ -102,15 +107,21 @@ Store::Store(std::string path, KeyWrapper & wrapper, crypto::Rng & rng)
 
 Store::Result Store::Load(SecretBytes & contents)
 {
-  auto const file = ReadFile(m_path);
-  if (!file)
+  Bytes file;
+  switch (ReadFile(m_path, file))
   {
+  case FileStatus::Missing:
+    // Nothing stored: wrapping keys left over are of no use.
     m_wrapper.DeleteAllExcept("");
     return Result::Empty;
+  case FileStatus::Failed:
+    LOG(LWARNING, ("Live location: the store could not be read now"));
+    return Result::Unavailable;  // keep everything: it may read next time
+  case FileStatus::Read: break;
   }
   try
   {
-    binary::Reader reader(*file);
+    binary::Reader reader(file);
     char magic[4];
     reader.Raw(reinterpret_cast<uint8_t *>(magic), sizeof(magic));
     if (std::string_view(magic, sizeof(magic)) != kMagic || reader.U8() != kVersion)
@@ -127,7 +138,7 @@ Store::Result Store::Load(SecretBytes & contents)
     if (!dataKey)
       return Result::Unreadable;
     SecretBytes plain(cipher.size());
-    if (crypto_aead_unlock(plain.data(), mac.data(), dataKey->data(), nonce.data(), file->data(), headerSize,
+    if (crypto_aead_unlock(plain.data(), mac.data(), dataKey->data(), nonce.data(), file.data(), headerSize,
                            cipher.data(), cipher.size()) != 0)
     {
       return Result::Unreadable;

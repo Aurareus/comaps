@@ -4,6 +4,7 @@
 #include "live_location/live_location_tests/scenario.hpp"
 
 #include "live_location/manager/manager.hpp"
+#include "live_location/protocol/common.hpp"
 #include "live_location/protocol/constants.hpp"
 #include "live_location/store/store.hpp"
 
@@ -13,6 +14,7 @@
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -49,6 +51,20 @@ struct Recorder : public ManagerListener
 
 class World;
 
+/// The platform key store, which can fail for a while.
+class TestKeys : public store::InsecureKeyWrapper
+{
+public:
+  std::optional<Key> Unwrap(Wrapped const & wrapped) override
+  {
+    if (m_failing)
+      return {};
+    return InsecureKeyWrapper::Unwrap(wrapped);
+  }
+
+  bool m_failing = false;
+};
+
 /// One phone: a manager with its own store, key store and randomness.
 class Phone
 {
@@ -61,7 +77,7 @@ public:
 
   Manager & M() { return *m_manager; }
   Recorder & Events() { return m_events; }
-  store::InsecureKeyWrapper & Keys() { return m_keys; }
+  TestKeys & Keys() { return m_keys; }
 
   ContactInfo const * Contact(std::string const & name) const
   {
@@ -83,7 +99,7 @@ private:
   World & m_world;
   std::string m_path;
   crypto::TestRng m_rng;
-  store::InsecureKeyWrapper m_keys;
+  TestKeys m_keys;
   Recorder m_events;
   std::unique_ptr<store::Store> m_store;
   std::unique_ptr<Manager> m_manager;
@@ -464,6 +480,30 @@ UNIT_TEST(Manager_DeletingUnreadableDataStartsAfresh)
   TEST(alice.M().CreateInvite(false), ("a fresh start"));
   alice.Restart();
   TEST_EQUAL(alice.Events().m_storeErrors, 1, ("the new store reads"));
+}
+
+UNIT_TEST(Manager_AStoreThatCannotBeReadIsNeverOverwritten)
+{
+  World world;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+
+  // The key store fails for a while: the store cannot be read at this start.
+  alice.Keys().m_failing = true;
+  TEST(!alice.Restart(false /* expectReadable */), ());
+  TEST_EQUAL(alice.Events().m_storeErrors, 1, ());
+  TEST(!alice.M().SetName("Alicia"), ("nothing is written over it"));
+  TEST(!alice.M().SetHomeRelays({"wss://relay.example"}), ());
+  alice.M().SetRequestLive(false);
+  alice.M().SetConsent("wss://relay.example", true, "Bob");
+
+  // It works again: everything is still there.
+  alice.Keys().m_failing = false;
+  alice.Restart();
+  TEST(alice.Contact("Bob"), ("the contact survived"));
+  TEST_EQUAL(alice.M().GetSettings().m_name, "Alice", ());
+  TEST(alice.M().GetSettings().m_requestLive, ());
 }
 
 UNIT_TEST(Manager_StopWaitsForTheRelaysBeforeItIsFreed)

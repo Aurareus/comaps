@@ -34,7 +34,8 @@ public:
   Manager & operator=(Manager const &) = delete;
 
   /// Reads the store. False when it exists but cannot be read (OnStoreError): DeleteAllData() then
-  /// starts afresh.
+  /// starts afresh. Until one of them succeeds nothing is written, so a store that could not be read
+  /// for a while (e.g. the key store failing) reads again on the next start.
   bool Start();
   /// "Delete all live-location data": stops everything, deletes the file and the keys.
   void DeleteAllData();

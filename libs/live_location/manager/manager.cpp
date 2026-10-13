@@ -264,6 +264,10 @@ void Manager::Decode(ByteSpan data)
 
 void Manager::Save()
 {
+  // Nothing is written before the store was read, or the user chose to delete it: a store that could
+  // not be read (a key store failing for a while, a file that could not be opened) stays as it is.
+  if (!m_started)
+    return;
   std::set<ByteArray<32>> digests;
   SecretBytes const contents = Encode(digests);
   if (!m_store.Save(contents, digests))
@@ -279,7 +283,8 @@ bool Manager::Start()
   switch (m_store.Load(contents))
   {
   case store::Store::Result::Empty: Fresh(); break;
-  case store::Store::Result::Unreadable: m_listener.OnStoreError(); return false;
+  case store::Store::Result::Unreadable:
+  case store::Store::Result::Unavailable: m_listener.OnStoreError(); return false;
   case store::Store::Result::Loaded:
     try
     {
@@ -426,7 +431,7 @@ void Manager::SetForeground(bool foreground)
 
 bool Manager::SetName(std::string name)
 {
-  if (!IsValidName(name))
+  if (!m_started || !IsValidName(name))
     return false;
   m_settings.m_name = std::move(name);
   Save();
@@ -435,7 +440,7 @@ bool Manager::SetName(std::string name)
 
 bool Manager::SetHomeRelays(Relays relays)
 {
-  if (!IsValidRelayList(relays))
+  if (!m_started || !IsValidRelayList(relays))
     return false;
   m_settings.m_homeRelays = std::move(relays);
   Save();
@@ -452,6 +457,8 @@ bool Manager::SetHomeRelays(Relays relays)
 
 void Manager::SetConsent(std::string const & url, bool allowed, std::string const & forContact)
 {
+  if (!m_started)
+    return;
   if (allowed)
   {
     m_settings.m_approved[url] = forContact;
@@ -469,6 +476,8 @@ void Manager::SetConsent(std::string const & url, bool allowed, std::string cons
 
 void Manager::RevokeConsent(std::string const & url)
 {
+  if (!m_started)
+    return;
   m_settings.m_approved.erase(url);
   m_settings.m_declined.erase(url);
   m_asked.erase(url);
@@ -479,6 +488,8 @@ void Manager::RevokeConsent(std::string const & url)
 
 void Manager::SetRequestLive(bool request)
 {
+  if (!m_started)
+    return;
   m_settings.m_requestLive = request;
   Save();
   UpdateConnections();
@@ -487,6 +498,8 @@ void Manager::SetRequestLive(bool request)
 
 void Manager::SetAllowLive(bool allow)
 {
+  if (!m_started)
+    return;
   m_settings.m_allowLive = allow;
   if (!allow)
     m_liveUntil = 0;
