@@ -33,7 +33,8 @@ should happen, and what to write down.
 ### 1. Pairing in under a minute (QR, in person)
 
 1. A: menu → Live location → Add contact. A QR code appears, with "Expires in 10 min".
-2. B: scan the code with the stock camera app (or any QR app that opens links). CoMaps opens on
+2. B: scan the code with the stock camera app (or any QR app that opens links). CoMaps asks
+   "Connect with whoever sent this invite? They will see your name, Bob." → "Connect"; then
    "Connecting…".
 3. Both show the same six-digit code. B: "Codes match". A: "Bob wants to connect. Check that Bob's
    screen shows …" → "Codes match, connect".
@@ -45,8 +46,9 @@ and whether the stock camera opened CoMaps.
 ### 2. Pairing by link
 
 1. A: Add contact → "Share a link instead" → send the link to B through a messenger.
-2. B: tap the link. If the messenger does not make `comaps://` links tappable, copy it, then in
-   CoMaps: Live location → Add contact → "Paste invite".
+2. B: tap the link: CoMaps asks before connecting, as in check 1. If the messenger does not make
+   `comaps://` links tappable, copy it, then in CoMaps: Live location → Add contact → "Paste
+   invite" (no question then: pasting is the choice).
 3. A: "Bob wants to connect. Compare this code with Bob, by phone or in person" → try "Connect
    without comparing" once: the contact shows "Not verified" on A's side, and the share sheet warns
    about it.
@@ -59,7 +61,9 @@ Record: whether the link was tappable in the messenger used.
 1. A: Live location → Share my location → pick B, "1 hour" → Start. Allow precise location, and
    notifications on Android 13+. A's notification reads "Sharing your live location · With Bob ·
    until …". The map shows "Sharing with 1 person" at the top.
-2. B: open the map. A's dot appears (a coloured circle with A's name) within a few seconds.
+2. B: open the map. A's dot appears within a few seconds: a coloured circle, A's name under it.
+   B's own position arrow is drawn above it: with the phones side by side, A's dot can hide under
+   it. Move apart, or look for A's name.
 3. A: walk or drive. B's dot follows, each move within about 5 s. A logs "location: Live" (B's
    watch signals arrived).
 4. B: close CoMaps. After about 2 minutes A goes back to the idle rate (moves of 50 m, or every 5
@@ -155,6 +159,13 @@ Live location → "What relays can see". It fits one screen on a phone, or nearl
 can and cannot see (§11.6).
 
 ## New code paths to check
+
+- **Changing home relays** (spec §11). With B's CoMaps open, A: Live location settings → add a relay
+  (for instance `wss://relay.damus.io`) and remove one default. B is asked once about the new relay;
+  allow it. Then B shares with A: A sees B's share. While A shares with B, a change moves the
+  share: B's dot carries on after 30–120 s.
+- **The daily ratchet** (D16). `adb shell dumpsys jobscheduler | grep -i -A3 comaps.fdroid.debug`
+  lists WorkManager's job while the feature is on, and nothing once it is off.
 
 - **No silent sharing.** While sharing: turn off CoMaps' notifications in Android settings → the
   share stops at once on Android 9+ (the system announces the block), otherwise at the next fix

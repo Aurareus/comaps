@@ -42,6 +42,7 @@ reference implementation, test vectors and the relay test harness are in
 20. [Fifth review changes (2026-10-11)](#20-fifth-review-changes-2026-10-11)
 21. [Implementation notes (Phase 2)](#21-implementation-notes-phase-2)
 22. [Phase 2 report](#22-phase-2-report)
+23. [Review of Phase 2 (2026-10-13)](#23-review-of-phase-2-2026-10-13)
 
 ## 0. Summary
 
@@ -161,7 +162,7 @@ Code paths traced (all verified in source):
 | T6 | **Someone who reads an invite** (photographed QR, compromised messenger) | **Race** the intended person and pair as an impostor. Its attempt stays on the relays, under its own key, until the invite expires. Both apps watch until then: if the real person shows up first or in time, both abort; if the inviter had already accepted, its contact is flagged and receives no share until the codes are compared. If the real person never shows up, only comparing codes reveals the impostor, which is why contacts paired by link start "unverified". **Disrupt** the pairing: any competing attempt makes both apps abort and say that the invite was used elsewhere. **Passive interception** reveals only the relays already in the invite: step 1 carries nothing, and both names travel under `ee`-derived keys. Mitigations: codes on both screens, the unverified status, single-use invites, expiry (10 min for QR). | Impersonate the inviter: its steps must be signed by the key whose public half is in the invite. Replace or delete anyone's pairing events. Learn channel keys from a pairing it did not actively complete: `ee` Diffie-Hellman. |
 | T5b | **A malicious contact as sharer, inviter or recipient** (for example a stalker you paired with) | **Choose the relays your phone connects to for it**: its stream relays when you view its share or send watch signals, its invite's relays while you pair and until the invite expires, its inbox relays when you send it states (also when you stop sharing with it, and on each day your app runs in the first week after you joined its invite). If it runs one of them, it learns your IP address, hence your rough location and provider, and when your app talks to it, e.g. when your map is open. You never have to share with it for this to happen. Mitigations: relay consent (spec §11): without asking, your phone uses only your own relays, the defaults and relays you approved; for any other relay a contact names, the app asks once, naming the contact and the relay. Invites live at most 24 hours. "Hide" stops all connections for that contact. | Make your phone connect to a relay you did not approve. Keep you watching an invite for more than a day. Learn anything about you from relays that you and other contacts use, beyond what T1 says about every relay operator. |
 | T6b | **Someone who rewrites an invite in transit** (substitutes its own) | **Sit in the middle** of both pairings. The protocol cannot see it: the two screens show different codes, matching by chance with probability 10⁻⁶. It cannot grind the codes: the joiner commits to its key first, each side accepts one message per step, and the code comes from the keys, not the transcript (spec §6.3–6.4). Only comparing codes reveals it. | Anything, once the users have compared codes. |
-| T7 | **Device thief or forensic examiner** | **Before the first unlock after a reboot:** nothing; the app's files are in credential-encrypted storage. **After the first unlock, even with the screen locked:** Android keeps the storage keys in memory, and forensic tools target exactly this state. With an exploit that runs code on the device, an attacker gets what the app holds now: the current channel keys, and the latest positions while the app is running (in memory). If the app has not run for days, its stored chain keys are that old (D16). | Past channel keys (ratchet) and past streams (erased at both ends), hence the content of archived ciphertext. No positions are stored on disk. The limits of key erasure on flash are in §10.4. |
+| T7 | **Device thief or forensic examiner** | **Before the first unlock after a reboot:** nothing; the app's files are in credential-encrypted storage. **After the first unlock, even with the screen locked:** Android keeps the storage keys in memory, and forensic tools target exactly this state. With an exploit that runs code on the device, an attacker gets what the app holds now: the current channel keys, and the latest positions while the app is running (in memory). A background job (D16) erases the stored chain keys that are due about once a day, even while the app is not used; if Android has deferred that job for days, as it does for rarely used apps, the stored keys are that old. | Past channel keys (ratchet) and past streams (erased at both ends), hence the content of archived ciphertext. No positions are stored on disk. The limits of key erasure on flash are in §10.4. |
 | T8 | **Malware or root on the device** | Out of scope: it can read everything the app can. | — |
 | T9 | **CoMaps project / app distribution** | Out of scope: it ships the code. It plays no role in operation; no CoMaps server is involved. | — |
 | T10 | **Other relay clients** (scrapers) | What is published: pseudonymous keys, kinds, timing and sizes. They can archive the ciphertext. | IP addresses, connections and subscriptions, which only relays see. Content, as for T1. |
@@ -1154,7 +1155,9 @@ users or relays see.
 | Starting a share | The first position published is a fix that arrives after the share started, never the last fix the app had. | That fix could be hours old. |
 | Hidden contacts (**review**) | Their keys stay in the inbox subscription, but their shares are ignored: no stream, no signals, no dot. | Their states still arrive, e.g. the end of a share or the joiner's confirmations, and the inbox's size does not change when someone is hidden. |
 | A contact's relays | Each state's relay list replaces the one from pairing. | A contact can change its relays; its states name the current ones. |
-| Changing one's relays while sharing (**review**) | The running share keeps the relays it started with, because its states named them. The inbox moves at once. | Changing a share's relays would need new states for every recipient. Stopping and starting the share does that. |
+| Changing one's home relays (**review**) | Spec §11: every contact gets a state naming the new list at once, in one shuffled batch, and a running share is re-keyed onto it. For a week each contact gets the current state again on each day the app runs, and the inbox also reads the previous relays, which stay allowed. A change made with no contacts and no pairing under way tells no one. | Contacts learn one's relays only from one's states. A week, as the joiner's confirmations (D18). |
+| What a relay delivers | An event counts as received only once it matches the filters of the REQ it came for and its id and signature verify. A connection that sends more than 32 other events counts as failing (back-off). | Spec §11: otherwise a relay that sends a broken copy first hides the intact ones, and junk costs key derivations. |
+| A store that cannot be read now | Only a missing file means "nothing stored". Another failure to open or read it deletes nothing, and nothing is written until a start has read the store or the user chose "Delete all live location data". | A failed open (no free file descriptor) or a key store failing for a while must not cost the contacts. |
 | Sending to a relay that needs consent | Asked about once, as "sending"; skipped until allowed. | Spec §11. |
 
 The Android app (`android/app/.../livelocation`, `android/sdk/.../livelocation`) decided these:
@@ -1173,22 +1176,26 @@ The Android app (`android/app/.../livelocation`, `android/sdk/.../livelocation`)
 | Share durations | 15 min, 1 h (preselected), 8 h, until stopped. | §11.3's list. |
 | Resuming after the process died | The map offers it in a dialog. "Resume" restarts the share with the same people and ends; without the permissions it needs, the share screen opens with them picked. | §8.5. |
 | Relay consent questions | Queued; whichever live location screen or the map is in front asks them, one at a time. A question the user has not answered is asked again; it is not a refusal. | Questions arrive at any time, often while the user is on the map. |
-| A contact's dot | Not tappable yet; the contact screen shows the last update, the accuracy and "Show on the map". | §8.3 marked the tap as optional; it needs a change in `BookmarkManager`. |
+| A contact's dot | A coloured circle (grey once old) with the name under it, in the layer of bookmarks' labels. Not tappable yet; the contact screen shows the last update, the accuracy and "Show on the map". | Drape places no labels in the user mark layer. The tap was optional (§8.3); it needs a change in `BookmarkManager`. |
+| Opening an invite link (**review**) | A link opened from outside the app asks "Connect with whoever sent this invite? They will see your name, …" before anything is sent. A pasted invite opens directly. | Opening a link must not by itself send one's name or add a contact (§11.2). |
+| TLS | Every relay connection gets a TLS context of its own. | A shared one resumes TLS sessions, and the session ticket links connections (spec §11). |
+| Calls into the core | Calls without a result (fixes, foreground, battery, decisions, edits) are queued; at most 256 messages of one relay connection wait for the core's thread. | A core busy with a flooding relay must not freeze the UI. |
+| Daily ratchet (D16) | A WorkManager job once a day while the feature is on. With the core not running, it reads the store (erasing the keys that are due), writes it and frees everything; nothing connects. While the core runs, it does nothing. Without contacts it only reads and writes the store. | D16. Scheduling it with the feature, rather than with the first contact, keeps it simple at no real cost. |
 | Strings | English only, in `strings_live_location.xml`, outside the translation pipeline. | Experimental feature; translations once the texts settle. |
 | Fixes across JNI | Unknown accuracy, speed and bearing are negative and altitude has a flag: no NaN crosses JNI, since the native side builds with `-ffast-math`. Strings cross as UTF-16 both ways. | JNI's "modified UTF-8" would turn a name with an emoji into text the core's strict JSON refuses. |
 
 ## 22. Phase 2 report
 
 Phase 2 built the feature: the core in C++, the Android app around it, and tools to test it
-without phones. Nothing has run on a phone yet; [LIVE_LOCATION_DEVICE_TESTS.md](LIVE_LOCATION_DEVICE_TESTS.md)
-is the checklist for that.
+without phones. [LIVE_LOCATION_DEVICE_TESTS.md](LIVE_LOCATION_DEVICE_TESTS.md) is the checklist for
+the phones. A first brief run on two phones, and the review that followed, are in §23.
 
 ### What was built
 
 | Part | Where | Size |
 |---|---|---|
 | Core: crypto (BIP-340 through libsecp256k1, NIP-44 v2, Noise NNpsk0, HKDF), Nostr events and the strict JSON profile, NLL v1 (invites, pairing, channels, streams, signals, receiving rules), relay pool, encrypted store, manager | `libs/live_location` | 9,300 lines |
-| Tests of the core | `libs/live_location/live_location_tests` | 4,200 lines, 71 tests |
+| Tests of the core | `libs/live_location/live_location_tests` | 4,300 lines, 79 tests (71 at first, §23) |
 | Contacts' dots on the map | `libs/map/live_location_marks.*` | |
 | Desktop test peer (the core driven by line commands, plain `ws://`) | `libs/live_location/peer` | |
 | JNI host: the core's thread, OkHttp sockets, Keystore key wrapping | `android/sdk/src/main/cpp/.../livelocation` | 660 lines |
@@ -1244,7 +1251,8 @@ sits, and how the invite screen moves between a QR code and a link.
 
 ### Known gaps
 
-- No screen has been seen yet. Layouts, the chip's place and the QR code's size may need work.
+- The screens have been seen only in a brief first run (§23). Layouts, the chip's place and the QR
+  code's size may need work.
 - Contacts' dots cannot be tapped; the contact screen has their details instead (§21).
 - English only.
 - Phones whose makers kill background apps aggressively may stop the sharing service; only
@@ -1264,3 +1272,29 @@ cd android && ./gradlew assembleFdroidDebug -Parm64 -PdisableHWAsan
 ./gradlew :sdk:testDebugUnitTest --tests 'app.organicmaps.sdk.livelocation.*'
 ```
 
+## 23. Review of Phase 2 (2026-10-13)
+
+A brief first run on two phones: pairing and the rest worked, but no contact's dot ever appeared on
+the map. A review of the code found two serious bugs and five more problems, and three nits. Each
+was checked here before it was fixed. Each fix has a test that fails without it, except where noted.
+
+| Finding | Verdict | Change | Where |
+|---|---|---|---|
+| No dot on the map | **Right, two causes in drape.** Two C++ peers over the real default relays exchanged positions in 0.4 s, so the core was fine. The desktop app, rendered under Xvfb, showed the dots missing. Upstream drape passed a mark's `m_needOverlay` as the `subID` of its coloured symbol, so a mark that asked for no overlay got one anyway. The user mark layer is not part of the overlay tree, so that overlay never became visible and the circle was never drawn. Titles in that layer are never placed either | `needOverlay` goes in its own argument, and every other mark keeps the `subID` it had. Names go to the layer of bookmarks' labels. Rendered on the desktop before and after; drape's tests pass | `libs/drape_frontend/user_mark_shapes.cpp`, `libs/map/live_location_marks.*` |
+| 1. Changing home relays reaches no contact | **Right.** Nothing told contacts; during a share the listening relay and the viewers' signals parted | Every contact gets a state naming the new list, and a running share is re-keyed onto it. For a week, the current state is sent again daily and the old relays are still read | spec §11; §21 |
+| 2. One dishonest relay hides what honest ones deliver | **Right**, reproduced: a forged copy sent first left pairing at "Waiting". The Python test peer had the same bug | An event counts as received only once it matches its REQ and verifies | spec §11; `relay_pool.cpp`, `peer.py` |
+| 3. An invite link pairs without a tap | **Right**: step 2 sent the name, step 3 added the contact | Opening a link from outside the app asks first; nothing is sent before "Connect" | §11.2 |
+| 4. D16 was not implemented | **Right**, and not listed as a gap | A daily WorkManager job erases due keys while the app is not used; T7 says so | T7; §21 |
+| 5. A failed read destroys readable data | **Right, both paths** | Only ENOENT is "nothing stored"; nothing is written before a start has read the store or the user deleted it | §21; `store.cpp`, `manager.cpp` |
+| 6. TLS session resumption links connections | **Right**: one OkHttp client, one session cache | A TLS context per connection (no test: it needs Android's TLS stack) | §21 |
+| 7. A flooding relay can freeze the app | **Right**: three key derivations per contact for every inbox event, an unbounded queue, and the UI waiting on every call | Events nobody asked for, or that fail verification, are dropped before any work, and a relay that sends more than 32 fails. At most 256 messages per connection wait, and calls without a result are queued instead of waited for (the last two untested: they are in the Android layer) | `relay_pool.cpp`; §21 |
+| Nits | **Right**: UBSan reports the null `memcpy`; the non-unity build fails on three missing includes; GCC `-O3` warns five times | Fixed; the non-unity build passes, and GCC no longer warns | `secp256k1_sha256.c`, tests, `bytes.hpp` |
+
+**Tests now.** 79 C++ tests, passing with clang (unity and non-unity builds). The cross-implementation
+test passes 13 of 13 over strfry. Two C++ peers pair and share over the real default relays (nos.lol,
+nostr.mom, relay.nostr.net): the viewer had the sharer's first fix 0.4 s after it was given. The APK
+builds.
+
+**Still open.** A contact who opens CoMaps on none of the days of the week after a relay change
+keeps sending to the old relays until a later state reaches it (spec §11 says so). The device
+checklist's runs, battery and data figures above all, are still to come.
