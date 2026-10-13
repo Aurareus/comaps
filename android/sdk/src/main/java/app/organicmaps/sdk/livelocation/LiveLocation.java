@@ -10,6 +10,7 @@ import androidx.annotation.Keep;
 import androidx.annotation.MainThread;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.WorkerThread;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.ConsentRequest;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Contact;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.LocationMode;
@@ -127,6 +128,18 @@ public final class LiveLocation
     new File(file.getPath() + ".tmp").delete();
     if (isSupported())
       KeystoreKeyWrapper.deleteAllExcept("");
+  }
+
+  /**
+   * Decision D16: about once a day, from a background job, the channel keys that are due are erased
+   * and the store's keys rotated, as the core's clock does while it runs. Nothing connects, and
+   * nothing happens while the core runs. Waits for the core's thread.
+   */
+  @WorkerThread
+  public static void ratchet(@NonNull Context context)
+  {
+    if (isSupported())
+      nativeRatchet(storeFile(context).getAbsolutePath());
   }
 
   // The store: one file, in a directory that is not backed up (docs/LIVE_LOCATION.md §8.5).
@@ -466,6 +479,7 @@ public final class LiveLocation
   }
 
   private static native boolean nativeStart(@NonNull String path);
+  private static native void nativeRatchet(@NonNull String path);
   private static native void nativeStop();
   private static native void nativeDeleteAllData();
   private static native void nativeSetForeground(boolean foreground);

@@ -40,7 +40,8 @@ int64_t constexpr kRetireWaitMs = 30'000;  // at most, for the relays' answers t
 // relay that floods the app loses the excess, and the relay pool fails it for the junk it reads.
 size_t constexpr kMaxPendingMessages = 256;
 
-// Made on the first nativeStart(), on a Java thread, where the app's class loader finds the classes.
+// Made on the first nativeStart() or nativeRatchet(), on a Java thread, where the app's class loader
+// finds the classes.
 jclass g_transportClass;
 jmethodID g_connect;
 jmethodID g_send;
@@ -52,10 +53,8 @@ jmethodID g_deleteAllExcept;
 jclass g_liveLocationClass;
 jmethodID g_onEvent;
 
-void InitJni(JNIEnv * env)
+void InitJniOnce(JNIEnv * env)
 {
-  if (g_liveLocationClass != nullptr)
-    return;
   g_transportClass = jni::GetGlobalClassRef(env, "app/organicmaps/sdk/livelocation/OkHttpTransport");
   g_connect = jni::GetStaticMethodID(env, g_transportClass, "connect", "(JLjava/lang/String;)V");
   g_send = jni::GetStaticMethodID(env, g_transportClass, "send", "(JLjava/lang/String;)V");
@@ -66,6 +65,14 @@ void InitJni(JNIEnv * env)
   g_deleteAllExcept = jni::GetStaticMethodID(env, g_keysClass, "deleteAllExcept", "(Ljava/lang/String;)V");
   g_liveLocationClass = jni::GetGlobalClassRef(env, "app/organicmaps/sdk/livelocation/LiveLocation");
   g_onEvent = jni::GetStaticMethodID(env, g_liveLocationClass, "onEvent", "(Ljava/lang/String;)V");
+}
+
+std::once_flag g_jniOnce;
+
+void InitJni(JNIEnv * env)
+{
+  // Once, whichever thread comes first: the app's main thread, or a background job's (D16).
+  std::call_once(g_jniOnce, [env] { InitJniOnce(env); });
 }
 
 // Java strings are UTF-16, and JNI's own UTF-8 is "modified": both ways go through UTF-16.
@@ -364,6 +371,22 @@ public:
     });
   }
 
+  /// D16: while the core does not run, its store is read, which erases the channel keys that are due
+  /// and rotates the store's keys, and written; then everything is freed again. Nothing connects: the
+  /// app is neither in the foreground nor sharing. While the core runs, its clock does this on time.
+  void Ratchet(std::string const & path)
+  {
+    m_executor.RunSync([&]
+    {
+      if (m_manager)
+        return;
+      ManagerListener quiet;
+      store::Store store(path, m_keys, crypto::SystemRng());
+      Manager manager(m_executor, m_transport, store, crypto::SystemRng(), quiet);
+      manager.Start();
+    });
+  }
+
   /// Also the way out of a store that cannot be read: the manager starts afresh.
   void DeleteAllData()
   {
@@ -429,6 +452,19 @@ private:
 
 std::atomic<Host *> g_host{nullptr};
 
+/// The process's host, made by whichever thread needs it first.
+Host * GetOrMakeHost()
+{
+  Host * host = g_host.load();
+  if (host != nullptr)
+    return host;
+  auto * made = new Host();
+  if (g_host.compare_exchange_strong(host, made))
+    return made;
+  delete made;  // another thread made one meanwhile
+  return host;
+}
+
 /// `fn` with the manager on its thread; nothing when the feature has not started.
 template <typename Fn>
 void Run(Fn && fn)
@@ -477,9 +513,14 @@ JNIEXPORT jboolean JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_na
                                                                                           jstring path)
 {
   InitJni(env);
-  if (g_host.load() == nullptr)
-    g_host = new Host();
-  return g_host.load()->Start(ToUtf8(env, path));
+  return GetOrMakeHost()->Start(ToUtf8(env, path));
+}
+
+JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeRatchet(JNIEnv * env, jclass,
+                                                                                        jstring path)
+{
+  InitJni(env);
+  GetOrMakeHost()->Ratchet(ToUtf8(env, path));
 }
 
 JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeStop(JNIEnv *, jclass)

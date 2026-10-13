@@ -2,6 +2,7 @@ package app.organicmaps.livelocation;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import androidx.annotation.AnyThread;
 import androidx.annotation.MainThread;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -60,6 +61,7 @@ public final class LiveLocationFeature
 
   private LiveLocationFeature() {}
 
+  @AnyThread
   public static boolean isEnabled(@NonNull Context context)
   {
     return LiveLocation.isSupported() && prefs(context).getBoolean(key(context), false);
@@ -169,11 +171,13 @@ public final class LiveLocationFeature
     LiveLocationService.createNotificationChannel(context);
     LiveLocation.addListener(sListener);
     sStoreError = !LiveLocation.start(context);
+    LiveLocationRatchetWork.schedule(context);
   }
 
   private static void stop(@NonNull Context context)
   {
     Logger.i(TAG, "Stopping");
+    LiveLocationRatchetWork.cancel(context);
     LiveLocationService.stop(context);
     LiveLocation.stop();
     LiveLocation.removeListener(sListener);
@@ -182,12 +186,14 @@ public final class LiveLocationFeature
     sStoreError = false;
   }
 
+  @AnyThread
   @NonNull
   private static SharedPreferences prefs(@NonNull Context context)
   {
     return PreferenceManager.getDefaultSharedPreferences(context);
   }
 
+  @AnyThread
   @NonNull
   private static String key(@NonNull Context context)
   {
