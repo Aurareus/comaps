@@ -1290,7 +1290,7 @@ was checked here before it was fixed. Each fix has a test that fails without it,
 | 7. A flooding relay can freeze the app | **Right**: three key derivations per contact for every inbox event, an unbounded queue, and the UI waiting on every call | Events nobody asked for, or that fail verification, are dropped before any work, and a relay that sends more than 32 fails. At most 256 messages per connection wait, and calls without a result are queued instead of waited for (the last two untested: they are in the Android layer) | `relay_pool.cpp`; §21 |
 | Nits | **Right**: UBSan reports the null `memcpy`; the non-unity build fails on three missing includes; GCC `-O3` warns five times | Fixed; the non-unity build passes, and GCC no longer warns | `secp256k1_sha256.c`, tests, `bytes.hpp` |
 
-**Tests now.** 79 C++ tests, passing with clang (unity and non-unity builds). The cross-implementation
+**Tests now.** 79 C++ tests, passing with clang 18 (unity and non-unity builds) and GCC 13. The cross-implementation
 test passes 13 of 13 over strfry. Two C++ peers pair and share over the real default relays (nos.lol,
 nostr.mom, relay.nostr.net): the viewer had the sharer's first fix 0.4 s after it was given. The APK
 builds.
