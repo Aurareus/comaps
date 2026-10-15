@@ -563,8 +563,8 @@ void RelayPool::OnMessage(uint64_t connectionId, std::string const & text)
       {
         uint64_t const connectionId = connection->m_id;
         std::string const eventId = message->m_eventId;
-        echo->second = Later(m_config.m_echoTimeoutMs, [this, connectionId, eventId]
-        { OnEchoMissing(connectionId, eventId); });
+        echo->second =
+            Later(m_config.m_echoTimeoutMs, [this, connectionId, eventId] { OnEchoMissing(connectionId, eventId); });
       }
     }
     uint64_t const publicationId = awaiting->second;
@@ -651,9 +651,10 @@ void RelayPool::OnEchoMissing(uint64_t connectionId, std::string const & eventId
     return;
   connection->m_echoes.erase(echo);
   std::string const url = connection->m_url;
+  // A relay that has never sent an event back is unknown, not deaf. Otherwise one miss decides.
   if (m_echoing.count(url) == 0)
-    return;  // it has never sent an event back: unknown, not deaf
-  ForgetEchoes(*connection);  // one miss decides
+    return;
+  ForgetEchoes(*connection);
 
   Deafness & deafness = m_deaf[url];
   deafness.m_misses = std::min(deafness.m_misses + 1, 20);

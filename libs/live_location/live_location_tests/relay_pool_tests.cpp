@@ -358,8 +358,8 @@ UNIT_TEST(RelayPool_TheEchoCheckJudgesOnlyWhatMustComeBack)
   Key const other = RandomSecpKey(ScenarioRng());
   std::string const otherPk = ToHex(crypto::GetXOnlyPublicKey(other));
   std::vector<nostr::Filter> filters = h.Filters();
-  auto const id2 = h.m_pool.Subscribe(EpochScope(2), {kR2}, Placement::All, [&] { return filters; },
-                                      [](nostr::Event const &) {});
+  auto const id2 =
+      h.m_pool.Subscribe(EpochScope(2), {kR2}, Placement::All, [&] { return filters; }, [](nostr::Event const &) {});
   h.m_executor.RunFor(1000);
   h.m_pool.Publish(EpochScope(2), {kR2}, h.Event(kKindStored, "echoed"));
   h.m_executor.RunFor(1000);
