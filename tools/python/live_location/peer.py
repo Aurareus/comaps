@@ -259,6 +259,17 @@ class Peer:
         epoch = max(P.epoch_of(ev.created_at), c.outgoing.epoch)
         return await self.net.publish(c.relays, epoch_scope(epoch), ev)
 
+    def follow_relays(self, c, st, current_state):
+        """A state names the contact's current relays (spec §8). When they changed, everything goes there from
+        now on, and so does an answer at once: the contact's app learns that this peer has moved (spec §11).
+        Unlike the app, this test peer does not ask before using a relay, and does not retry an answer."""
+        if st['relays'] == c.relays:
+            return
+        c.relays = list(st['relays'])
+        self.save()
+        log('%s moved to %s; answering there' % (c.name, ', '.join(c.relays)))
+        asyncio.ensure_future(self.publish_state(c, current_state()))
+
     # --- Pairing ----------------------------------------------------------------------------------
 
     async def _pair(self, party, invite, scope, joiner, decide=None, timeout=600):
@@ -390,6 +401,7 @@ class Peer:
                 if st is None:
                     continue
                 self.save()
+                self.follow_relays(c, st, lambda: P.state_event(c, self.relays, None, self.rng, now()))
                 old = views[name].grant
                 views[name].on_state(st, now())
                 grant = views[name].grant
@@ -469,6 +481,10 @@ class Peer:
         def on_inbox(ev):
             nonlocal live_until
             for c in recipients:
+                st = P.read_control(c, ev, now())
+                if st is not None:
+                    self.follow_relays(c, st, lambda: sharer.current_state(c, self.rng, now()))
+                    return
                 w = P.read_signal(c, ev, now())
                 if w is not None:
                     if now() >= live_until and on_live is not None:

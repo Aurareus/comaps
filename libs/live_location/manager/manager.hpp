@@ -45,9 +45,10 @@ public:
 
   Settings const & GetSettings() const { return m_settings; }
   bool SetName(std::string name);
-  /// Contacts learn the new list from a state sent to each of them now, and again each day the app runs
-  /// in the following week, while the previous relays are still read (spec §11). A running share is
-  /// re-keyed onto the new list.
+  /// Contacts learn the new list from a state sent to each of them now, and answer through it. Until every
+  /// contact has sent something through the new list, for at most 30 days, the previous relays are still
+  /// read, and each contact that has not gets the state again on each day the app runs (spec §11). A
+  /// running share is re-keyed onto the new list.
   bool SetHomeRelays(Relays relays);
   /// The user's answer about a relay (relay consent, spec §11). Approvals are kept until revoked; a
   /// refusal means the app does not ask again.
@@ -115,10 +116,12 @@ private:
   Peer * FindPeer(ContactPtr const & contact);
   Session * FindSession(std::string const & id);
   std::set<std::string> Trusted() const;
-  /// The week after a change of home relays (spec §11).
-  bool InRelayWeek() const;
-  /// Where the inbox is read: the home relays, and the previous ones in the week after a change.
-  Relays InboxRelays() const;
+  /// The 30 days after a change of home relays (spec §11) ...
+  bool MoveWindow() const;
+  /// ... while some contact has not moved to the new relays yet.
+  bool MovePending() const;
+  /// The previous home relays that are no longer home relays, while MovePending().
+  Relays OldRelays() const;
   bool IsAllowed(std::string const & url) const;
   Relays Allowed(Relays const & relays) const;
   void AskConsent(std::string const & url, std::string const & contactName, ConsentRequest::Purpose purpose);
@@ -134,8 +137,11 @@ private:
   PairingInfo Info(Session const & session) const;
 
   // Channels
-  void OnInboxEvent(nostr::Event const & event);
+  /// `viaHome`: through this user's home relays, rather than the previous ones.
+  void OnInboxEvent(nostr::Event const & event, bool viaHome);
+  bool NoteMoved(Peer & peer, bool viaHome);
   void OnState(Peer & peer, State const & state, int64_t createdAt);
+  void Answer(Peer & peer);
   void OnWatch(Peer & peer, Watch const & watch);
   void OnStreamEvent(std::string const & peerId, nostr::Event const & event);
   void PublishControl(ContactPtr const & contact, nostr::Event const & event, relay::RelayPool::DoneFn done = {});
@@ -200,6 +206,9 @@ private:
   relay::Placement m_inboxPlacement = relay::Placement::All;
   Relays m_inboxRelays;
   std::vector<std::string> m_inboxAuthors;
+  relay::RelayPool::SubscriptionId m_oldInbox = 0;  // the previous home relays (spec §11)
+  relay::Scope m_oldInboxScope;
+  Relays m_oldInboxRelays;
   relay::RelayPool::SubscriptionId m_catchUp = 0;  // the previous epoch's states, in the grace hour
   Executor::TaskId m_clock = Executor::kNoTask;
   Executor::TaskId m_watchTimer = Executor::kNoTask;

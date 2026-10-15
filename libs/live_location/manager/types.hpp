@@ -17,8 +17,8 @@ struct Settings
 {
   std::string m_name;           // this user's name, sent when pairing
   Relays m_homeRelays;          // in the user's order: the first reachable one listens (D17)
-  Relays m_previousRelays;      // the home relays before the last change, still read and allowed ...
-  int64_t m_relaysChanged = 0;  // ... through this epoch + kConfirmEpochs (spec §11); 0: never changed
+  Relays m_previousRelays;      // the home relays before the last change, still read and allowed until all
+  int64_t m_relaysChanged = 0;  // contacts moved, at most through this epoch + 30 (spec §11); 0: never changed
   std::map<std::string, std::string> m_approved;  // relay consent: url -> the contact it was approved for
   std::set<std::string> m_declined;               // asked once and refused
   bool m_requestLive = true;                      // ask sharers for live updates while viewing (D4)
@@ -36,6 +36,8 @@ struct ContactInfo
   bool m_waiting = false;       // the joiner has not confirmed yet (spec §6.3, design doc D18)
   bool m_offerRemoval = false;  // ... and the week of confirmations is over
   bool m_hidden = false;
+  bool m_notMoved = false;     // nothing from it came through the user's new home relays yet (spec §11) ...
+  bool m_moveOverdue = false;  // ... and the previous ones are no longer read: what it sends may not arrive
   std::optional<int64_t> m_sharesWithMeUntil;  // 0: until stopped
   std::optional<int64_t> m_iShareUntil;        // 0: until stopped
   bool m_liveUpdatesOff = false;               // live updates need a relay the user has not allowed ...

@@ -16,12 +16,13 @@ namespace live_location
 {
 namespace
 {
-uint8_t constexpr kStateVersion = 2;      // 2: the previous home relays (spec §11); 1 is still read
+uint8_t constexpr kStateVersion = 3;      // 3: who has moved; 2: the previous home relays (spec §11); 1, 2 read
 int64_t constexpr kQrLifetime = 600;      // design doc §11.2
 int64_t constexpr kLinkLifetime = 86400;  // spec §6.1: at most a day
 int64_t constexpr kCatchUpMs = 30'000;    // how long the previous epoch's states are read for
 int64_t constexpr kPairingRetryMs = 30'000;
-size_t constexpr kMaxPreviousRelays = 8;  // after several changes within a week
+size_t constexpr kMaxPreviousRelays = 8;  // after several changes before everyone moved
+int64_t constexpr kMoveEpochs = 30;       // the previous home relays are read at most through epoch e_c + 30
 
 double DistanceM(Location const & a, Location const & b)
 {
@@ -59,6 +60,13 @@ struct Manager::Peer
   std::string m_id;
   ContactPtr m_contact;
   bool m_hidden = false;
+  // Since this user's home relays last changed, nothing from the contact has come through the new ones
+  // (spec §11): it may still send to the previous ones.
+  bool m_notMoved = false;
+  // The contact's relays as of the last state of this user's that one of them accepted: a state naming
+  // others is answered there (spec §11).
+  Relays m_deliveredTo;
+  bool m_answering = false;  // in memory: an answer waits for its OK
   // The viewer's side of the contact's share, in memory only.
   Following m_following;
   int64_t m_streamEpoch = 0;  // of the grant: the stream travels in that epoch's scope
@@ -195,6 +203,13 @@ SecretBytes Manager::Encode(std::set<ByteArray<32>> & digests) const
     writer.String(url);
   writer.I64(m_settings.m_relaysChanged);
 
+  // Version 3, in the order of the contacts above.
+  for (auto const & peer : m_peers)
+  {
+    writer.Bool(peer->m_notMoved);
+    persist::WriteRelays(writer, peer->m_deliveredTo);
+  }
+
   SecretBytes out = writer.Finish();
   digests = writer.SecretDigests();
   return out;
@@ -204,7 +219,7 @@ void Manager::Decode(ByteSpan data)
 {
   binary::Reader reader(data);
   uint8_t const version = reader.U8();
-  if (version != 1 && version != kStateVersion)
+  if (version < 1 || version > kStateVersion)
     throw binary::FormatError("store version");
   m_decoySeed = reader.Secret();
   m_settings = Settings();
@@ -277,6 +292,25 @@ void Manager::Decode(ByteSpan data)
     }
     m_settings.m_relaysChanged = reader.I64();
   }
+  if (version >= 3)
+  {
+    for (auto & peer : m_peers)
+    {
+      peer->m_notMoved = reader.Bool();
+      peer->m_deliveredTo = persist::ReadRelays(reader);
+    }
+  }
+  else
+  {
+    // Before version 3 nobody's move was followed: a change in its week counts as one nobody has made.
+    bool const changing =
+        m_settings.m_relaysChanged != 0 && EpochOf(Now()) <= m_settings.m_relaysChanged + kConfirmEpochs;
+    for (auto & peer : m_peers)
+    {
+      peer->m_notMoved = changing;
+      peer->m_deliveredTo = peer->m_contact->m_relays;
+    }
+  }
   if (!reader.AtEnd())
     throw binary::FormatError("trailing data");
 }
@@ -334,6 +368,7 @@ void Manager::DeleteAllData()
 {
   m_pool->CloseAll();
   m_inbox = 0;
+  m_oldInbox = 0;
   m_catchUp = 0;
   m_inboxAuthors.clear();
   Cancel(m_heartbeat);
@@ -386,17 +421,24 @@ Manager::Session * Manager::FindSession(std::string const & id)
   return nullptr;
 }
 
-bool Manager::InRelayWeek() const
+bool Manager::MoveWindow() const
 {
-  return m_settings.m_relaysChanged != 0 && EpochOf(Now()) <= m_settings.m_relaysChanged + kConfirmEpochs;
+  return m_settings.m_relaysChanged != 0 && EpochOf(Now()) <= m_settings.m_relaysChanged + kMoveEpochs;
 }
 
-Relays Manager::InboxRelays() const
+bool Manager::MovePending() const
 {
-  Relays relays = m_settings.m_homeRelays;
-  if (InRelayWeek())
+  return MoveWindow() &&
+         std::any_of(m_peers.begin(), m_peers.end(), [](auto const & peer) { return peer->m_notMoved; });
+}
+
+Relays Manager::OldRelays() const
+{
+  Relays relays;
+  if (MovePending())
     for (auto const & url : m_settings.m_previousRelays)
-      if (std::find(relays.begin(), relays.end(), url) == relays.end())
+      if (std::find(m_settings.m_homeRelays.begin(), m_settings.m_homeRelays.end(), url) ==
+          m_settings.m_homeRelays.end())
         relays.push_back(url);
   return relays;
 }
@@ -404,7 +446,7 @@ Relays Manager::InboxRelays() const
 std::set<std::string> Manager::Trusted() const
 {
   std::set<std::string> trusted(m_settings.m_homeRelays.begin(), m_settings.m_homeRelays.end());
-  if (InRelayWeek())
+  if (MovePending())
     trusted.insert(m_settings.m_previousRelays.begin(), m_settings.m_previousRelays.end());
   trusted.insert(kDefaultRelays.begin(), kDefaultRelays.end());
   for (auto const & approved : m_settings.m_approved)
@@ -490,10 +532,10 @@ bool Manager::SetHomeRelays(Relays relays)
     UpdateConnections();
     return true;
   }
-  // Contacts still send to the previous relays until they learn the new list: they are read for a
-  // week, together with those of a change earlier in that week.
+  // Contacts still send to the previous relays until they learn the new list: they are read until
+  // everyone has moved, together with those of an earlier change that not everyone had followed yet.
   Relays previous = m_settings.m_homeRelays;
-  if (InRelayWeek())
+  if (MovePending())
     for (auto const & url : m_settings.m_previousRelays)
       if (std::find(previous.begin(), previous.end(), url) == previous.end())
         previous.push_back(url);
@@ -505,6 +547,8 @@ bool Manager::SetHomeRelays(Relays relays)
   m_settings.m_previousRelays = std::move(previous);
   m_settings.m_relaysChanged = EpochOf(Now());
   m_settings.m_homeRelays = std::move(relays);
+  for (auto & peer : m_peers)
+    peer->m_notMoved = true;  // until something of theirs comes through the new relays
   AnnounceRelays();
   UpdateConnections();
   NotifyContacts();
@@ -562,6 +606,9 @@ void Manager::SetConsent(std::string const & url, bool allowed, std::string cons
     m_settings.m_approved.erase(url);
   }
   Save();
+  if (allowed)
+    for (auto & peer : m_peers)
+      Answer(*peer);  // the relay a contact moved to, now allowed
   UpdateConnections();
   NotifyContacts();
 }
@@ -773,6 +820,7 @@ Manager::Peer & Manager::AddPeer(ContactPtr const & contact)
   auto peer = std::make_unique<Peer>();
   peer->m_id = NewId();
   peer->m_contact = contact;
+  peer->m_deliveredTo = contact->m_relays;  // the pairing named them: nothing to answer
   Peer & out = *peer;
   m_peers.push_back(std::move(peer));
   return out;
@@ -955,6 +1003,7 @@ void Manager::SetHidden(std::string const & id, bool hidden)
   if (hidden)
     peer->m_following.Stop();
   Save();
+  Answer(*peer);  // shown again: it learns where this user's states went meanwhile
   UpdateConnections();
   NotifyContacts();
   NotifyPositions();
@@ -967,10 +1016,39 @@ void Manager::PublishControl(ContactPtr const & contact, nostr::Event const & ev
   for (auto const & url : contact->m_relays)
     AskConsent(url, contact->m_name, ConsentRequest::Purpose::Sending);
   int64_t const epoch = std::max(EpochOf(event.m_createdAt), contact->m_outgoing.Epoch());
-  m_pool->Publish(relay::EpochScope(epoch), Allowed(contact->m_relays), event, std::move(done));
+  std::weak_ptr<int> alive = m_alive;
+  m_pool->Publish(relay::EpochScope(epoch), Allowed(contact->m_relays), event,
+                  [this, alive, contact, relays = contact->m_relays, done = std::move(done)](bool delivered)
+  {
+    if (!alive.expired())
+    {
+      if (Peer * peer = FindPeer(contact))
+      {
+        peer->m_answering = false;
+        if (delivered && peer->m_deliveredTo != relays)
+        {
+          peer->m_deliveredTo = relays;
+          Save();
+        }
+      }
+    }
+    if (done)
+      done(delivered);
+  });
 }
 
-void Manager::OnInboxEvent(nostr::Event const & event)
+bool Manager::NoteMoved(Peer & peer, bool viaHome)
+{
+  // Something new from the contact came through one of this user's home relays: what it sends from now
+  // on arrives without the previous ones (spec §11). A relay that was in both lists counts: the contact
+  // reaches the user there.
+  if (!viaHome || !peer.m_notMoved)
+    return false;
+  peer.m_notMoved = false;
+  return true;
+}
+
+void Manager::OnInboxEvent(nostr::Event const & event, bool viaHome)
 {
   int64_t const now = Now();
   if (event.m_kind == kKindStored)
@@ -979,7 +1057,8 @@ void Manager::OnInboxEvent(nostr::Event const & event)
     {
       if (auto const state = ReadControl(*peer->m_contact, event, now))
       {
-        OnState(*peer, *state, event.m_createdAt);
+        NoteMoved(*peer, viaHome);
+        OnState(*peer, *state, event.m_createdAt);  // saves, and stops reading the old relays once all moved
         return;
       }
     }
@@ -991,11 +1070,14 @@ void Manager::OnInboxEvent(nostr::Event const & event)
       bool const confirmed = peer->m_contact->m_confirmed;
       if (auto const watch = ReadSignal(*peer->m_contact, event, now))
       {
-        if (!confirmed)
+        bool const moved = NoteMoved(*peer, viaHome);
+        if (!confirmed || moved)
         {
           Save();
           NotifyContacts();
         }
+        if (moved)
+          UpdateConnections();
         OnWatch(*peer, *watch);
         return;
       }
@@ -1006,6 +1088,7 @@ void Manager::OnInboxEvent(nostr::Event const & event)
 void Manager::OnState(Peer & peer, State const & state, int64_t createdAt)
 {
   peer.m_contact->m_relays = state.m_relays;  // the contact's current relays, in its order
+  Answer(peer);
   std::string const oldPk = peer.m_following.Grant() ? peer.m_following.Grant()->m_pk : std::string();
   if (!peer.m_hidden)
     peer.m_following.OnState(state, Now());
@@ -1030,6 +1113,29 @@ void Manager::OnState(Peer & peer, State const & state, int64_t createdAt)
   UpdateConnections();
   NotifyContacts();
   NotifyPositions();
+}
+
+void Manager::Answer(Peer & peer)
+{
+  // A contact that names other relays than those this user's last state reached gets the current state
+  // there, so that it can tell when everyone has moved (spec §11). Not a hidden one; and only through a
+  // relay the user allows, which may come later.
+  Contact & contact = *peer.m_contact;
+  if (contact.m_relays == peer.m_deliveredTo || peer.m_hidden || peer.m_answering)
+    return;
+  if (Allowed(contact.m_relays).empty())
+  {
+    for (auto const & url : contact.m_relays)
+      AskConsent(url, contact.m_name, ConsentRequest::Purpose::Sending);
+    return;
+  }
+  peer.m_answering = true;
+  int64_t const now = Now();
+  bool const sharing = m_sharer && m_sharer->IsSharing();
+  nostr::Event const answer = sharing ? m_sharer->CurrentState(peer.m_contact, m_rng, now)
+                                      : StateEvent(contact, m_settings.m_homeRelays, std::nullopt, m_rng, now);
+  Save();  // its seq and created_at, before it leaves
+  PublishControl(peer.m_contact, answer);
 }
 
 void Manager::OnWatch(Peer & peer, Watch const & watch)
@@ -1069,13 +1175,15 @@ void Manager::SendConfirmations()
   if (!m_started || (!m_foreground && !sharing))
     return;  // "each UTC day it runs": while the app is used, never just for this
   int64_t const now = Now();
-  // In the week after a change of home relays, every contact gets the current state once a day (§11).
-  bool const announcing = InRelayWeek();
+  // After a change of home relays, every contact that has not moved yet gets the current state once a day
+  // (§11), also after the 30 days in which the previous relays are read: whenever it opens its app, it
+  // should still hear of the move.
   std::vector<std::pair<ContactPtr, nostr::Event>> due;
   for (auto const & peer : m_peers)
   {
     Contact const & contact = *peer->m_contact;
-    if (!ConfirmationDue(contact, now) && !(announcing && EpochOf(contact.m_lastCreatedOut) < EpochOf(now)))
+    bool const announce = peer->m_notMoved && EpochOf(contact.m_lastCreatedOut) < EpochOf(now);
+    if (!ConfirmationDue(contact, now) && !announce)
       continue;
     // The current state: with the grant while sharing with the contact, so that it never ends a share.
     due.emplace_back(peer->m_contact,
@@ -1436,6 +1544,7 @@ void Manager::OnClock()
   Save();  // rotates the store's keys when chain keys were erased
   UpdateConnections();
   ScheduleClock();
+  NotifyContacts();  // labels that time changes: removal offered, a move overdue
 }
 
 std::vector<nostr::Filter> Manager::InboxRequest(int64_t epoch, bool listening) const
@@ -1477,7 +1586,7 @@ void Manager::UpdateConnections()
   relay::Placement const placement = m_foreground ? relay::Placement::All : relay::Placement::FirstReachable;
   // While only sharing, the inbox listens on the listening relay of the home relays alone (D17): viewers
   // send their signals to the list the share names.
-  Relays const inboxRelays = m_foreground ? InboxRelays() : m_settings.m_homeRelays;
+  Relays const & inboxRelays = m_settings.m_homeRelays;
   if (m_inbox != 0 &&
       (!wantInbox || scope != m_inboxScope || placement != m_inboxPlacement || inboxRelays != m_inboxRelays))
   {
@@ -1491,12 +1600,30 @@ void Manager::UpdateConnections()
     m_inboxRelays = inboxRelays;
     m_inboxAuthors = authors;
     m_inbox = m_pool->Subscribe(scope, inboxRelays, placement, [this, epoch, listening]
-    { return InboxRequest(epoch, listening); }, [this](nostr::Event const & event) { OnInboxEvent(event); });
+    { return InboxRequest(epoch, listening); }, [this](nostr::Event const & event) { OnInboxEvent(event, true); });
   }
   else if (wantInbox && authors != m_inboxAuthors)
   {
     m_inboxAuthors = authors;
     m_pool->Refresh(m_inbox);
+    if (m_oldInbox != 0)
+      m_pool->Refresh(m_oldInbox);
+  }
+
+  // The previous home relays, while the map is open, until every contact has moved (spec §11): what
+  // arrives there tells nothing of a move.
+  Relays const oldRelays = m_foreground && wantInbox ? OldRelays() : Relays();
+  if (m_oldInbox != 0 && (oldRelays.empty() || scope != m_oldInboxScope || oldRelays != m_oldInboxRelays))
+  {
+    m_pool->Unsubscribe(m_oldInbox);
+    m_oldInbox = 0;
+  }
+  if (!oldRelays.empty() && m_oldInbox == 0)
+  {
+    m_oldInboxScope = scope;
+    m_oldInboxRelays = oldRelays;
+    m_oldInbox = m_pool->Subscribe(scope, oldRelays, relay::Placement::All, [this, epoch]
+    { return InboxRequest(epoch, false); }, [this](nostr::Event const & event) { OnInboxEvent(event, false); });
   }
 
   // In the first hour of a day, contacts' latest states may still be signed with yesterday's keys:
@@ -1510,8 +1637,11 @@ void Manager::UpdateConnections()
         previous.push_back(filter);
     if (!previous.empty())
     {
-      m_catchUp = m_pool->Subscribe(relay::EpochScope(epoch - 1), InboxRelays(), relay::Placement::All, [previous]
-      { return previous; }, [this](nostr::Event const & event) { OnInboxEvent(event); });
+      Relays relays = m_settings.m_homeRelays;
+      for (auto const & url : OldRelays())
+        relays.push_back(url);
+      m_catchUp = m_pool->Subscribe(relay::EpochScope(epoch - 1), relays, relay::Placement::All, [previous]
+      { return previous; }, [this](nostr::Event const & event) { OnInboxEvent(event, false); });
       Later(kCatchUpMs, [this]
       {
         if (m_catchUp != 0)
@@ -1639,6 +1769,8 @@ std::vector<ContactInfo> Manager::Contacts() const
     info.m_waiting = !contact.m_confirmed;
     info.m_offerRemoval = OfferRemoval(contact, now);
     info.m_hidden = peer->m_hidden;
+    info.m_notMoved = peer->m_notMoved && m_settings.m_relaysChanged != 0;
+    info.m_moveOverdue = info.m_notMoved && !MoveWindow();
     if (auto const & grant = peer->m_following.Grant())
     {
       info.m_sharesWithMeUntil = grant->m_until;
