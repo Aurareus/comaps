@@ -12,6 +12,7 @@ set(SRC
   gps_track_storage_test.cpp
   gps_track_test.cpp
   kmz_unarchive_test.cpp
+  live_location_marks_tests.cpp  # Live location (NLL)
   mwm_url_tests.cpp
   power_manager_tests.cpp
   search_api_tests.cpp

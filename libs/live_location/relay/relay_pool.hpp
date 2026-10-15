@@ -40,12 +40,18 @@ struct PoolConfig
   size_t m_dedupe = 4096;            // event ids remembered per subscription
   size_t m_maxInvalidEvents = 32;    // events a connection may send that its REQ did not ask for or that fail
                                      // verification; one more, and the relay counts as failing
+  int64_t m_echoTimeoutMs = 15'000;  // an accepted event that a REQ of its own connection asks for comes back
+                                     // within this, or the relay does not deliver what it accepts ...
+  int64_t m_deafBackoffMinMs = 300'000;  // ... and it is not listened on for this long, doubling up to the maximum
+  int64_t m_deafBackoffMaxMs = 1'800'000;
 };
 
 enum class Placement
 {
   All,             // on every relay of the list that is not failing
-  FirstReachable,  // on the first relay of the list that is not failing: a listening relay (design doc D17)
+  FirstReachable,  // on the first relay of the list that is not failing: a listening relay (design doc D17).
+                   // A relay found not to deliver what it accepts is skipped while another one can be used,
+                   // and once its back-off is over, tried again next to it.
 };
 
 /// All relay traffic, on the executor's thread. A relay that fails (it cannot be reached, drops the
@@ -54,6 +60,14 @@ enum class Placement
 /// Connections open when something needs them and close when nothing does: a connection without
 /// subscriptions closes after m_lingerMs without traffic. Nothing connects to a relay that `isAllowed`
 /// refuses (relay consent, spec §11).
+///
+/// The echo check: when a REQ asks for the events that its own connection publishes, every event the
+/// relay accepts must come back over it, and is delivered like any other. One that has not within
+/// m_echoTimeoutMs of its OK shows that the relay accepts events without delivering them: it is then
+/// "deaf" (m_deafBackoff*), and a FirstReachable subscription moves to the next relay. When the back-off
+/// is over, the subscription runs on both until an event published comes back over the deaf relay or
+/// does not. Publishing to it goes on throughout. A relay that has never sent such an event back is not
+/// judged at all: some relays might never do so.
 class RelayPool
 {
 public:
@@ -91,7 +105,10 @@ public:
 
   /// Whether `url` is backing off after a failure.
   bool IsFailing(std::string const & url) const;
-  /// The first relay of `urls` that is allowed and not failing.
+  /// Whether `url` accepted an event without delivering it, and is backing off for it (the echo check).
+  bool IsDeaf(std::string const & url) const;
+  /// The relay a FirstReachable subscription on `urls` relies on: the first that is allowed, not failing,
+  /// and not found deaf, else the first that is not failing.
   std::optional<std::string> FirstReachable(Relays const & urls) const;
 
   /// (url, scope) of every connection that is open or opening.
@@ -110,6 +127,12 @@ private:
     int m_failures = 0;
     int64_t m_retryAtMs = 0;
   };
+  /// Unlike a failure, not forgotten when the relay connects again: it connects fine.
+  struct Deafness
+  {
+    int m_misses = 0;
+    int64_t m_retryAtMs = 0;
+  };
 
   Connection & GetConnection(std::string const & url, Scope const & scope);
   Connection * FindConnection(uint64_t id);
@@ -123,6 +146,9 @@ private:
   void Linger(Connection & connection);
   void OnPublishResult(uint64_t publicationId, std::string const & url, bool accepted);
   void OnEvent(Connection & connection, std::string const & reqId, nostr::Event const & event);
+  void OnEcho(Connection & connection, std::string const & eventId);
+  void ForgetEchoes(Connection & connection);
+  void OnEchoMissing(uint64_t connectionId, std::string const & eventId);
 
   void OnOpen(uint64_t connectionId);
   void OnMessage(uint64_t connectionId, std::string const & text);
@@ -143,6 +169,8 @@ private:
   std::map<uint64_t, std::unique_ptr<Subscription>> m_subscriptions;
   std::map<uint64_t, std::unique_ptr<Publication>> m_publications;
   std::map<std::string, Health> m_health;
+  std::map<std::string, Deafness> m_deaf;
+  std::set<std::string> m_echoing;  // relays that have sent an event back to the connection that published it
   std::vector<std::unique_ptr<Connection>> m_closed;  // destroyed outside their own callbacks
 };
 }  // namespace live_location::relay

@@ -155,6 +155,7 @@ private:
   void UpdateLocationRequest();
 
   // Time and connections
+  std::vector<nostr::Filter> InboxRequest(int64_t epoch, bool listening) const;
   void ScheduleClock();
   void OnClock();
   void UpdateConnections();

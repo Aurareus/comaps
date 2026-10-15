@@ -65,7 +65,8 @@ private:
 
 /// A NIP-01 relay: it verifies events, keeps the newest addressable event per (pubkey, kind, d), forwards
 /// ephemeral ones without keeping them, honours NIP-40 expiration, and answers REQ with the stored
-/// matches, EOSE, then live ones. Faults can be switched on.
+/// matches, EOSE, then live ones. An event it already keeps is answered "duplicate:" and not forwarded
+/// again, as the public relays do. Faults can be switched on.
 class FakeRelay
 {
 public:
@@ -89,6 +90,8 @@ public:
   bool m_duplicate = false;  // sends every event to subscribers twice
   bool m_refuse = false;     // answers every EVENT with OK false
   bool m_forge = false;      // sends every event with a broken signature, as a dishonest relay could
+  bool m_deaf = false;       // accepts and keeps events, but delivers none as they arrive: its delivery broke
+  bool m_noEcho = false;     // delivers to every connection but the one that published the event
 
   size_t OpenConnections() const;
   /// Every message received, per connection id, in order.
@@ -104,7 +107,7 @@ private:
   void SendTo(std::shared_ptr<Link> const & link, std::string text);
   std::string EventMessage(std::string const & subscriptionId, live_location::nostr::Event const & event) const;
   void Store(live_location::nostr::Event const & event);
-  void Forward(live_location::nostr::Event const & event);
+  void Forward(live_location::nostr::Event const & event, Link const * from = nullptr);
   bool Expired(live_location::nostr::Event const & event) const;
 
   VirtualExecutor & m_executor;

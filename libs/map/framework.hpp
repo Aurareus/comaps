@@ -430,6 +430,11 @@ public:
 
   void SetPlacePageListeners(PlacePageEvent::OnOpen onOpen, PlacePageEvent::OnClose onClose,
                              PlacePageEvent::OnUpdate onUpdate, PlacePageEvent::OnSwitchFullScreen onSwitchFullScreen);
+  /// Live location (NLL): when set, a tap on a contact's dot (map/live_location_marks.hpp) calls this
+  /// with the contact's id instead of opening a place page. Called on the GUI thread.
+  using LiveLocationTapFn = std::function<void(std::string const & contactId)>;
+  void SetLiveLocationTapListener(LiveLocationTapFn fn) { m_onLiveLocationTap = std::move(fn); }
+
   bool HasPlacePageInfo() const { return m_currentPlacePageInfo.has_value(); }
   place_page::Info const & GetCurrentPlacePageInfo() const;
   place_page::Info & GetCurrentPlacePageInfo();
@@ -459,6 +464,7 @@ private:
   void BuildTrackPlacePage(Track::TrackSelectionInfo const & trackSelectionInfo, place_page::Info & info);
   Track::TrackSelectionInfo FindTrackInTapPosition(place_page::BuildInfo const & buildInfo) const;
   UserMark const * FindUserMarkInTapPosition(place_page::BuildInfo const & buildInfo) const;
+  UserMark const * FindLiveLocationMark(place_page::BuildInfo const & buildInfo) const;  // Live location (NLL)
   FeatureID FindBuildingAtPoint(m2::PointD const & mercator) const;
 
   void UpdateMinBuildingsTapZoom();
@@ -469,6 +475,7 @@ private:
   PlacePageEvent::OnClose m_onPlacePageClose;
   PlacePageEvent::OnUpdate m_onPlacePageUpdate;
   PlacePageEvent::OnSwitchFullScreen m_onSwitchFullScreen;
+  LiveLocationTapFn m_onLiveLocationTap;  // Live location (NLL)
 
 private:
   std::vector<m2::TriangleD> GetSelectedFeatureTriangles() const;

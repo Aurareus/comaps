@@ -1180,6 +1180,7 @@ bool Manager::ChangeSharing(Recipients const & recipients)
   PublishRekey(std::move(rekey), oldEpoch, m_shareRelays);
   ScheduleStreamStart();
   ScheduleClock();
+  UpdateConnections();  // the listening REQ asks for the new stream
   NotifySharing();
   NotifyContacts();
   return true;
@@ -1427,6 +1428,21 @@ void Manager::OnClock()
   ScheduleClock();
 }
 
+std::vector<nostr::Filter> Manager::InboxRequest(int64_t epoch, bool listening) const
+{
+  std::vector<ContactPtr> contacts;
+  for (auto const & peer : m_peers)
+    contacts.push_back(peer->m_contact);
+  auto filters = InboxFilters(contacts, m_decoySeed, epoch, Now());
+  // On the listening relay, the share's own stream too, so that its events come back over the connection
+  // that publishes them: one that does not shows a relay that accepts them without delivering anything,
+  // and the REQ moves to the next relay (the echo check, relay pool). Only a stream of the inbox's epoch:
+  // a connection carries one epoch's keys (spec §11).
+  if (listening && !filters.empty() && m_sharer && m_sharer->GetStream() && m_sharer->StreamEpoch() == epoch)
+    filters.push_back({{kKindStored}, {m_sharer->GetStream()->Pubkey()}, {}, {}});
+  return filters;
+}
+
 void Manager::UpdateConnections()
 {
   if (!m_started)
@@ -1440,7 +1456,8 @@ void Manager::UpdateConnections()
 
   // The inbox: states and signals from every contact, on the home relays. In the foreground on all of
   // them; while only sharing, on the listening relay (D17). Otherwise nothing at all.
-  auto const filters = InboxFilters(contacts, m_decoySeed, epoch, now);
+  bool const listening = !m_foreground;
+  auto const filters = InboxRequest(epoch, listening);
   std::vector<std::string> authors;
   for (auto const & filter : filters)
     if (filter.m_kinds == std::vector<int64_t>{kKindStored})
@@ -1463,13 +1480,8 @@ void Manager::UpdateConnections()
     m_inboxPlacement = placement;
     m_inboxRelays = inboxRelays;
     m_inboxAuthors = authors;
-    m_inbox = m_pool->Subscribe(scope, inboxRelays, placement, [this, epoch]
-    {
-      std::vector<ContactPtr> current;
-      for (auto const & peer : m_peers)
-        current.push_back(peer->m_contact);
-      return InboxFilters(current, m_decoySeed, epoch, Now());
-    }, [this](nostr::Event const & event) { OnInboxEvent(event); });
+    m_inbox = m_pool->Subscribe(scope, inboxRelays, placement, [this, epoch, listening]
+    { return InboxRequest(epoch, listening); }, [this](nostr::Event const & event) { OnInboxEvent(event); });
   }
   else if (wantInbox && authors != m_inboxAuthors)
   {

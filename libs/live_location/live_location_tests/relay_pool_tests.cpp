@@ -10,6 +10,7 @@
 #include "live_location/relay/relay_pool.hpp"
 
 #include <algorithm>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -266,6 +267,148 @@ UNIT_TEST(RelayPool_ListeningRelayMovesAndComesBack)
   h.m_executor.RunFor(61'000);
   auto const connections = h.m_pool.Connections();
   TEST(connections.size() == 1 && connections[0].first == kR1, ("the other connections closed"));
+}
+
+UNIT_TEST(RelayPool_TheListeningRelayMovesWhenItStopsDelivering)
+{
+  Harness h;
+  std::vector<std::string> received;
+  // A listening REQ that asks for this client's own events, as a sharer's does (the echo check).
+  auto const id = h.m_pool.Subscribe(EpochScope(1), kThree, Placement::FirstReachable, [&] { return h.Filters(); },
+                                     [&](nostr::Event const & event) { received.push_back(event.m_id); });
+  h.m_executor.RunFor(1000);
+  auto const publish = [&]
+  { h.m_pool.Publish(EpochScope(1), kThree, h.Event(kKindStored, std::to_string(h.m_executor.NowMs()))); };
+
+  publish();
+  h.m_executor.RunFor(20'000);
+  TEST_EQUAL(received.size(), 1, ("an event coming back is delivered like any other"));
+  TEST(!h.m_pool.IsDeaf(kR1), ());
+  TEST(h.m_pool.PlacementOf(id) == std::vector<std::string>{kR1}, ());
+
+  // r1 still accepts events, but its delivery broke: one miss moves the listening REQ, within 15 s.
+  h.Relay(kR1).m_deaf = true;
+  publish();
+  h.m_executor.RunFor(14'000);
+  TEST(h.m_pool.PlacementOf(id) == std::vector<std::string>{kR1}, ("not before the timeout"));
+  h.m_executor.RunFor(2'000);
+  TEST(h.m_pool.IsDeaf(kR1), ());
+  TEST(h.m_pool.PlacementOf(id) == std::vector<std::string>{kR2}, ("moved to the next relay"));
+  TEST(h.m_pool.FirstReachable(kThree) == std::optional<std::string>(kR2), ());
+  size_t const sent = CountType(h.Relay(kR1), "EVENT");
+  publish();
+  h.m_executor.RunFor(1'000);
+  TEST_EQUAL(CountType(h.Relay(kR1), "EVENT"), sent + 1, ("publishing to it goes on"));
+
+  // After its back-off (5 min, +-20 %) it is tried again, next to r2; still deaf, its back-off doubles.
+  h.m_executor.RunFor(360'000);
+  TEST(h.m_pool.PlacementOf(id) == (std::vector<std::string>{kR1, kR2}), ("tried again, alongside"));
+  publish();
+  h.m_executor.RunFor(16'000);
+  TEST(h.m_pool.PlacementOf(id) == std::vector<std::string>{kR2}, ());
+  h.m_executor.RunFor(400'000);
+  TEST(h.m_pool.PlacementOf(id) == std::vector<std::string>{kR2}, ("a longer back-off"));
+
+  // Delivering again: once an event comes back over it, the only listening relay again.
+  h.Relay(kR1).m_deaf = false;
+  h.m_executor.RunFor(400'000);
+  TEST(h.m_pool.PlacementOf(id) == (std::vector<std::string>{kR1, kR2}), ());
+  // Over the connections already open: no relay connecting again moves the subscription meanwhile. r2's
+  // copy arrives first; r1's still counts.
+  h.Relay(kR1).m_latencyMs = 200;
+  h.m_pool.Publish(EpochScope(1), {kR1, kR2}, h.Event(kKindStored, "recovered"));
+  h.m_executor.RunFor(20'000);
+  TEST(!h.m_pool.IsDeaf(kR1), ());
+  TEST(!h.m_pool.IsDeaf(kR2), ());
+  TEST(h.m_pool.PlacementOf(id) == std::vector<std::string>{kR1}, ());
+}
+
+UNIT_TEST(RelayPool_TheEchoCheckJudgesOnlyWhatMustComeBack)
+{
+  Harness h;
+  auto const id = h.m_pool.Subscribe(EpochScope(1), kThree, Placement::FirstReachable, [&] { return h.Filters(); },
+                                     [](nostr::Event const &) {});
+  h.m_executor.RunFor(1000);
+
+  // A relay that has never sent an event back is not judged: some might never do so.
+  h.Relay(kR1).m_noEcho = true;
+  h.m_pool.Publish(EpochScope(1), kThree, h.Event(kKindStored, "first"));
+  h.m_executor.RunFor(20'000);
+  TEST(!h.m_pool.IsDeaf(kR1), ());
+  TEST(h.m_pool.PlacementOf(id) == std::vector<std::string>{kR1}, ());
+  h.Relay(kR1).m_noEcho = false;
+  h.m_pool.Publish(EpochScope(1), kThree, h.Event(kKindStored, "second"));
+  h.m_executor.RunFor(20'000);
+  TEST(!h.m_pool.IsDeaf(kR1), ("it echoes now"));
+
+  // An event it already had, and one it refused, come back to no one.
+  nostr::Event const event = h.Event(kKindStored, "third");
+  h.m_pool.Publish(EpochScope(1), kThree, event);
+  h.m_executor.RunFor(20'000);
+  h.m_pool.Publish(EpochScope(1), kThree, event);
+  h.m_executor.RunFor(20'000);
+  TEST(!h.m_pool.IsDeaf(kR1), ("a duplicate"));
+  h.Relay(kR1).m_refuse = true;
+  h.m_pool.Publish(EpochScope(1), kThree, h.Event(kKindStored, "fourth"));
+  h.m_executor.RunFor(20'000);
+  TEST(!h.m_pool.IsDeaf(kR1), ("a refusal"));
+  h.Relay(kR1).m_refuse = false;
+
+  // Nor what a REQ sent again no longer asks for, nor events published before the REQ's EOSE.
+  Key const other = RandomSecpKey(ScenarioRng());
+  std::string const otherPk = ToHex(crypto::GetXOnlyPublicKey(other));
+  std::vector<nostr::Filter> filters = h.Filters();
+  auto const id2 = h.m_pool.Subscribe(EpochScope(2), {kR2}, Placement::All, [&] { return filters; },
+                                      [](nostr::Event const &) {});
+  h.m_executor.RunFor(1000);
+  h.m_pool.Publish(EpochScope(2), {kR2}, h.Event(kKindStored, "echoed"));
+  h.m_executor.RunFor(1000);
+  h.Relay(kR2).m_deaf = true;
+  h.m_pool.Publish(EpochScope(2), {kR2}, h.Event(kKindStored, "fifth"));
+  filters = {{{kKindStored}, {otherPk}, {}, {}}};
+  h.m_pool.Refresh(id2);
+  h.m_executor.RunFor(20'000);
+  TEST(!h.m_pool.IsDeaf(kR2), ("asked for by the old filters only"));
+  filters = h.Filters();
+  h.m_pool.Refresh(id2);
+  h.m_pool.Publish(EpochScope(2), {kR2}, h.Event(kKindStored, "sixth"));
+  h.m_executor.RunFor(20'000);
+  TEST(!h.m_pool.IsDeaf(kR2), ("published before the EOSE of the REQ sent again"));
+}
+
+UNIT_TEST(RelayPool_ARefreshedReqMayStillBeAnsweredForItsOldFilters)
+{
+  Harness h;
+  Key const other = RandomSecpKey(ScenarioRng());
+  std::string const otherPk = ToHex(crypto::GetXOnlyPublicKey(other));
+  std::vector<nostr::Filter> filters = h.Filters();
+  std::vector<std::string> received;
+  auto const id = h.m_pool.Subscribe(EpochScope(1), {kR1}, Placement::All, [&] { return filters; },
+                                     [&](nostr::Event const & event) { received.push_back(event.m_id); });
+  h.m_executor.RunFor(1000);
+
+  // The relay delivers for the old filters until the new REQ reaches it: more than a failing relay
+  // could send, and none of it is held against the relay or passed on.
+  filters = {{{kKindStored}, {otherPk}, {}, {}}};
+  h.m_pool.Refresh(id);
+  for (int i = 0; i < 40; ++i)
+    h.Relay(kR1).Inject(h.Event(kKindStored, "old " + std::to_string(i)));
+  h.m_executor.RunFor(1000);
+  TEST(received.empty(), ());
+  TEST_EQUAL(h.m_transport.m_attempts[kR1], 1, ("not failed"));
+  TEST(h.m_pool.PlacementOf(id) == std::vector<std::string>{kR1}, ());
+
+  // After the EOSE, the old filters are over.
+  int64_t const now = h.m_executor.Now();
+  nostr::Event const wanted =
+      SignEvent(other, now, kKindStored, {{"d", ""}, {"expiration", std::to_string(now + 900)}}, "new", ScenarioRng());
+  h.Relay(kR1).Inject(wanted);
+  h.m_executor.RunFor(1000);
+  TEST(received == std::vector<std::string>{wanted.m_id}, ());
+  for (int i = 0; i < 40; ++i)
+    h.Relay(kR1).Push(h.Event(kKindStored, "late " + std::to_string(i)));
+  h.m_executor.RunFor(200);
+  TEST(h.m_pool.IsFailing(kR1), ("these count"));
 }
 
 UNIT_TEST(RelayPool_ScopesNeverShareAConnection)

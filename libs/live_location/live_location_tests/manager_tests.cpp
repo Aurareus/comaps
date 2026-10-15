@@ -486,6 +486,35 @@ UNIT_TEST(Manager_IdleSharingHoldsOneConnection)
   TEST(alice.Events().m_location == LocationRequest::Live, ());
 }
 
+UNIT_TEST(Manager_AListeningRelayThatStopsDeliveringIsLeft)
+{
+  World world;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+  bob.M().SetForeground(false);
+  alice.M().SetForeground(false);
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+  alice.M().OnLocation(FixAt(world, 35.68, 139.69));
+  world.Run(200'000);  // the new stream's silence, its first event, and the publishing connections closing
+  auto connections = alice.M().Pool().Connections();
+  TEST(connections.size() == 1 && connections[0].first == "wss://nos.lol", (connections));
+
+  // nos.lol still accepts events, but delivers none: Bob's signals would never reach Alice there. The
+  // next event Alice publishes does not come back, and she listens on the next relay.
+  world.Relay("wss://nos.lol").m_deaf = true;
+  alice.M().OnLocation(FixAt(world, 35.681, 139.69));
+  world.Run(20'000);
+  TEST(alice.M().Pool().IsDeaf("wss://nos.lol"), ());
+  world.Run(70'000);
+  connections = alice.M().Pool().Connections();
+  TEST(connections.size() == 1 && connections[0].first == "wss://nostr.mom", (connections));
+
+  bob.M().SetForeground(true);
+  world.Run(3'000);
+  TEST(alice.Events().m_location == LocationRequest::Live, ("Bob's signal arrives through nostr.mom"));
+}
+
 UNIT_TEST(Manager_LiveUpdatesNeedTheListeningRelay)
 {
   World world;

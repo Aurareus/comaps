@@ -264,11 +264,11 @@ void FakeRelay::Store(nostr::Event const & event)
   m_events.push_back(event);
 }
 
-void FakeRelay::Forward(nostr::Event const & event)
+void FakeRelay::Forward(nostr::Event const & event, Link const * from)
 {
   for (auto const & link : m_links)
   {
-    if (link->m_clientClosed || link->m_relayClosed)
+    if (link->m_clientClosed || link->m_relayClosed || (m_noEcho && link.get() == from))
       continue;
     for (auto const & [id, filters] : link->m_subscriptions)
     {
@@ -343,11 +343,14 @@ void FakeRelay::Receive(std::shared_ptr<Link> const & link, std::string const & 
       SendTo(link, "[\"OK\"," + Quoted(id) + ",false,\"invalid: event has expired\"]");
     else if (m_refuse)
       SendTo(link, "[\"OK\"," + Quoted(id) + ",false,\"blocked: test\"]");
+    else if (std::any_of(m_events.begin(), m_events.end(), [&](auto const & e) { return e.m_id == id; }))
+      SendTo(link, "[\"OK\"," + Quoted(id) + ",true,\"duplicate: have this event\"]");
     else
     {
       Store(*event);
       SendTo(link, "[\"OK\"," + Quoted(id) + ",true,\"\"]");
-      Forward(*event);
+      if (!m_deaf)
+        Forward(*event, link.get());
     }
   }
   else if (type == "REQ" && json_is_string(json_array_get(root, 1)))
