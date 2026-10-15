@@ -58,7 +58,10 @@ final class LiveLocationText
     return until;
   }
 
-  /** A contact's state, one line each: who shares with whom, still connecting, live updates off, hidden. */
+  /**
+   * A contact's state, one line each: who shares with whom, still connecting, live updates off, not yet
+   * moved to the user's new relays, hidden.
+   */
   @NonNull
   static String status(@NonNull Context context, @NonNull Contact contact)
   {
@@ -75,6 +78,9 @@ final class LiveLocationText
       lines.add(context.getString(R.string.live_location_waiting_for, contact.name));
     if (contact.liveUpdatesOff)
       lines.add(context.getString(R.string.live_location_live_updates_off));
+    if (contact.notMoved)
+      lines.add(context.getString(contact.moveOverdue ? R.string.live_location_move_overdue
+                                                      : R.string.live_location_not_moved));
     if (contact.hidden)
       lines.add(context.getString(R.string.live_location_hidden));
     return String.join("\n", lines);

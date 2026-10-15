@@ -15,7 +15,6 @@ import androidx.preference.PreferenceManager;
 import androidx.preference.TwoStatePreference;
 import app.organicmaps.R;
 import app.organicmaps.dialog.CustomMapServerDialog;
-import app.organicmaps.livelocation.LiveLocationSettingsSwitch;
 import app.organicmaps.sdk.Framework;
 import app.organicmaps.sdk.util.SharedPropertiesUtils;
 import app.organicmaps.sdk.util.log.LogsManager;
@@ -39,7 +38,6 @@ public class AdvancedSettingsFragment extends BaseXmlSettingsFragment
     initEmulationBadStorage();
     initOpenExternalLinksPrefsCallback();
     initCustomMapDownloadUrlPrefsCallbacks();
-    LiveLocationSettingsSwitch.bind(this, getPreference(getString(R.string.pref_live_location))); // Live location (NLL)
   }
 
   @Override

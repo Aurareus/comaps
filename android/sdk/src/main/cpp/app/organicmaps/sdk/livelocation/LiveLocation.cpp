@@ -52,6 +52,7 @@ jmethodID g_unwrap;
 jmethodID g_deleteAllExcept;
 jclass g_liveLocationClass;
 jmethodID g_onEvent;
+jmethodID g_onDotTapped;
 
 void InitJniOnce(JNIEnv * env)
 {
@@ -65,6 +66,7 @@ void InitJniOnce(JNIEnv * env)
   g_deleteAllExcept = jni::GetStaticMethodID(env, g_keysClass, "deleteAllExcept", "(Ljava/lang/String;)V");
   g_liveLocationClass = jni::GetGlobalClassRef(env, "app/organicmaps/sdk/livelocation/LiveLocation");
   g_onEvent = jni::GetStaticMethodID(env, g_liveLocationClass, "onEvent", "(Ljava/lang/String;)V");
+  g_onDotTapped = jni::GetStaticMethodID(env, g_liveLocationClass, "onDotTapped", "(Ljava/lang/String;)V");
 }
 
 std::once_flag g_jniOnce;
@@ -295,6 +297,14 @@ void ShowOnMap(std::vector<PositionInfo> positions)
     {
       marks = std::make_unique<LiveLocationMarks>(framework->GetBookmarkManager());
       owner = framework;
+      // A tap on a dot opens the app's sheet for that contact (design doc §11.4), not a place page.
+      framework->SetLiveLocationTapListener([](std::string const & contactId)
+      {
+        JNIEnv * env = jni::GetEnv();
+        jni::TScopedLocalRef const jid(env, ToJava(env, contactId));
+        env->CallStaticVoidMethod(g_liveLocationClass, g_onDotTapped, jid.get());
+        jni::HandleJavaException(env);
+      });
     }
     marks->Show(positions);
   });

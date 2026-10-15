@@ -513,7 +513,7 @@ public class MwmActivity extends BaseMwmFragmentActivity
     // We don't need to manually handle removing the observers it follows the activity lifecycle
     mMapButtonsViewModel.getBottomButtonsHeight().observe(this, this::onMapBottomButtonsHeightChange);
     mMapButtonsViewModel.getLayoutMode().observe(this, this::initNavigationButtons);
-    mLiveLocationMapUi = new LiveLocationMapUi(this, findViewById(R.id.map_container)); // Live location (NLL)
+    mLiveLocationMapUi = new LiveLocationMapUi(this); // Live location (NLL)
 
     mSearchController = new FloatingSearchToolbarController(this, this);
     mSearchController.getToolbar().setBackground(ContextCompat.getDrawable(this, R.drawable.bg_search_radius));
@@ -926,6 +926,7 @@ public class MwmActivity extends BaseMwmFragmentActivity
     }
     case help -> showHelp();
     case trackRecordingStatus -> showTrackSaveDialog();
+    case liveLocationStatus -> startActivity(LiveLocationActivity.manageIntent(this)); // Live location (NLL)
     }
   }
 
@@ -2522,6 +2523,11 @@ public class MwmActivity extends BaseMwmFragmentActivity
   public void onShareLocationOptionSelected()
   {
     closeFloatingPanels();
+    if (LiveLocationFeature.isEnabled(this)) // Live location (NLL): its screen, which also sends the location
+    {
+      startActivity(LiveLocationActivity.contactsIntent(this));
+      return;
+    }
     shareMyLocation();
   }
 
@@ -2554,10 +2560,6 @@ public class MwmActivity extends BaseMwmFragmentActivity
 
       items.add(new MenuBottomSheetItem(R.string.share_my_location, R.drawable.ic_share,
                                         this::onShareLocationOptionSelected));
-
-      if (LiveLocationFeature.isEnabled(this)) // Live location (NLL)
-        items.add(new MenuBottomSheetItem(R.string.live_location, R.drawable.ic_groups,
-                                          () -> startActivity(LiveLocationActivity.contactsIntent(this))));
 
       if (!BUTTON_HELP_CODE.equals(activeLeftButton))
         items.add(new MenuBottomSheetItem(R.string.about_help, R.drawable.ic_logo_monochrome, this::showHelp));

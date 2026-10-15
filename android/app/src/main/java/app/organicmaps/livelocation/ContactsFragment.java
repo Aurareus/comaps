@@ -1,16 +1,22 @@
 package app.organicmaps.livelocation;
 
 import android.content.Context;
+import android.location.Location;
 import android.os.Bundle;
 import androidx.annotation.NonNull;
+import app.organicmaps.MwmApplication;
 import app.organicmaps.R;
 import app.organicmaps.sdk.livelocation.LiveLocation;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Contact;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Pairing;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Sharing;
+import app.organicmaps.util.SharingUtils;
 import java.util.List;
 
-/** Live location (NLL): the contacts, the current share, and the way to everything else (§11.5). */
+/**
+ * Live location (NLL): "Share My Location" while the feature is on (§11.5): sending the current location
+ * once, as the main menu did, sharing live, the contacts, and what relays can see.
+ */
 public class ContactsFragment extends LiveLocationFragment
 {
   @Override
@@ -37,6 +43,8 @@ public class ContactsFragment extends LiveLocationFragment
       views.outlinedButton(getString(R.string.live_location_delete_all),
                            v -> LiveLocationSettingsSwitch.confirmDeletion(requireActivity()));
     }
+
+    views.outlinedButton(getString(R.string.live_location_send_current_location), v -> sendCurrentLocation());
 
     final Sharing sharing = LiveLocation.getSharing();
     if (sharing.active)
@@ -81,13 +89,21 @@ public class ContactsFragment extends LiveLocationFragment
                 });
     }
 
-    views.header(getString(R.string.settings));
-    views.row(getString(R.string.live_location_settings), null, null,
-              v -> host().open(SettingsFragment.class, R.string.live_location_settings, null));
+    views.header(getString(R.string.live_location_sharing));
     views.row(getString(R.string.live_location_what_relays_see), null, null, v -> {
       final Bundle args = new Bundle();
       args.putBoolean(ExplanationFragment.ARG_FROM_CONTACTS, true);
       host().open(ExplanationFragment.class, R.string.live_location_what_relays_see, args);
     });
+  }
+
+  /** The current location as a link, through the share sheet: what "Share My Location" does without this feature. */
+  private void sendCurrentLocation()
+  {
+    final Location location = MwmApplication.from(requireContext()).getLocationHelper().getSavedLocation();
+    if (location == null)
+      LiveLocationDialogs.showMessage(requireActivity(), null, getString(R.string.unknown_current_position));
+    else
+      SharingUtils.shareLocation(requireContext(), location);
   }
 }

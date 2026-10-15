@@ -49,6 +49,8 @@ public final class LiveLocation
     default void onLocationMode(@NonNull LocationMode mode) {}
     /** The store could not be read or written: offer to delete the live location data. */
     default void onStoreError() {}
+    /** The user tapped a contact's dot on the map (docs/LIVE_LOCATION.md §11.4). */
+    default void onDotTapped(@NonNull String contactId) {}
   }
 
   private static final Handler sMain = new Handler(Looper.getMainLooper());
@@ -385,6 +387,18 @@ public final class LiveLocation
   private static void onEvent(@NonNull String json)
   {
     sMain.post(() -> dispatch(json));
+  }
+
+  // Called from JNI on the map's GUI thread.
+  @Keep
+  @SuppressWarnings("unused")
+  private static void onDotTapped(@NonNull String contactId)
+  {
+    sMain.post(() -> {
+      if (sRunning)
+        for (Listener listener : sListeners)
+          listener.onDotTapped(contactId);
+    });
   }
 
   @MainThread

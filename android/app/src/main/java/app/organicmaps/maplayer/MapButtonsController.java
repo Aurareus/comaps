@@ -60,6 +60,10 @@ public class MapButtonsController extends Fragment
   private LayersButton mToggleMapLayerButton;
   @Nullable
   FloatingActionButton mTrackRecordingStatusButton;
+  @Nullable
+  private FloatingActionButton mLiveLocationStatusButton; // Live location (NLL)
+  @Nullable
+  private BadgeDrawable mLiveLocationBadge;
 
   @Nullable
   private MyPositionButton mNavMyPosition;
@@ -83,6 +87,7 @@ public class MapButtonsController extends Fragment
     updateLeftButtonToggleState(enable);
   };
   private final Observer<Integer> mTopButtonMarginObserver = this::updateTopButtonsMargin;
+  private final Observer<Integer> mLiveLocationObserver = this::updateLiveLocationStatus; // Live location (NLL)
 
   private LeftButton mLeftButton;
 
@@ -133,6 +138,12 @@ public class MapButtonsController extends Fragment
     if (mTrackRecordingStatusButton != null)
       mTrackRecordingStatusButton.setOnClickListener(
           view -> mMapButtonClickListener.onMapButtonClick(MapButtons.trackRecordingStatus));
+    // Live location (NLL): shown while sharing, next to the track recording indicator.
+    mLiveLocationStatusButton = mFrame.findViewById(R.id.live_location_status);
+    mLiveLocationBadge = null;
+    if (mLiveLocationStatusButton != null)
+      mLiveLocationStatusButton.setOnClickListener(
+          view -> mMapButtonClickListener.onMapButtonClick(MapButtons.liveLocationStatus));
 
     mSearchWheel = new SearchWheel(mFrame,
                                    (v)
@@ -275,6 +286,37 @@ public class MapButtonsController extends Fragment
     ViewGroup.MarginLayoutParams params = (ViewGroup.MarginLayoutParams) mTrackRecordingStatusButton.getLayoutParams();
     params.topMargin = margin;
     mTrackRecordingStatusButton.setLayoutParams(params);
+    if (mLiveLocationStatusButton != null) // Live location (NLL): beside it
+    {
+      params = (ViewGroup.MarginLayoutParams) mLiveLocationStatusButton.getLayoutParams();
+      params.topMargin = margin;
+      mLiveLocationStatusButton.setLayoutParams(params);
+    }
+  }
+
+  // Live location (NLL): the indicator, with the number of people the user shares with.
+  @OptIn(markerClass = ExperimentalBadgeUtils.class)
+  private void updateLiveLocationStatus(@Nullable Integer count)
+  {
+    final FloatingActionButton button = mLiveLocationStatusButton;
+    if (button == null)
+      return;
+    final int people = count == null ? 0 : count;
+    UiUtils.showIf(people > 0, button);
+    if (mLiveLocationBadge != null)
+      BadgeUtils.detachBadgeDrawable(mLiveLocationBadge, button);
+    mLiveLocationBadge = null;
+    if (people == 0)
+      return;
+    // The badge needs the button laid out.
+    button.post(() -> {
+      final Context context = getContext();
+      if (context == null || mLiveLocationStatusButton != button || mLiveLocationBadge != null)
+        return;
+      mLiveLocationBadge = BadgeDrawable.create(context);
+      mLiveLocationBadge.setNumber(people);
+      BadgeUtils.attachBadgeDrawable(mLiveLocationBadge, button);
+    });
   }
 
   @OptIn(markerClass = ExperimentalBadgeUtils.class)
@@ -443,6 +485,7 @@ public class MapButtonsController extends Fragment
     mMapButtonsViewModel.getSearchOption().observe(activity, mSearchOptionObserver);
     mMapButtonsViewModel.getTrackRecorderState().observe(activity, mTrackRecorderObserver);
     mMapButtonsViewModel.getTopButtonsMarginTop().observe(activity, mTopButtonMarginObserver);
+    mMapButtonsViewModel.getLiveLocationSharing().observe(activity, mLiveLocationObserver); // Live location (NLL)
   }
 
   public void onResume()
@@ -474,6 +517,7 @@ public class MapButtonsController extends Fragment
   {
     super.onStop();
     mMapButtonsViewModel.getTopButtonsMarginTop().removeObserver(mTopButtonMarginObserver);
+    mMapButtonsViewModel.getLiveLocationSharing().removeObserver(mLiveLocationObserver); // Live location (NLL)
     mPlacePageViewModel.getPlacePageDistanceToTop().removeObserver(mPlacePageDistanceToTopObserver);
     mMapButtonsViewModel.getButtonsHidden().removeObserver(mButtonHiddenObserver);
     mMapButtonsViewModel.getMyPositionMode().removeObserver(mMyPositionModeObserver);
@@ -525,7 +569,8 @@ public class MapButtonsController extends Fragment
     bookmarks,
     menu,
     help,
-    trackRecordingStatus
+    trackRecordingStatus,
+    liveLocationStatus // Live location (NLL)
   }
 
   public interface MapButtonClickListener

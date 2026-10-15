@@ -67,8 +67,19 @@ def main():
         carol.cmd('cancel %s' % qr['id'])
 
         # Bob's first relay, the one live updates need, is one Alice has not allowed: she is asked
-        # about it, and sees live updates off until she allows it.
-        bob.cmd('relays %s %s' % (OTHER_RELAY, relay.url))
+        # about it, and sees live updates off until she allows it. He changes his relays while her
+        # CoMaps is closed, so she has not picked them up; once open, it answers through them.
+        if bob.wait(lambda e: e['event'] == 'contacts' and e['contacts'] and not e['contacts'][0]['waiting'],
+                    0, 60) is None:
+            raise RuntimeError("no confirmation from Alice")
+        alice.cmd('foreground off')
+        m = bob.cmd('relays %s %s' % (OTHER_RELAY, relay.url))
+        record('contacts_not_moved', bob.wait(
+            lambda e: e['event'] == 'contacts' and e['contacts'] and e['contacts'][0]['not_moved'], m))
+        m = bob.mark()
+        alice.cmd('foreground on')
+        if bob.wait(lambda e: e['event'] == 'contacts' and not e['contacts'][0]['not_moved'], m, 60) is None:
+            raise RuntimeError('no answer from Alice')
         m_alice = alice.mark()
         m = bob.cmd('share Alice')
         bob.cmd('fix 52.5200066 13.404954 8')

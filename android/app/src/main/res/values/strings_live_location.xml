@@ -7,6 +7,8 @@
   <string name="live_location">Live location</string>
   <string name="live_location_setting">Live location sharing (experimental)</string>
   <string name="live_location_setting_summary">Share your location with people you choose. It is encrypted end to end and travels through relays.</string>
+  <string name="live_location_setting_where">When enabled, you\'ll find it in the main menu under %1$s.</string>
+  <string name="live_location_sharing">Live location sharing</string>
   <string name="live_location_turned_off_title">Live location is off</string>
   <string name="live_location_turned_off_message">Your contacts stay on this phone until you delete them.</string>
   <string name="live_location_delete_all">Delete all live location data</string>
@@ -32,7 +34,8 @@
   <!-- Contacts -->
   <string name="live_location_contacts">Contacts</string>
   <string name="live_location_add_contact">Add contact</string>
-  <string name="live_location_share_my_location">Share my location</string>
+  <string name="live_location_share_my_location">Share live location</string>
+  <string name="live_location_send_current_location">Send current location</string>
   <string name="live_location_no_contacts">No contacts yet. To add someone, show them a QR code or send them a link.</string>
   <string name="live_location_sharing_with_you">Sharing with you</string>
   <string name="live_location_sharing_with_you_until">Sharing with you until %s</string>
@@ -45,6 +48,10 @@
   <string name="live_location_flagged">Compare codes</string>
   <string name="live_location_live_updates_off">Live updates off</string>
   <string name="live_location_hidden">Hidden</string>
+  <string name="live_location_not_moved">Hasn\'t picked up your new relays yet</string>
+  <string name="live_location_move_overdue">Hasn\'t picked up your new relays</string>
+  <string name="live_location_not_moved_message">%1$s hasn\'t picked up your new relays yet. Until then, CoMaps also checks your previous relays, for up to 30 days after the change. Ask %1$s to open CoMaps.</string>
+  <string name="live_location_move_overdue_message">%1$s hasn\'t picked up your new relays, and CoMaps no longer checks your previous ones: what %1$s sends may not reach you. Ask %1$s to open CoMaps.</string>
   <plurals name="live_location_sharing_with_count">
     <item quantity="one">Sharing with %d person</item>
     <item quantity="other">Sharing with %d people</item>
@@ -72,7 +79,7 @@
   <string name="live_location_wants_to_connect_in_person">%1$s wants to connect. Check that %1$s\'s screen shows</string>
   <string name="live_location_wants_to_connect_by_link">%1$s wants to connect. Compare this code with %1$s, by phone or in person:</string>
   <string name="live_location_codes_match_connect">Codes match, connect</string>
-  <string name="live_location_join_confirm">Connect with whoever sent this invite? They will see your name, %1$s.</string>
+  <string name="live_location_join_confirm">Connect with whoever created this invite? They will see your name, %1$s.</string>
   <string name="live_location_connect">Connect</string>
   <string name="live_location_connect_without_comparing">Connect without comparing</string>
   <string name="live_location_decline">Decline</string>
@@ -90,7 +97,7 @@
   <string name="live_location_consent_title">Use another relay?</string>
   <string name="live_location_consent_pairing">This invite uses %s, which isn\'t one of yours. Its operator would see your internet address while you connect.</string>
   <string name="live_location_consent_viewing">%1$s\'s location comes through %2$s, which isn\'t one of yours. Its operator would see your internet address whenever you view %1$s.</string>
-  <string name="live_location_consent_live_updates">Live updates from %1$s need %2$s, which isn\'t one of yours. Without it, %1$s\'s position updates only after a move of 50 m, or every 5 minutes. Its operator would see your internet address whenever you view %1$s.</string>
+  <string name="live_location_consent_live_updates">Live updates from %1$s need %2$s, which isn\'t one of yours. Without it, %1$s\'s position updates only after a move, or every 5 minutes. Its operator would see your internet address whenever you view %1$s.</string>
   <string name="live_location_consent_sending">Messages to %1$s go through %2$s, which isn\'t one of yours. Its operator would see your internet address when you send them, for example when you stop sharing with %1$s.</string>
   <string name="live_location_allow">Allow</string>
   <string name="live_location_not_now">Not now</string>
@@ -133,14 +140,15 @@
   <string name="live_location_hide_summary">Stops every connection made to see this contact.</string>
   <string name="live_location_delete_contact">Delete contact</string>
   <string name="live_location_delete_contact_confirm">Delete %s? Any share with them stops, and you will have to connect again.</string>
-  <string name="live_location_live_updates_off_message">Live updates from %1$s need %2$s, which isn\'t one of your relays. Without it, %1$s\'s position updates only after a move of 50 m, or every 5 minutes. Its operator would see your internet address whenever you view %1$s.</string>
+  <string name="live_location_live_updates_off_message">Live updates from %1$s need %2$s, which isn\'t one of your relays. Without it, %1$s\'s position updates only after a move, or every 5 minutes. Its operator would see your internet address whenever you view %1$s.</string>
   <string name="live_location_allow_relay">Allow %s</string>
   <string name="live_location_last_seen">Last update %s</string>
   <string name="live_location_accuracy">Accuracy ±%d m</string>
   <string name="live_location_show_on_map">Show on the map</string>
+  <string name="live_location_center">Center</string>
+  <string name="live_location_contact_details">Contact details</string>
 
   <!-- Settings -->
-  <string name="live_location_settings">Live location settings</string>
   <string name="live_location_your_name">Your name</string>
   <string name="live_location_relays">Your relays</string>
   <string name="live_location_relays_summary">Your phone listens on the first one that works. Only wss:// addresses are accepted.</string>
@@ -157,6 +165,7 @@
   <string name="live_location_request_live">Request live updates when viewing</string>
   <string name="live_location_allow_live">Allow viewers to request live updates</string>
   <string name="live_location_low_battery">Sharing stops at %d%% battery.</string>
+  <string name="live_location_low_battery_title">Stop sharing on low battery</string>
 
   <!-- What relays can see: docs/LIVE_LOCATION.md §11.6 -->
   <string name="live_location_what_relays_see">What relays can see</string>

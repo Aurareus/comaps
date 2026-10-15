@@ -46,6 +46,10 @@ public class ContactFragment extends LiveLocationFragment
       views.text(getString(R.string.live_location_offer_removal, contact.name));
       views.outlinedButton(getString(R.string.live_location_delete_contact), v -> delete(contact));
     }
+    if (contact.notMoved)
+      views.text(getString(
+          contact.moveOverdue ? R.string.live_location_move_overdue_message : R.string.live_location_not_moved_message,
+          contact.name));
     if (contact.liveUpdatesOff)
     {
       // The label is where the user changes their mind about the relay (§11.4).

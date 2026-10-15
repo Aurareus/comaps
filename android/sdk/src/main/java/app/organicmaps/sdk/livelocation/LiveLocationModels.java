@@ -45,6 +45,10 @@ public final class LiveLocationModels
     /** ... and the week of confirmations is over: offer to remove the contact. */
     public final boolean offerRemoval;
     public final boolean hidden;
+    /** Nothing from the contact came through this user's new home relays yet (spec §11) ... */
+    public final boolean notMoved;
+    /** ... and the previous ones are no longer read: what the contact sends may not arrive. */
+    public final boolean moveOverdue;
     /** Seconds since the epoch, 0 until stopped; null when the contact does not share with this user. */
     @Nullable
     public final Long sharesWithMeUntil;
@@ -67,6 +71,8 @@ public final class LiveLocationModels
       waiting = json.optBoolean("waiting");
       offerRemoval = json.optBoolean("offer_removal");
       hidden = json.optBoolean("hidden");
+      notMoved = json.optBoolean("not_moved");
+      moveOverdue = json.optBoolean("move_overdue");
       sharesWithMeUntil = optionalLong(json, "shares_with_me");
       iShareUntil = optionalLong(json, "i_share");
       liveUpdatesOff = json.optBoolean("live_updates_off");

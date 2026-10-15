@@ -131,6 +131,25 @@ public final class LiveLocationModelsTest
     assertEquals("", alice.liveRelay);
     assertEquals(Long.valueOf(0), alice.iShareUntil);
     assertNull(alice.sharesWithMeUntil);
+    assertFalse(alice.notMoved || alice.moveOverdue);
+  }
+
+  @Test
+  public void changedRelays() throws Exception
+  {
+    // Bob changed his relays while Alice's CoMaps was closed.
+    final JSONObject view = view("contacts_not_moved");
+    final Contact alice = Contact.list(view).get(0);
+    assertEquals("Alice", alice.name);
+    assertTrue(alice.notMoved);
+    assertFalse(alice.moveOverdue || alice.waiting);
+
+    // 30 days on, the core says so in the same key, which a live recording cannot reach.
+    final JSONObject later = new JSONObject(view.toString());
+    final JSONObject entry = later.getJSONArray("contacts").getJSONObject(0);
+    assertTrue(entry.has("move_overdue"));
+    entry.put("move_overdue", true);
+    assertTrue(Contact.list(later).get(0).moveOverdue);
   }
 
   @Test

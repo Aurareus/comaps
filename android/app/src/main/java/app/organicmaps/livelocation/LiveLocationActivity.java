@@ -25,6 +25,7 @@ public class LiveLocationActivity extends BaseToolbarActivity implements LiveLoc
   static final String SCREEN_JOIN = "join";
   static final String SCREEN_RESUME = "resume";
   static final String SCREEN_EXPLAIN = "explain";
+  static final String SCREEN_CONTACT = "contact";
 
   @Nullable
   private AlertDialog mConsentDialog;
@@ -59,6 +60,15 @@ public class LiveLocationActivity extends BaseToolbarActivity implements LiveLoc
     return contactsIntent(context).putExtra(EXTRA_SCREEN, SCREEN_EXPLAIN);
   }
 
+  /** One contact's screen, e.g. from the sheet of its dot on the map. */
+  @NonNull
+  public static Intent contactIntent(@NonNull Context context, @NonNull String contactId)
+  {
+    return contactsIntent(context)
+        .putExtra(EXTRA_SCREEN, SCREEN_CONTACT)
+        .putExtra(ContactFragment.ARG_CONTACT_ID, contactId);
+  }
+
   @Override
   protected Class<? extends Fragment> getFragmentClass()
   {
@@ -71,13 +81,27 @@ public class LiveLocationActivity extends BaseToolbarActivity implements LiveLoc
       return PairingFragment.class;
     if (SCREEN_RESUME.equals(screen))
       return ShareFragment.class;
+    if (SCREEN_CONTACT.equals(screen))
+      return ContactFragment.class;
     return ContactsFragment.class;
   }
 
   @Override
   protected int getToolbarTitle()
   {
-    return R.string.live_location;
+    final String screen = getIntent().getStringExtra(EXTRA_SCREEN);
+    if (!LiveLocationFeature.isEnabled(this) || SCREEN_EXPLAIN.equals(screen))
+      return R.string.live_location_sharing;
+    if (SCREEN_MANAGE.equals(screen))
+      return R.string.live_location_manage_sharing;
+    if (SCREEN_JOIN.equals(screen))
+      return R.string.live_location_add_contact;
+    if (SCREEN_RESUME.equals(screen))
+      return R.string.live_location_share_my_location;
+    if (SCREEN_CONTACT.equals(screen))
+      return R.string.live_location_contacts;
+    // The main menu's "Share My Location" leads here while the feature is on.
+    return R.string.share_my_location;
   }
 
   @Override
