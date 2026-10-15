@@ -675,7 +675,7 @@ the app, so the list order, not a measured ping interval, picks the listening re
 A relay can also keep the connection and accept posts, yet stop delivering them. So the listening
 connection also subscribes to the share's own posts (spec §11): a relay passes each event it
 accepts to every subscription that asks for it, the publisher's own included. On all eight relays
-tested, the three defaults among them, each post came back 0–230 ms after its `OK`; an exact
+tested, the three defaults among them, each post came back at most 0.12 s after its `OK`; an exact
 duplicate never does. A post accepted with `OK true` that has not come back 15 s later makes the
 sharer listen on the next relay. The first is tried again after 5 minutes, alongside the one that
 works, then after 10, 20, and at most every 30 minutes (±20 %), until a post comes back over it. A
@@ -1202,7 +1202,7 @@ Phase 2 (§24).
 | Changing one's home relays | Spec §11: every contact gets a state naming the new list at once, in one shuffled batch, and a running share is re-keyed onto it. A contact counts as not moved until something new from it arrives through a current home relay. Until all have moved, and for at most 30 days, the inbox also reads the previous relays in the foreground; they stay allowed meanwhile. A change made with no contacts and no pairing under way tells no one. | Contacts learn one's relays only from one's states. Your change in the second review (§24): a week, then silence, was the worst kind of failure for a location share. |
 | Repeating the new list (**review**) | Each contact that has not moved gets the current state again on each UTC day the app runs, for as long as it has not moved, past the 30 days too. | A contact who opens CoMaps on day 40 still learns the new list from that day's state, and answers. The cost is one small state a day per such contact, sent only while the app runs. |
 | Answering a contact's move | A state naming relays other than those the user's last state to that contact reached gets the current state in answer, through the named relays the user allows, at once, or when the user allows one, or shows the contact again after hiding it; never to a hidden contact. It asks about the other relays only when none is allowed. | Spec §11. Each relay is asked about once: asking as the answer went out took the place of the question that says what a relay is for, such as live updates once the contact shares (§24). |
-| Idle publishing | A fix is published when it moved at least max(20 m, both fixes' accuracies added) from the last one published, or is at least twice as accurate; at least 30 s apart, with the 5-minute heartbeat. | §10.3. Your proposal in the second review, with your 20 m floor. |
+| Idle publishing | A fix is published when it moved at least max(20 m, both fixes' accuracies added) from the last one published, or is at least twice as accurate; at least 30 s apart, with the 5-minute heartbeat. | §10.3. Your compromise in the second review (§24); the clause for a sharper fix is mine. |
 | The listening relay's echo (**review**) | On the listening relay, the inbox subscription also asks for the share's own stream, of the inbox's epoch. A stream post accepted with `OK true` (not `duplicate:`) that has not come back 15 s later marks the relay deaf: the subscription moves to the next relay, and publishing to it goes on. It is tried again after 5 minutes alongside the relay in use, doubling to 30 (±20 %), until a post comes back over it. A reconnect does not clear the mark. A relay that has never sent a post back is not judged. | §10.3. Your proposal in the second review, with one miss in 15 s as you chose. The back-off and the trial alongside are mine: retrying a relay alone moved the inbox back onto a relay still deaf, for minutes. |
 | What a relay delivers | An event counts as received only once it matches the filters of the REQ it came for and its id and signature verify. A connection that sends more than 32 other events counts as failing (back-off). Until a REQ sent again with other filters has its EOSE, events that match only its previous filters are dropped without counting. | Spec §11: otherwise a relay that sends a broken copy first hides the intact ones, and junk costs key derivations. An honest relay may still answer the previous filters meanwhile (§24). |
 | A store that cannot be read now | Only a missing file means "nothing stored". Another failure to open or read it deletes nothing, and nothing is written until a start has read the store or the user chose "Delete all live location data". | A failed open (no free file descriptor) or a key store failing for a while must not cost the contacts. |
@@ -1372,7 +1372,7 @@ on. Each change has a test that fails without it, except where noted.
 | 5 | Changing relays during a share | Settled in §23: the share is re-keyed onto the new relays | — | — |
 | 6 | Where the switch is | Change | A section of its own, Settings → Live location sharing: the switch, then the settings, greyed and without values while the feature is off; deleting works either way. While it is on, "Share My Location" opens the feature's screen, which also sends the current location once. "Share live location" replaces the second "Share my location" | §11.1, §21 |
 | 7 | The notification | Keep. Your question, whether it could be silent: it is in effect, with no sound or vibration. Android's "Silent" importance can leave its icon out of the status bar, and the icon is what shows a share at a glance | — | §21 |
-| 8 | Background location pace | Keep the pace. An idle fix is published only after a real move | Publish when moved ≥ max(20 m, both fixes' accuracies added), or when the fix is at least twice as accurate. Your first rule, more than 10 m and the larger accuracy, would have published more often than the 50 m rule: with equal accuracies, 57 % of a still phone's fixes pass the larger accuracy, 10 % their sum. The 20 m floor is yours | §10.3, §21 |
+| 8 | Background location pace | Keep the pace. An idle fix is published only after a real move | Publish when moved ≥ max(20 m, both fixes' accuracies added): your compromise between my max(50 m, the sum) and your more than 10 m and the larger accuracy. Or when the fix is at least twice as accurate (mine). Your first rule set a lower bar than the 50 m rule for every fix better than 50 m, and with equal accuracies 57 % of a still phone's fixes pass the larger accuracy, against 10 % for the sum | §10.3, §21 |
 | 9 | The "Sharing with N" chip | Change. Checked: the chip already opened Manage sharing, two taps to stop; the four were through the menu. It was hidden in planning and navigation | A round indicator like track recording's, with the number of people; a tap opens Manage sharing | §11.3, §21 |
 | 10 | QR first, a link second | Keep | — | §21 |
 | 11 | The old relays read for a week | Change | Contacts answer a relay change through the new relays; the old ones are read until everyone has moved, for at most 30 days; contacts that have not moved are labelled | spec §11; §11.5, §21 |
@@ -1382,7 +1382,7 @@ on. Each change has a test that fails without it, except where noted.
 
 **The echo check (your proposal).** The listening connection also subscribes to the share's own
 posts. Measured first, on eight public relays, the three defaults among them: every accepted event
-came back to the connection that published it, 0–230 ms after its `OK`, and an exact duplicate
+came back to the connection that published it, at most 114 ms after its `OK`, and an exact duplicate
 (`OK true` with `duplicate:`) never did. Built as you chose: one miss within 15 s, and a relay that
 has never sent a post back is not judged. The back-off (5 minutes, doubling to 30) and trying the
 relay again alongside the one in use are mine: retried alone, a relay still deaf took the inbox
@@ -1410,9 +1410,9 @@ itself, which has no overlay, finds it by position. Map test: `LiveLocationMarks
 
 **Tests now.** 87 C++ tests of the core pass with clang 18 (unity and non-unity builds) and GCC 13,
 and the map test with GCC. The map library's whole suite has seven failures that are not this
-branch's: they fail the same way with the new test left out, six of them pass when run alone (they
-depend on files and settings that earlier tests leave behind), and `MapApiGe0` expects `cm.at`
-links that upstream's ge0 parser does not list. The cross-implementation test passes 13 of 13 over
-strfry, the JVM tests 8 of 8, and lint finds no errors. The APK builds.
+branch's: with upstream's `libs/map` built in the same tree, the same seven fail. Six of them pass
+when run alone (they depend on files and settings that earlier tests leave behind), and `MapApiGe0`
+expects `cm.at` links that upstream's ge0 parser does not list. The cross-implementation test
+passes 13 of 13 over strfry, the JVM tests 8 of 8, and lint finds no errors. The APK builds.
 
 **For your verdict:** the six rows of §21 marked **review**.
