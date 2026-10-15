@@ -308,6 +308,9 @@ UNIT_TEST(Manager_ChangedHomeRelaysReachContacts)
   TEST(alice.M().SetHomeRelays({kOwn}), ());
   world.Run(3'000);
   TEST(alice.Contact("Bob")->m_notMoved, ("Bob may not send to Alice's relay yet"));
+  TEST_EQUAL(bob.Events().m_consents.size(), 1, ());
+  TEST_EQUAL(bob.Events().m_consents[0].m_url, kOwn, ());
+  TEST(bob.Events().m_consents[0].m_purpose == ConsentRequest::Purpose::Sending, ());
   bob.M().SetConsent(kOwn, true, "Alice");
   world.Run(3'000);
   TEST(!alice.Contact("Bob")->m_notMoved, ("allowed: Bob answers there"));
@@ -525,6 +528,32 @@ UNIT_TEST(Manager_AContactAnswersAMoveOnce)
   bob.M().SetForeground(true);
   world.Run(10'000);
   TEST_EQUAL(EventsReceived(world, kOwn), before, ());
+}
+
+UNIT_TEST(Manager_AnAnswerDoesNotAskForTheOtherRelays)
+{
+  World world;
+  std::string const kOwn = "wss://own.example";
+  world.m_transport.Add(kOwn);
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+
+  // Alice puts a relay of her own first. Bob's app answers through the default relay she kept, and asks
+  // nothing: the answer does not need her relay.
+  TEST(alice.M().SetHomeRelays({kOwn, std::string(kDefaults[0])}), ());
+  world.Run(5'000);
+  TEST(!alice.Contact("Bob")->m_notMoved, ());
+  TEST(bob.Events().m_consents.empty(), ());
+
+  // So when she shares, the one question about her relay says what it is for. Each relay is asked about
+  // once: a question as the answer left would have taken its place.
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+  alice.M().OnLocation(FixAt(world, 52.52, 13.405));
+  world.Run(5'000);
+  TEST_EQUAL(bob.Events().m_consents.size(), 1, ());
+  TEST_EQUAL(bob.Events().m_consents[0].m_url, kOwn, ());
+  TEST(bob.Events().m_consents[0].m_purpose == ConsentRequest::Purpose::LiveUpdates, ());
 }
 
 UNIT_TEST(Manager_TimeLimitsAndStop)

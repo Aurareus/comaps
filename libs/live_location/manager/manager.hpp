@@ -144,7 +144,9 @@ private:
   void Answer(Peer & peer);
   void OnWatch(Peer & peer, Watch const & watch);
   void OnStreamEvent(std::string const & peerId, nostr::Event const & event);
-  void PublishControl(ContactPtr const & contact, nostr::Event const & event, relay::RelayPool::DoneFn done = {});
+  /// To the contact's relays that the user allows. `ask`: about the others, once each (relay consent).
+  void PublishControl(ContactPtr const & contact, nostr::Event const & event, relay::RelayPool::DoneFn done = {},
+                      bool ask = true);
   void SendConfirmations();
   void SendWatchSignals();
   void SendWatch(Peer & peer);

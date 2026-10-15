@@ -1011,10 +1011,12 @@ void Manager::SetHidden(std::string const & id, bool hidden)
 
 // --- Channels -------------------------------------------------------------------------------
 
-void Manager::PublishControl(ContactPtr const & contact, nostr::Event const & event, relay::RelayPool::DoneFn done)
+void Manager::PublishControl(ContactPtr const & contact, nostr::Event const & event, relay::RelayPool::DoneFn done,
+                             bool ask)
 {
-  for (auto const & url : contact->m_relays)
-    AskConsent(url, contact->m_name, ConsentRequest::Purpose::Sending);
+  if (ask)
+    for (auto const & url : contact->m_relays)
+      AskConsent(url, contact->m_name, ConsentRequest::Purpose::Sending);
   int64_t const epoch = std::max(EpochOf(event.m_createdAt), contact->m_outgoing.Epoch());
   std::weak_ptr<int> alive = m_alive;
   m_pool->Publish(relay::EpochScope(epoch), Allowed(contact->m_relays), event,
@@ -1119,7 +1121,9 @@ void Manager::Answer(Peer & peer)
 {
   // A contact that names other relays than those this user's last state reached gets the current state
   // there, so that it can tell when everyone has moved (spec §11). Not a hidden one; and only through a
-  // relay the user allows, which may come later.
+  // relay the user allows, which may come later. The user is asked only when none is allowed: each relay
+  // is asked about once, and a question asked here would take the place of one that says what the relay
+  // is for, such as live updates once the contact shares.
   Contact & contact = *peer.m_contact;
   if (contact.m_relays == peer.m_deliveredTo || peer.m_hidden || peer.m_answering)
     return;
@@ -1135,7 +1139,7 @@ void Manager::Answer(Peer & peer)
   nostr::Event const answer = sharing ? m_sharer->CurrentState(peer.m_contact, m_rng, now)
                                       : StateEvent(contact, m_settings.m_homeRelays, std::nullopt, m_rng, now);
   Save();  // its seq and created_at, before it leaves
-  PublishControl(peer.m_contact, answer);
+  PublishControl(peer.m_contact, answer, {}, false /* ask */);
 }
 
 void Manager::OnWatch(Peer & peer, Watch const & watch)
