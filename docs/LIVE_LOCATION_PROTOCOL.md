@@ -472,7 +472,13 @@ Every user has 1–4 **home relays**, user-configurable and in the user's order,
 list in the design doc. Every relay list a client sends (the invite, steps 2 and 3, states) keeps
 that order. A client that keeps a single connection open while idle, such as a sharer that nobody
 watches (design doc D17), keeps it to the first relay of its list that it can reach: its
-**listening relay**. Its inbox subscription then runs only there.
+**listening relay**. Its inbox subscription then runs only there. A sharer MAY add a filter for its own
+stream's key to that subscription, of the same epoch only (one epoch per connection, below): each event
+the relay accepts with `OK true` should then come back over the same connection. When one does not, the
+relay accepts events without delivering them, and the client SHOULD listen on the next relay, trying
+the first again later (design doc §10.3). An exact duplicate (`OK true` with `duplicate:`) is not
+delivered again, and a relay that has never sent an event back may simply not do so: neither proves
+anything.
 
 | Message | Published to | Read from |
 |---|---|---|
@@ -489,15 +495,26 @@ states (§8). When the user changes them, the app:
 - sends every contact its current state naming the new list. A running share is re-keyed, as for a
   change of recipients (§9), so that its grants, its stream and its listening relay all move to the
   new list; every other contact gets a state without `share`;
-- sends each contact its current state again on each UTC day it runs, through epoch `e_c + 7`, where
-  `e_c` is the epoch of the change, unless it has already sent that contact a state that day. A state
-  can be read only until 01:00 UTC the next day (§8); without the repeats, a contact that did not
-  open its app that day would never learn the new list;
-- until the end of that week, also reads its inbox on the previous home relays, which stay allowed
-  (relay consent, below), so that what contacts still send there arrives.
+- counts each contact as **not moved** until something new from it (a state or a signal) arrives
+  through one of the new home relays. A relay in both lists counts: the contact reaches the user there;
+- until every contact has moved, and at most through epoch `e_c + 30`, where `e_c` is the epoch of the
+  change, also reads its inbox on the previous home relays, which stay allowed (relay consent, below),
+  so that what contacts still send there arrives. What arrives there tells nothing of a move;
+- sends each contact that has not moved its current state again on each UTC day it runs, unless it has
+  already sent that contact a state that day, for as long as the contact has not moved. A state can be
+  read only until 01:00 UTC the next day (§8): without the repeats, a contact that did not open its
+  app that day would never learn the new list.
 
-A contact that does not open its app during that week keeps publishing to the old relays until a
-later state names the new ones, for example when the user next shares with it.
+A client that accepts a state naming relays other than those its last state to that contact was
+accepted on (the "answer") SHOULD send that contact its current state at once, through the relays now
+named and as relay consent allows; if no OK arrives, again with the next state, or when the user
+allows one of those relays. It sends no answer to a contact it hides. The answer tells the user's app
+that the contact has moved. Like any state, it lets the new relays see which of the user's inbox keys
+are real (T1).
+
+A contact that has not moved after the 30 days keeps publishing to the old relays, unread, until a
+state names the new ones and it answers; the user's app shows it as not moved, so that the user can ask
+them to open CoMaps.
 
 Subscriptions (NIP-01 `REQ`, at most 50 authors per filter; longer lists are split into several
 filters of the same `REQ`):
@@ -547,8 +564,8 @@ contact. That happens when you view its share or send it watch signals, when you
 when you send it states, including when you stop sharing with it. So:
 
 - Implementations MUST NOT connect, to read or to publish, to a relay outside the user's own home
-  relays (and, for the week after a change, the previous ones), the built-in default list, and
-  relays the user has approved.
+  relays (and the previous ones, until every contact has moved or for 30 days after a change), the
+  built-in default list, and relays the user has approved.
 - For any other relay a contact names, the app asks once, naming the contact: "Bob's location comes
   through relay.example.org, which isn't one of yours. Its operator would see your internet address
   whenever you view Bob." An approval is remembered per relay, and can be revoked in the settings.
@@ -662,6 +679,8 @@ Further obligations:
 | pairing epoch | `e_p = epoch(now − 300)` at the inviter; the joiner accepts `epoch(now) − 1 ≤ e_p ≤ epoch(now)` |
 | joiner's confirmation | a state right after step 3, then one on each UTC day the joiner runs, through epoch `e_p + 7` |
 | removal offered for an unconfirmed contact | from `epoch_end(e_p + 7) + 3600` |
+| previous home relays read after a change | until every contact has moved, at most through epoch `e_c + 30` |
+| echo of an accepted event on the listening relay (optional) | within 15 s of its `OK` |
 | invite | 70 bytes plus the relay list (122 bytes with the three default relays) |
 | invite lifetime | at most 86400 s; joiners refuse `expires_at` more than 86400 + 300 s ahead |
 | JSON integers | within ±(2⁵³ − 1) |
