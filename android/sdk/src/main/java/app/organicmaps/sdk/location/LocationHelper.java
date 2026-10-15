@@ -52,6 +52,10 @@ public class LocationHelper implements BaseLocationProvider.Listener
   @NonNull
   private BaseLocationProvider mLocationProvider;
   private long mInterval;
+  // Live location (NLL): the pace of a share that alone keeps location running in the background
+  // (docs/LIVE_LOCATION.md §10.3); 0: none.
+  private long mSharingInterval;
+  private boolean mSharingBalanced;
   private boolean mInFirstRun;
   private boolean mActive;
   private Handler mHandler;
@@ -332,6 +336,7 @@ public class LocationHelper implements BaseLocationProvider.Listener
     mLocationProvider.stop();
     mLocationProvider = new AndroidNativeProvider(mContext, this);
     mActive = true;
+    mLocationProvider.setBalancedPower(isBalancedPower()); // Live location (NLL)
     mLocationProvider.start(mInterval);
   }
 
@@ -392,7 +397,51 @@ public class LocationHelper implements BaseLocationProvider.Listener
     if (TrackRecorder.nativeIsTrackRecordingEnabled())
       return INTERVAL_TRACK_RECORDING;
 
+    // Live location (NLL): a share alone in the background sets its own pace.
+    if (mSharingInterval > 0)
+      return mSharingInterval;
+
     return INTERVAL_MS;
+  }
+
+  // Live location (NLL): balanced accuracy only at a share's idle pace.
+  private boolean isBalancedPower()
+  {
+    return mSharingBalanced && calcLocationUpdatesInterval() == mSharingInterval;
+  }
+
+  /**
+   * Live location (NLL): the pace of a share that alone keeps location running in the background,
+   * or 0 for the usual one. Restarts the provider when the pace changes.
+   */
+  @RequiresPermission(anyOf = {ACCESS_COARSE_LOCATION, ACCESS_FINE_LOCATION})
+  public void setSharingPace(long intervalMs, boolean balanced)
+  {
+    if (intervalMs == mSharingInterval && balanced == mSharingBalanced)
+      return;
+    mSharingInterval = intervalMs;
+    mSharingBalanced = balanced;
+    if (!isActive())
+      return;
+    Logger.i(TAG, "sharing pace: interval = " + intervalMs + " balanced = " + balanced);
+    mLocationProvider.stop();
+    mInterval = calcLocationUpdatesInterval();
+    mLocationProvider.setBalancedPower(isBalancedPower());
+    mLocationProvider.start(mInterval);
+  }
+
+  /** Live location (NLL): whether a share alone keeps location running, at its own pace. */
+  public boolean hasSharingPace()
+  {
+    return mSharingInterval > 0;
+  }
+
+  /** Live location (NLL): the share that alone kept location running ended: location stops. */
+  public void stopSharingPace()
+  {
+    mSharingInterval = 0;
+    mSharingBalanced = false;
+    stop();
   }
 
   /**
@@ -414,6 +463,7 @@ public class LocationHelper implements BaseLocationProvider.Listener
     Logger.i(TAG, "update refresh interval: old = " + mInterval + " new = " + newInterval);
     mLocationProvider.stop();
     mInterval = newInterval;
+    mLocationProvider.setBalancedPower(isBalancedPower()); // Live location (NLL)
     mLocationProvider.start(newInterval);
   }
 
@@ -440,6 +490,7 @@ public class LocationHelper implements BaseLocationProvider.Listener
     Logger.i(TAG, "provider = " + mLocationProvider.getClass().getSimpleName() + " mInFirstRun = " + mInFirstRun
                       + " oldInterval = " + oldInterval + " interval = " + mInterval);
     mActive = true;
+    mLocationProvider.setBalancedPower(isBalancedPower()); // Live location (NLL)
     mLocationProvider.start(mInterval);
     mHandler.postDelayed(mLocationTimeoutRunnable, LOCATION_UPDATE_TIMEOUT_MS);
     subscribeToGnssStatusUpdates();

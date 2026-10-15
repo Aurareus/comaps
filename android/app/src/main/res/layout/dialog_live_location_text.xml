@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Live location (NLL): one line of text in a dialog. -->
+<com.google.android.material.textfield.TextInputLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/live_location_text_layout"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingStart="@dimen/margin_base"
+    android:paddingEnd="@dimen/margin_base"
+    android:paddingTop="@dimen/margin_base"
+    android:paddingBottom="@dimen/margin_half"
+    app:endIconMode="clear_text">
+
+  <com.google.android.material.textfield.TextInputEditText
+      android:id="@+id/live_location_text"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:singleLine="true" />
+</com.google.android.material.textfield.TextInputLayout>

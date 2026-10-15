@@ -217,6 +217,24 @@ check([o.flagged for o in online(ctx['joiner'], ctx['relay'], T0 + 41)] == [True
 check([o.flagged for o in online(ctx['inviter'], ctx['relay'], T0 + 41)] == [True] and c_inv.flagged,
       'inviter flags its contact too')
 
+# Envelope types (§12 item 1). Python serialises the string "d0" exactly like the tag ["d", "0"], so a
+# step 0 whose first tag is that string keeps a valid id and signature; a typed parser (the C++ one)
+# refuses it, and so must the reference. Likewise uppercase hex, which bytes.fromhex() would accept.
+invite_t = P.Inviter(RELAYS_A, rng, T0).invite
+joiner_t = P.Joiner(P.Invite.from_link(invite_t.link()), 'Bob', RELAYS_B, rng, T0)
+m0_t = joiner_t.commit_event(rng, T0)
+check(P.pairing_step(wire(m0_t), invite_t, T0) == 0, 'a well-typed step 0 passes')
+odd = wire(m0_t)
+odd.tags = ['d0'] + odd.tags[1:]
+check(odd.compute_id() == m0_t.id and P.pairing_step(odd, invite_t, T0) is None,
+      'a tag given as a string is refused, although its serialisation, id and signature are unchanged')
+upper = wire(m0_t)
+upper.sig = upper.sig.upper()
+check(P.pairing_step(upper, invite_t, T0) is None, 'uppercase hex in a signature is refused')
+upper = wire(m0_t)
+upper.content = 5
+check(P.pairing_step(upper, invite_t, T0) is None, 'content that is not a string is refused')
+
 # Without the PSK nothing counts: a step 0 with a wrong MAC is ignored by both sides (no denial of
 # service by someone who merely sees the inviter's key on a relay).
 relay = Relay()

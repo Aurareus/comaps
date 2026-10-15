@@ -8,7 +8,10 @@ Status: **approved for implementation**, after five review rounds:
 - 2026-10-11: one more fix, to the pairing confirmation, mapped in §19.
 - 2026-10-11: relay consent and the listening relay, mapped in §20.
 
-All decisions are made ([§14](#14-decisions)). No feature code has been written yet.
+All decisions are made ([§14](#14-decisions)). Phase 2 implemented them: [§22](#22-phase-2-report)
+reports on it, [§21](#21-implementation-notes-phase-2) lists what the code decided where this
+document left a choice, and [LIVE_LOCATION_DEVICE_TESTS.md](LIVE_LOCATION_DEVICE_TESTS.md) is the
+checklist for phones.
 
 The normative protocol is in [LIVE_LOCATION_PROTOCOL.md](LIVE_LOCATION_PROTOCOL.md) ("NLL v1"). The
 reference implementation, test vectors and the relay test harness are in
@@ -37,6 +40,10 @@ reference implementation, test vectors and the relay test harness are in
 18. [Third review changes (2026-10-11)](#18-third-review-changes-2026-10-11)
 19. [Fourth review changes (2026-10-11)](#19-fourth-review-changes-2026-10-11)
 20. [Fifth review changes (2026-10-11)](#20-fifth-review-changes-2026-10-11)
+21. [Implementation notes (Phase 2)](#21-implementation-notes-phase-2)
+22. [Phase 2 report](#22-phase-2-report)
+23. [Review of Phase 2 (2026-10-13)](#23-review-of-phase-2-2026-10-13)
+24. [Second review of Phase 2 (2026-10-15)](#24-second-review-of-phase-2-2026-10-15)
 
 ## 0. Summary
 
@@ -156,7 +163,7 @@ Code paths traced (all verified in source):
 | T6 | **Someone who reads an invite** (photographed QR, compromised messenger) | **Race** the intended person and pair as an impostor. Its attempt stays on the relays, under its own key, until the invite expires. Both apps watch until then: if the real person shows up first or in time, both abort; if the inviter had already accepted, its contact is flagged and receives no share until the codes are compared. If the real person never shows up, only comparing codes reveals the impostor, which is why contacts paired by link start "unverified". **Disrupt** the pairing: any competing attempt makes both apps abort and say that the invite was used elsewhere. **Passive interception** reveals only the relays already in the invite: step 1 carries nothing, and both names travel under `ee`-derived keys. Mitigations: codes on both screens, the unverified status, single-use invites, expiry (10 min for QR). | Impersonate the inviter: its steps must be signed by the key whose public half is in the invite. Replace or delete anyone's pairing events. Learn channel keys from a pairing it did not actively complete: `ee` Diffie-Hellman. |
 | T5b | **A malicious contact as sharer, inviter or recipient** (for example a stalker you paired with) | **Choose the relays your phone connects to for it**: its stream relays when you view its share or send watch signals, its invite's relays while you pair and until the invite expires, its inbox relays when you send it states (also when you stop sharing with it, and on each day your app runs in the first week after you joined its invite). If it runs one of them, it learns your IP address, hence your rough location and provider, and when your app talks to it, e.g. when your map is open. You never have to share with it for this to happen. Mitigations: relay consent (spec §11): without asking, your phone uses only your own relays, the defaults and relays you approved; for any other relay a contact names, the app asks once, naming the contact and the relay. Invites live at most 24 hours. "Hide" stops all connections for that contact. | Make your phone connect to a relay you did not approve. Keep you watching an invite for more than a day. Learn anything about you from relays that you and other contacts use, beyond what T1 says about every relay operator. |
 | T6b | **Someone who rewrites an invite in transit** (substitutes its own) | **Sit in the middle** of both pairings. The protocol cannot see it: the two screens show different codes, matching by chance with probability 10⁻⁶. It cannot grind the codes: the joiner commits to its key first, each side accepts one message per step, and the code comes from the keys, not the transcript (spec §6.3–6.4). Only comparing codes reveals it. | Anything, once the users have compared codes. |
-| T7 | **Device thief or forensic examiner** | **Before the first unlock after a reboot:** nothing; the app's files are in credential-encrypted storage. **After the first unlock, even with the screen locked:** Android keeps the storage keys in memory, and forensic tools target exactly this state. With an exploit that runs code on the device, an attacker gets what the app holds now: the current channel keys, and the latest positions while the app is running (in memory). If the app has not run for days, its stored chain keys are that old (D16). | Past channel keys (ratchet) and past streams (erased at both ends), hence the content of archived ciphertext. No positions are stored on disk. The limits of key erasure on flash are in §10.4. |
+| T7 | **Device thief or forensic examiner** | **Before the first unlock after a reboot:** nothing; the app's files are in credential-encrypted storage. **After the first unlock, even with the screen locked:** Android keeps the storage keys in memory, and forensic tools target exactly this state. With an exploit that runs code on the device, an attacker gets what the app holds now: the current channel keys, and the latest positions while the app is running (in memory). A background job (D16) erases the stored chain keys that are due about once a day, even while the app is not used; if Android has deferred that job for days, as it does for rarely used apps, the stored keys are that old. | Past channel keys (ratchet) and past streams (erased at both ends), hence the content of archived ciphertext. No positions are stored on disk. The limits of key erasure on flash are in §10.4. |
 | T8 | **Malware or root on the device** | Out of scope: it can read everything the app can. | — |
 | T9 | **CoMaps project / app distribution** | Out of scope: it ships the code. It plays no role in operation; no CoMaps server is involved. | — |
 | T10 | **Other relay clients** (scrapers) | What is published: pseudonymous keys, kinds, timing and sizes. They can archive the ciphertext. | IP addresses, connections and subscriptions, which only relays see. Content, as for T1. |
@@ -190,7 +197,8 @@ Full byte-level detail: [LIVE_LOCATION_PROTOCOL.md](LIVE_LOCATION_PROTOCOL.md). 
 ### 4.1 Pairing
 
 1. A shows a QR code (or sends a link) containing a 32-byte one-time secret, A's one-time pairing
-   public key, an expiry and A's relays (123 bytes, a 183-character link).
+   public key, an expiry and A's relays (122 bytes and a 182-character link with the default
+   relays).
 2. B's app makes a one-time pairing key of its own. With it, it publishes on A's relays a commitment
    to its fresh Noise key, authenticated with the secret.
 3. A's app answers with Noise `NNpsk0_25519_ChaChaPoly_SHA256` message 1, signed with A's pairing
@@ -516,25 +524,29 @@ Each hook is marked `// Live location (NLL): …`.
 
 | File | Change | Size |
 |---|---|---|
-| `.gitmodules`, `3party/CMakeLists.txt` | add secp256k1 submodule + `add_subdirectory` | ~6 lines |
+| `.gitmodules`, `3party/CMakeLists.txt` | add secp256k1 submodule + `add_subdirectory` | ~27 lines |
 | `libs/CMakeLists.txt` | `add_subdirectory(live_location)` | 1 line |
 | `libs/map/user_mark.hpp/.cpp` | `LIVE_LOCATION` enum value + `DebugPrint` case | 2 lines |
-| `libs/map/CMakeLists.txt` | add `live_location_marks.*` | 2 lines |
-| `libs/map/bookmark_manager.cpp` | (optional) make the dots tappable in `FindNearestUserMark` | 1 line |
-| `android/sdk/src/main/cpp/CMakeLists.txt` | JNI sources + link `live_location` | ~4 lines |
-| `android/app|sdk/build.gradle.kts`, `gradle/libs.versions.toml` | OkHttp, qrcodegen | ~4 lines |
-| `AndroidManifest.xml` | service, activity | ~10 lines |
-| `MwmApplication.onBackground()` | keep location while sharing | 2 lines |
-| `LocationHelper.calcLocationUpdatesInterval()` | slower interval while sharing in the background | 2 lines |
-| `MwmActivity` | menu entry, indicator, intent processor. `comaps://` already carries the ge0 short links (`comaps://<10 chars>/<name>`), so the invite processor goes before that handler. `live/pair#` cannot be a ge0 code: `/` and `#` are outside ge0's alphabet | ~10 lines |
-| settings (prefs XML + fragment) | experimental toggle | ~10 lines |
+| `libs/map/CMakeLists.txt`, `libs/map/map_tests/CMakeLists.txt` | add `live_location_marks.*` and its test | 4 lines |
+| `libs/map/bookmark_manager.cpp` | a tap finds the dots (`FindNearestUserMark`) | 1 line |
+| `libs/map/framework.hpp/.cpp` | a tap on a dot goes to a listener, the app's sheet (§11.4); without one, as in the desktop app, a plain place page with the name | ~40 lines |
+| `libs/drape_frontend/user_mark_shapes.cpp` | a mark's `needOverlay` goes in its own argument (§23) | 3 lines |
+| `android/sdk/src/main/cpp/CMakeLists.txt` | JNI sources + link `live_location` | 1 line |
+| `android/app|sdk/build.gradle.kts`, `gradle/libs.versions.toml` | OkHttp, qrcodegen | ~9 lines |
+| `AndroidManifest.xml` | service, activity | ~16 lines |
+| `MwmApplication` | start with the core; foreground and background; keep location while sharing | ~10 lines |
+| `LocationHelper`, `BaseLocationProvider`, `AndroidNativeProvider`, `GoogleFusedLocationProvider` | a share alone in the background keeps location at its own pace (§10.3, §21) | ~65 lines |
+| `MwmActivity` | "Share My Location" opens the feature while it is on (§11.1), the indicator's tap, the intent processor. `comaps://` already carries the ge0 short links (`comaps://<10 chars>/<name>`), so the invite processor goes before that handler. `live/pair#` cannot be a ge0 code: `/` and `#` are outside ge0's alphabet | ~18 lines |
+| `maplayer/MapButtonsController`, `MapButtonsViewModel`, the ten `map_buttons_layout_*.xml` | the sharing indicator, beside track recording's (§11.3) | ~160 lines |
+| `prefs_main.xml` | the "Live location sharing" section of the settings (§11.1) | 8 lines |
 
 ### 8.4 Feature flag
 
-A runtime preference "Live location sharing (experimental)", default **off**. While off, nothing in
-the feature is constructed: no library init, no threads, no files, no network. When it is switched
-off, all shares stop and connections close. Contacts are kept until deleted, and the screen offers
-"delete all live-location data".
+A runtime preference "Live location sharing (experimental)", default **off**, at the top of its own
+section of the settings (§11.1). While off, nothing in the feature is constructed: no library init,
+no threads, no files, no network. When it is switched off, all shares stop and connections close.
+Contacts are kept until deleted: "Delete all live location data", in the same section, works while
+the feature is off too.
 
 ### 8.5 Persistence
 
@@ -620,7 +632,7 @@ TLS 1.2 is available from API 20 and TLS 1.3 from API 29; OkHttp uses the platfo
 | Mode | When | Publish | GPS request |
 |---|---|---|---|
 | **Live** | a viewer's `watch` signal arrived in the last 120 s | every fix (≥ 3 s apart; moved ≥ 3 m, or ≥ 15 s elapsed) | 2 s, high accuracy |
-| **Idle** | nobody watching | when moved ≥ 50 m (≥ 30 s apart), else heartbeat every 5 min | 30 s, balanced |
+| **Idle** | nobody watching | when moved ≥ max(20 m, the two fixes' accuracies added), or the fix is at least twice as accurate (≥ 30 s apart); else heartbeat every 5 min | 30 s, balanced |
 | **Ending** | user stops, `until` passes, battery ≤ 5 % | final `end` + states | stop |
 
 - Viewers send `watch` every 60 s while the map is visible and the contact's share is active.
@@ -628,6 +640,13 @@ TLS 1.2 is available from API 20 and TLS 1.3 from API 29; OkHttp uses the platfo
   holds from the first fix after B opens the map, end-to-end latency being p50 ≈ 0.25 s in the soak
   test.
 - The idle heartbeat (5 min) keeps the 15-minute-expiring latest position alive on relays.
+- Idle publishing compares each fix with the last one published. Android reports accuracy as the
+  radius that holds the true position with 68 % probability, and a phone lying still at balanced
+  accuracy reports fixes that wander by about that much. A move counts only when it exceeds both
+  accuracies added, so that the two circles do not overlap: with equal accuracies, about 10 % of a
+  still phone's fixes pass, against 57 % if the larger accuracy alone were the bar. The 20 m floor
+  keeps precise fixes from publishing every few steps. A fix at least twice as accurate as the one
+  published is published too, so that a coarse position is corrected before the next heartbeat.
 
 **Connections (decision D17).** Every wake of the cellular radio costs a "tail" of several seconds
 at high power. A publish is such a wake, and so is every keep-alive ping a relay sends to an idle
@@ -653,6 +672,17 @@ may use it. If the connection dies silently, the next heartbeat notices, so live
 up to one heartbeat (5 min) late, but it does start. OkHttp does not report the server's pings to
 the app, so the list order, not a measured ping interval, picks the listening relay.
 
+A relay can also keep the connection and accept posts, yet stop delivering them. So the listening
+connection also subscribes to the share's own posts (spec §11): a relay passes each event it
+accepts to every subscription that asks for it, the publisher's own included. On all eight relays
+tested, the three defaults among them, each post came back at most 0.12 s after its `OK`; an exact
+duplicate never does. A post accepted with `OK true` that has not come back 15 s later makes the
+sharer listen on the next relay. The first is tried again after 5 minutes, alongside the one that
+works, then after 10, 20, and at most every 30 minutes (±20 %), until a post comes back over it. A
+relay that has never sent a post back is not judged. Such a relay is noticed 15 s after the next
+post: within about 15 s while live, within one heartbeat while idle. It costs one more filter in the
+subscription and one event down per post, while the radio is on for the post anyway.
+
 Estimated budgets for one hour, sharer side, three relays, on LTE. They are estimates, and the
 measurement the DoD requires replaces them. The model: a radio wake costs about 5–10 J (some 10 s at
 0.5–1 W), GNSS draws about 0.05–0.1 W, and on a 15 Wh battery 1 %/h is 0.15 W. On Wi-Fi a wake costs
@@ -662,7 +692,7 @@ far less, and every idle case drops below 1 %/h.
 |---|---|---|---|
 | Constant 5 s cadence (no D4) | continuous | ≈ 2.5 MB up+down | **≈ 4–8 %/h** |
 | D4, watched the whole hour | continuous | ≈ 2.5 MB | ≈ 4–8 %/h |
-| D4, unwatched, walking (a publish every ~40 s) | ≈ 100–150 | ≈ 0.4 MB | **≈ 1.5–3.5 %/h** |
+| D4, unwatched, walking (a publish every 30–90 s, by accuracy) | ≈ 50–135 | ≈ 0.2–0.6 MB | **≈ 1–3 %/h** |
 | D4, unwatched, stationary, **one** listening connection (D17) | ≈ 27 (12 heartbeats, 15 pings) | ≈ 0.2 MB (TLS handshakes for the publishes) | **≈ 0.5–1 %/h** |
 | … the same, with all three connections held open | ≈ 107 (12 + 95) | ≈ 0.05 MB | ≈ 1.5–2.5 %/h |
 | … the same, if all three relays pinged every 55 s | ≈ 207 (12 + 195) | ≈ 0.05 MB | ≈ 2–4 %/h |
@@ -712,21 +742,36 @@ key rotation):
 
 ### 11.1 Turning it on
 
-Settings → Experimental → "Live location sharing" → the explanation screen (§11.6) is shown once →
-"Live location" appears in the main menu.
+Settings → **Live location sharing**, a section of its own. At its top is the switch "Live location
+sharing (experimental)", with the note "When enabled, you'll find it in the main menu under Share
+My Location". Turning it on shows the explanation (§11.6) once.
+
+While the feature is on, **Share My Location** in the main menu opens its screen, under the same
+title: "Send current location" (what the menu entry does otherwise: the system share sheet with a
+link to the current position), "Share live location", "Add contact", the contacts, and "What relays
+can see".
+
+Below the switch, the section holds the settings (§11.5). While the feature is off they show their
+titles only, greyed: their values are in the encrypted store, which only the running core reads,
+and a plain copy kept for display would put the user's name and relays outside it. "Delete all live
+location data" stays usable.
 
 ### 11.2 Adding a contact (target: under a minute)
 
-1. A: Live location → **Add contact**. A sees:
+1. A: Share My Location → **Add contact**. A sees:
    - a QR code;
    - a "Share link" button that opens the share sheet with the `comaps://live/pair#…` link;
    - a countdown (10 min for QR, 24 h for a link);
    - "Waiting…".
 2. B scans the QR with any camera or QR app that opens links, or taps the link, or uses **Paste
-   invite** on the same screen. The stock cameras of three test phones all opened CoMaps (D8). If
-   the invite uses relays that are neither B's nor the defaults, B is asked first (relay consent):
-   "This invite uses relay.example.org, which isn't one of yours. Its operator would see your
-   internet address while you connect." B sees "Connecting…".
+   invite** on the same screen. The stock cameras of three test phones all opened CoMaps (D8). A
+   link opened from outside the app, a scanned QR code included, asks first: "Connect with whoever
+   created this invite? They will see your name, Bob." → [Connect] / [Cancel]. The app cannot tell a
+   scan from a tap, and a code on a poster is the same risk as a link. Opening a link must not by
+   itself send B's name to whoever made it, nor add them as a contact, under whatever name they
+   chose. If the invite uses relays that are neither B's nor the defaults, B is asked next (relay
+   consent): "This invite uses relay.example.org, which isn't one of yours. Its operator would see
+   your internet address while you connect." B sees "Connecting…".
 3. With both apps open, within seconds (three relay round-trips), B sees "Check that the other phone
    shows **294 805**" → [Codes match] / [They differ]. B does not know A's name yet; it arrives
    with A's confirmation. "They differ" stops the pairing on B's side and tells B not to connect.
@@ -771,13 +816,14 @@ made while one of them was closed.
 
 ### 11.3 Sharing
 
-Live location → **Share my location** → pick contacts (multi-select) and a duration (15 min, 1 h,
-8 h, until I stop) → **Start**.
+Share My Location → **Share live location** → pick contacts (multi-select) and a duration (15 min,
+1 h, 8 h, until I stop) → **Start**.
 
 - Permission prompts: location (fine) if missing; notifications on API 33+.
 - Notification: "Sharing live location with Bob and Carol · until 18:30" with **Stop**.
-- On the map, an indicator chip shows "Sharing with 2". Tapping it opens **Manage sharing**:
-  per-person stop, add people, extend, stop all.
+- On the map, a round indicator like track recording's, with the number of people on a badge, sits
+  at the top right, beside track recording's when both show. Tapping it opens **Manage sharing**:
+  per-person stop, add people, extend, stop all. Stopping every share thus takes two taps.
 - Extending or adding someone is only ever done by the sharer.
 - Contacts in the picker show their status (D18). Unverified contacts carry a warning: "You haven't
   compared codes with Bob. If the link was intercepted, someone else could receive your location."
@@ -813,8 +859,9 @@ So:
   says whether the share goes on. A share that the sharer re-keys (someone added or removed, a new
   day) therefore continues without the dot blinking out, even when the `end` arrives before the new
   grant.
-- Tapping a dot opens a small sheet: name, last update, accuracy, "Center", "Hide". Hide stops
-  every connection made for that contact (its stream, its signals), not just the dot.
+- Tapping a dot or its name opens a sheet over the map: name and status, last update, accuracy,
+  "Center", "Hide", and "Contact details", which opens the contact's screen. Hide stops every
+  connection made for that contact (its stream, its signals), not just the dot.
 - **Relay consent.** The app connects for a contact only to relays that are the user's own, the
   defaults, or approved. When a contact's share comes through a relay outside these, the app asks
   once before connecting: "Bob's location comes through relay.example.org, which isn't one of yours.
@@ -823,7 +870,7 @@ So:
 - **Live updates.** When that relay is the first in Bob's list, the one his app listens on while
   nobody watches (§10.3), the prompt says why it matters: "Live updates from Bob need
   relay.example.org, which isn't one of yours. Without it, Bob's position updates only after he
-  moves 50 m, or every 5 minutes. Its operator would see your internet address whenever you view
+  moves, or every 5 minutes. Its operator would see your internet address whenever you view
   Bob." → [Allow] / [Not now]. If the user declines, Bob's contact shows "Live updates off" (on
   his dot's sheet and in the contact list), and his position keeps the idle rate. The app asks
   about each relay only once, so the label is where this can be changed: tapping it explains why
@@ -839,6 +886,12 @@ So:
 - Contact list: name, status ("Sharing with you until 18:30", "You share until …", "Waiting for
   Bob to finish connecting"), a verified / unverified / flagged badge, rename, compare code, delete.
   Deleting a contact also stops any share with them.
+- After the user changes their relays, a contact whose app has not yet answered through the new
+  ones (spec §11) shows "Hasn't picked up your new relays yet". Its screen explains: "Bob hasn't
+  picked up your new relays yet. Until then, CoMaps also checks your previous relays, for up to 30
+  days after the change. Ask Bob to open CoMaps." After the 30 days the label reads "Hasn't picked
+  up your new relays", and the screen warns that what Bob sends may not reach the user.
+- The settings below are in Settings → Live location sharing (§11.1).
 - Relays: list, add, remove, reorder (the first reachable one is the listening relay, D17), and a
   reachability test. When the first relay isn't a default one, a note says that contacts get live
   updates from you only if they use or allow that relay too. Only `wss://` addresses are accepted.
@@ -950,11 +1003,11 @@ You signed off D1–D14 on 2026-10-10 (D8 after your camera test), and D15–D18
 | **D1** | Transport | **Nostr relays** (§6.1). Later, perhaps SimpleX SMP as a second transport | Approved |
 | **D2** | Protocol structure | **No identity keys; Noise pairing; daily-ratcheted pairwise channels; sender-key stream rotated on every membership change** (§4, §5) | Approved, with the review fixes written into the spec (§16) |
 | **D3** | What relays keep | **Latest position only (addressable, 15-min expiry)**, so a viewer sees the position as soon as it opens the map | Approved |
-| **D4** | Update policy | **Viewer-driven live mode** (§10.3): every fix while watched, ≥ 50 m / 5 min otherwise; toggles on both sides | Approved; D17 refines its connections |
+| **D4** | Update policy | **Viewer-driven live mode** (§10.3): every fix while watched; otherwise a move beyond both fixes' accuracies (at least 20 m), or every 5 min; toggles on both sides | Approved; D17 refines its connections. The idle rule was ≥ 50 m until the second review of Phase 2 (§24) |
 | D5 | Default relays | **nos.lol, nostr.mom, relay.nostr.net** (§6.3). Your note: for a small private circle, two self-hosted relays on different hosts cut third-party operators out entirely. The relay settings and the docs will say so, together with the caveat in §6.3 | Approved |
 | D6 | Feature minimum Android, key storage | **API 24+; Keystore-wrapped data key; file in `noBackupFilesDir`** | Approved, with key rotation on erasure (§8.5, §10.4) |
 | D7 | WebSocket library | **OkHttp 4.12** | Approved |
-| D8 | QR scanning | **No in-app scanner**: the system camera or a QR app opens the link, plus "Paste invite" | Approved: the stock cameras of three phones opened CoMaps from the test QR. The invite has since grown from 91 to 123 bytes (the inviter's pairing key), so its QR code goes from version 8 to 10 (49 → 57 modules a side, still well within what phone cameras read). A re-scan of the new image is optional |
+| D8 | QR scanning | **No in-app scanner**: the system camera or a QR app opens the link, plus "Paste invite" | Approved: the stock cameras of three phones opened CoMaps from the test QR. The invite has since grown by 32 bytes (the inviter's pairing key), from 90 to 122 with the default relays (from 91 to 123 in the test image, which encodes the vectors' example), so its QR code goes from version 8 to 10 (49 → 57 modules a side, still well within what phone cameras read). A re-scan of the new image is optional |
 | D9 | SHA-256 source | **Shim over libsecp256k1's internal implementation** | Approved. Later, as a separate change: once CoMaps has Boost ≥ 1.88, switch to `boost::hash2::sha2_256` and `hmac_sha2_256` and delete the shim |
 | D10 | Names | **Protocol "NLL v1", labels `nll1:`, kinds 30484/20484, link `comaps://live/pair#…`** | Approved |
 | **D11** | When a viewer connects | **While the app is in the foreground and at least one contact exists**, to discover shares. Never in the background | Approved |
@@ -1078,7 +1131,7 @@ protocol checks pass, and the vectors are regenerated.
 | 4. Pairing just before midnight breaks the joiner | **Right** | Your fix: `e_p = epoch(now − 300)`, and the joiner rejects `e_p > epoch(now)`. Also, `inbox_filters` now skips a contact whose chain is ahead of the clock instead of failing for every contact, and a chain ahead of the clock (after the clock was set back) still signs. Tested with the skew in both directions | spec §6.3 |
 | 5. Receiving rules and consistency between implementations | **Right on all four.** More of the same kind turned up: Python counts `true` as an integer; `json.loads` turns `1e400` into infinity and accepts duplicate names and lone surrogates; the base64 decoder accepted non-canonical input; relay URLs were checked with a URL parser whose quirks another implementation would not share | Every read path discards silently. The spec now has: a field-check table for every message type; an I-JSON profile with an exact definition of an integer; strict, canonical base64 and lowercase hex; relay URLs as an explicit pattern; an abort on an all-zero `ee`; exact rules for `kind`, `created_at`, `expiration` and reading tags. Each rejection is tested for its reason, not just for a `None` | spec §2, §3, §5, §12 |
 | 6. The joiner keeps the PSK and the rendezvous key | **Right**, and the inviter kept its rendezvous key as well | When the pairing ends, both sides erase the PSK, their pairing secret, the ephemeral key, the Noise state and the roots. Until the invite expires they keep only the MAC key and public data. Tested on both sides | spec §6.3, §13 |
-| Decisions | D8 passed on three phones; D15: none in v1; D16: about daily; D17: one listening connection | Recorded. The invite grew to 123 bytes, so its QR code is now version 10 | §14 |
+| Decisions | D8 passed on three phones; D15: none in v1; D16: about daily; D17: one listening connection | Recorded. The invite grew to 122 bytes with the default relays (123 in the vectors' example), so its QR code is now version 10 | §14 |
 
 ## 18. Third review changes (2026-10-11)
 
@@ -1125,3 +1178,241 @@ pass; the vectors are unchanged.
 | Your point | Verdict | What changed | Where |
 |---|---|---|---|
 | Relay consent and D17 interact: live mode never starts for a viewer who hasn't allowed the sharer's first relay, and Alice doesn't hear Bob's confirmations as they arrive while she shares, which §19 relied on | **Right**; reproduced as above. One extension: only the design doc said that the listening relay is the first in the list. The spec said neither that relay lists are ordered nor which relay a sharer listens on, so another implementation could not have known which relay to ask for | Your fix, in all three parts. §10.3 says that signals go only to the relays the viewer may use, and that live mode needs the sharer's listening relay; the sharer's order stays. The prompt for that relay says that live updates need it. If the user declines, the contact shows "Live updates off" and keeps the idle rate. Two small additions: tapping the label offers the relay again, since the app asks about each relay only once; and the relay settings note that contacts get live updates only if they use or allow a first relay that isn't a default. The spec now keeps relay lists in order, defines the listening relay, and requires the prompt and the label; `missing_listening_relay()` names the relay to ask for. §19 now says that sharing narrows its gap only when Bob may use Alice's listening relay | spec §8, §10, §11, §13, §15; §4.5, §10.3, §11.4, §11.5, §12, §19 |
+
+## 21. Implementation notes (Phase 2)
+
+The implementation (`libs/live_location`) follows this document and the spec. Where they leave a
+choice open, it decided as below. Each is easy to change. The ones marked **review** change what
+users or relays see and await your verdict; you ruled on the earlier ones in the second review of
+Phase 2 (§24).
+
+| Topic | What the code does | Why |
+|---|---|---|
+| Pairing connections | Each pairing has connections of its own, never shared with the inbox or with channel traffic. | Otherwise a relay could link the one-time pairing keys to the new contact's channel keys through a connection. It costs one connection per relay while a pairing runs in the foreground. |
+| REQ ids | Random for every REQ. | A fixed id ("inbox") would link connections of different epochs. |
+| Sharing in the background | The inbox stays on the listening relay alone even while live. | Viewers send signals to every relay they may use, so one is enough. The other relays are connected anyway while live, because positions are published every few seconds. |
+| Yesterday's states | In the first hour of a day, an app in the foreground reads its contacts' states once (30 s) with yesterday's keys, over yesterday's scope. | A contact's latest state may still be signed with yesterday's key until it expires at 01:00. Holding a second subscription for the whole hour would cost more for little gain. |
+| "Each UTC day it runs" | The joiner sends its daily confirmation when the app is in the foreground or sharing. | It never opens a connection just to confirm, which keeps "no traffic when unused" true. |
+| Failing relays | A relay that refuses, drops the connection, or sends no OK within 10 s (25 s while connecting) backs off: 1 s, doubling to 5 min, ±20 %. A relay's CLOSED is answered with a new REQ after 30 s. A connection used only to publish closes after 60 s without traffic. | §10.3 asks for dead connections to be detected by a missing OK. The rest are ordinary defaults. |
+| Undelivered pairing steps | Resent every 30 s while the app is in the foreground and the invite lasts. | Relays keep one event per step and author, so resending is harmless. |
+| Store format | Versioned binary contents. A save rotates the keys when a secret of the previous save is missing, judged by digests of the secrets, so no call site can forget to. A pairing in progress is stored whole, Noise state included. | §8.5; a link pairing must survive app restarts at every step. |
+| Starting a share | The first position published is a fix that arrives after the share started, never the last fix the app had. | That fix could be hours old. |
+| Hidden contacts | Their keys stay in the inbox subscription, but their shares are ignored: no stream, no signals, no dot. | Their states still arrive, e.g. the end of a share or the joiner's confirmations, and the inbox's size does not change when someone is hidden. |
+| A contact's relays | Each state's relay list replaces the one from pairing. | A contact can change its relays; its states name the current ones. |
+| Changing one's home relays | Spec §11: every contact gets a state naming the new list at once, in one shuffled batch, and a running share is re-keyed onto it. A contact counts as not moved until something new from it arrives through a current home relay. Until all have moved, and for at most 30 days, the inbox also reads the previous relays in the foreground; they stay allowed meanwhile. A change made with no contacts and no pairing under way tells no one. | Contacts learn one's relays only from one's states. Your change in the second review (§24): a week, then silence, was the worst kind of failure for a location share. |
+| Repeating the new list (**review**) | Each contact that has not moved gets the current state again on each UTC day the app runs, for as long as it has not moved, past the 30 days too. | A contact who opens CoMaps on day 40 still learns the new list from that day's state, and answers. The cost is one small state a day per such contact, sent only while the app runs. |
+| Answering a contact's move | A state naming relays other than those the user's last state to that contact reached gets the current state in answer, through the named relays the user allows, at once, or when the user allows one, or shows the contact again after hiding it; never to a hidden contact. It asks about the other relays only when none is allowed. | Spec §11. Each relay is asked about once: asking as the answer went out took the place of the question that says what a relay is for, such as live updates once the contact shares (§24). |
+| Idle publishing | A fix is published when it moved at least max(20 m, both fixes' accuracies added) from the last one published, or is at least twice as accurate; at least 30 s apart, with the 5-minute heartbeat. | §10.3. Your compromise in the second review (§24); the clause for a sharper fix is mine. |
+| The listening relay's echo (**review**) | On the listening relay, the inbox subscription also asks for the share's own stream, of the inbox's epoch. A stream post accepted with `OK true` (not `duplicate:`) that has not come back 15 s later marks the relay deaf: the subscription moves to the next relay, and publishing to it goes on. It is tried again after 5 minutes alongside the relay in use, doubling to 30 (±20 %), until a post comes back over it. A reconnect does not clear the mark. A relay that has never sent a post back is not judged. | §10.3. Your proposal in the second review, with one miss in 15 s as you chose. The back-off and the trial alongside are mine: retrying a relay alone moved the inbox back onto a relay still deaf, for minutes. |
+| What a relay delivers | An event counts as received only once it matches the filters of the REQ it came for and its id and signature verify. A connection that sends more than 32 other events counts as failing (back-off). Until a REQ sent again with other filters has its EOSE, events that match only its previous filters are dropped without counting. | Spec §11: otherwise a relay that sends a broken copy first hides the intact ones, and junk costs key derivations. An honest relay may still answer the previous filters meanwhile (§24). |
+| A store that cannot be read now | Only a missing file means "nothing stored". Another failure to open or read it deletes nothing, and nothing is written until a start has read the store or the user chose "Delete all live location data". | A failed open (no free file descriptor) or a key store failing for a while must not cost the contacts. |
+| Sending to a relay that needs consent | Asked about once, as "sending"; skipped until allowed. | Spec §11. |
+
+The Android app (`android/app/.../livelocation`, `android/sdk/.../livelocation`) decided these:
+
+| Topic | What the app does | Why |
+|---|---|---|
+| Where the switch is | Settings → Live location sharing, a section of its own: the switch, then the settings, greyed and without values while the feature is off; deleting works either way. While the feature is on, "Share My Location" in the main menu opens the feature's screen, which can still send the current location once. | Your change in the second review (§24); §11.1. |
+| The switch's title (**review**) | Still "Live location sharing (experimental)", with the note "When enabled, you'll find it in the main menu under Share My Location". | The section's title already says "Live location sharing"; the switch keeps saying the feature is experimental. |
+| The settings from the feature's screen (**review**) | No longer reachable from the contacts screen: only through Settings → Live location sharing. | The screen holds what one does with the feature; one switch and one place for its settings. The contacts screen's toolbar could get a settings icon if you miss it. |
+| The sharing notification | Its channel has default importance without sound or vibration, so its icon shows in the status bar. On the lock screen it reads "Sharing your live location", without names. | Seen without being noisy; the names stay private on a locked phone. It is silent in effect already. Android's "Silent" importance (low) can leave the icon out of the status bar (`shouldHideSilentStatusBarIcons`, Android 10+), and the icon is what makes a share visible at a glance. A user may still choose "Silent" in the system settings; only blocking the channel stops the share. |
+| "Re-checks before every publish" (§11.3) | Before passing on each fix, and on the system's block broadcasts (Android 9+). A heartbeat, which publishes without a new fix, is not checked on its own. | Fixes arrive every 2–30 s while sharing, so a blocked notification stops the share within one fix. A check per publish would need the core to ask the app each time. |
+| Background location pace | Only while a share alone keeps location running in the background: 2 s at high accuracy when someone watches, else 30 s at balanced accuracy (§10.3). Navigation, track recording, Android Auto and the "waiting for position" mode keep their own pace; in the foreground the map's 500 ms applies. | Balanced accuracy is a hint: the fused providers honour it, a plain GPS provider does not. |
+| Low battery | The share stops at 5 % only when the phone is not plugged in. | Stopping a share on a charging phone helps nobody. |
+| A fix without accuracy | Dropped, as are fixes with values out of range; out-of-range optional fields are left out. | The protocol requires an accuracy, and receivers drop a message with a bad field. Fused and GPS fixes carry one. |
+| Turning the feature off | Stops any share, closes connections, and frees the core once the stop's messages have their relays' answers (at most 30 s). Deleting the data while it is off deletes the file and the Keystore keys without starting anything. | "No traffic when unused" includes the moment of deletion. |
+| The sharing indicator (**review**) | A round button like track recording's, at the top right of the map, beside track recording's when both show, in every layout (planning and navigation too). Its icon is a pin with arcs on both sides; a badge shows the number of people; it does not blink. A tap opens Manage sharing. It hides with the other map buttons. | Your change in the second review (§24). Track recording's blinks to say "recording"; a share already has its notification, and two blinking buttons would compete. |
+| Adding a contact | The screen opens with a QR invite (10 min). "Share a link instead" cancels it and makes a link invite (24 h). "Paste invite" cancels the user's own open QR invite before joining. | One open invite per screen, so the two codes are never confused. |
+| Share durations | 15 min, 1 h (preselected), 8 h, until stopped. | §11.3's list. |
+| Resuming after the process died | The map offers it in a dialog. "Resume" restarts the share with the same people and ends; without the permissions it needs, the share screen opens with them picked. | §8.5. |
+| Relay consent questions | Queued; whichever live location screen or the map is in front asks them, one at a time. A question the user has not answered is asked again; it is not a refusal. | Questions arrive at any time, often while the user is on the map. |
+| A contact's dot | A coloured circle (grey once old) with the name under it, in the layer of bookmarks' labels. A tap on either opens the sheet over the map (§11.4); "Center" zooms to the position at zoom 16. A long tap opens the usual place page of that point, titled with the name, from which one can route there. | Drape places no labels in the user mark layer. A tap on a name used to reach upstream code that aborts on an unknown mark type (§24). |
+| A contact that has not moved (**review**) | Labelled "Hasn't picked up your new relays yet", and after the 30 days "Hasn't picked up your new relays". Its screen explains and suggests asking the contact to open CoMaps. | Your change in the second review (§24); §11.5. |
+| Opening an invite link | A link opened from outside the app asks "Connect with whoever created this invite? They will see your name, …" before anything is sent. A pasted invite opens directly. | Opening a link must not by itself send one's name or add a contact (§11.2). "Created", not "sent": in person nobody sent anything (§24). |
+| TLS | Every relay connection gets a TLS context of its own. | A shared one resumes TLS sessions, and the session ticket links connections (spec §11). |
+| Calls into the core | Calls without a result (fixes, foreground, battery, decisions, edits) are queued; at most 256 messages of one relay connection wait for the core's thread. | A core busy with a flooding relay must not freeze the UI. |
+| Daily ratchet (D16) | A WorkManager job once a day while the feature is on. With the core not running, it reads the store (erasing the keys that are due), writes it and frees everything; nothing connects. While the core runs, it does nothing. Without contacts it only reads and writes the store. | D16. Scheduling it with the feature, rather than with the first contact, keeps it simple at no real cost. |
+| Strings | English only, in `strings_live_location.xml`, outside the translation pipeline. | Experimental feature; translations once the texts settle. |
+| Fixes across JNI | Unknown accuracy, speed and bearing are negative and altitude has a flag: no NaN crosses JNI, since the native side builds with `-ffast-math`. Strings cross as UTF-16 both ways. | JNI's "modified UTF-8" would turn a name with an emoji into text the core's strict JSON refuses. |
+
+## 22. Phase 2 report
+
+Phase 2 built the feature: the core in C++, the Android app around it, and tools to test it
+without phones. [LIVE_LOCATION_DEVICE_TESTS.md](LIVE_LOCATION_DEVICE_TESTS.md) is the checklist for
+the phones. A first brief run on two phones, and the review that followed, are in §23; the second
+review, with your verdicts on the judgement calls, in §24.
+
+### What was built
+
+| Part | Where | Size |
+|---|---|---|
+| Core: crypto (BIP-340 through libsecp256k1, NIP-44 v2, Noise NNpsk0, HKDF), Nostr events and the strict JSON profile, NLL v1 (invites, pairing, channels, streams, signals, receiving rules), relay pool, encrypted store, manager | `libs/live_location` | 9,200 lines |
+| Tests of the core | `libs/live_location/live_location_tests` | 4,900 lines, 87 tests (71 at first, 79 after §23) |
+| Contacts' dots on the map, and a tap on them | `libs/map/live_location_marks.*`, `Framework`; a test in `map_tests` | |
+| Desktop test peer (the core driven by line commands, plain `ws://`) | `libs/live_location/peer` | 610 lines |
+| JNI host: the core's thread, OkHttp sockets, Keystore key wrapping | `android/sdk/src/main/cpp/.../livelocation` | 760 lines |
+| SDK: facade, OkHttp transport, Keystore wrapper, models; location pace | `android/sdk/src/main/java/.../livelocation`, `LocationHelper` | 1,150 lines |
+| App: foreground service, the switch and its settings, screens, the dot's sheet, hooks | `android/app/src/main/java/.../livelocation` | 2,900 lines |
+| Python reference implementation, test peer, cross test, fixtures | `tools/python/live_location` | 4,700 lines |
+
+### How it was tested
+
+- **C++ tests**, with clang and GCC: the published NIP-44 and BIP-340 vectors; the NLL v1 vectors,
+  reproduced byte for byte from the Python reference; the JSON profile's verdicts on the shared
+  cases; and integration tests of whole phones against in-process fake relays that drop, refuse,
+  duplicate, go silent or go down (two of three), or accept posts without delivering them. Mutating
+  the code under test (a removed check, a wrong bound) makes the matching tests fail; that was
+  checked for the protocol, the manager, the conversions, and this round's echo check, idle rule,
+  relay moves and the answer's consent question (§24).
+- **Map**: a test taps a dot as drape reports it, on its name and on the dot itself, with and without
+  the app's listener (`LiveLocationMarks_TapOnADot`). Without the fix it aborts, as the app did.
+- **Cross-implementation, over a real relay** (strfry): the C++ core and the Python reference pair
+  in both directions with matching codes, follow each other's shares, switch to live updates, and
+  revoke. After a removal, the removed peer's old key opens none of the events published
+  afterwards (12 of 12 refused). 13 checks, all passing. Between two C++ peers a live fix arrives in
+  about 0.1 s.
+- **Android**: the APK builds (fdroid debug, arm64). All 31 native methods are exported, and their
+  JNI descriptors match the C++ parameter types. The Java parsers are tested on the JVM against
+  views recorded from the C++ core (8 tests). Android lint, app and SDK: no errors. Its first run
+  found seven in this code, of two kinds (posting the notification without an explicit
+  notification-permission check, and Keystore calls without an API-level guard), now fixed; release
+  builds abort on lint errors. One warning remains in new code: the ripple background of list rows,
+  as in upstream's layouts.
+- **Not as planned (§12):** no JVM tests of the OkHttp transport or the Keystore wrapper. Robolectric
+  cannot fetch its Android runtime in this sandbox (upstream's own Robolectric test fails here the
+  same way), and with mocks such tests would check little. Both run on every phone check.
+
+### Definition of Done
+
+| Item | Status |
+|---|---|
+| Two phones on different networks | To check on phones (device checklist, all checks) |
+| Pairing in under a minute | Desktop: seconds over a relay. Phones: check 1 |
+| A's marker follows within about 5 s | Desktop: about 0.1 s per fix once live. Phones: check 3 |
+| Stop and revocation, with a test peer | Desktop and cross-implementation: passing. Phones: checks 4 and 5 |
+| Time-limited shares end on time | Manager tests: passing. Phones: check 6 |
+| Works with any 2 of 3 relays down | Manager and pool tests: passing. Phones: check 7 |
+| No traffic when unused | Manager test: no connection without a reason. Phones: check 8 |
+| Works without Play services | By construction (Android's own location providers, OkHttp). Phones: check 9 |
+| Tests pass | Yes, as above |
+| Battery and data measured for one hour | Only on phones: check 10 |
+| A one-screen explanation of what relays see | In the app ("What relays can see"); check 11 |
+
+### What to review
+
+The rows marked **review** in §21: two in the core (repeating a new relay list until a contact
+moves; the listening relay's echo check), four in the app (the switch's title; the settings, now
+only in Settings; the sharing indicator; the labels of contacts that have not moved).
+
+### Known gaps
+
+- The screens have been seen only in a brief first run (§23). Layouts, the indicator's place and the
+  QR code's size may need work; the new screens (the settings section, the dot's sheet) have not
+  been on a phone yet.
+- English only.
+- Phones whose makers kill background apps aggressively may stop the sharing service; only
+  phones can show how often.
+- The battery and data figures in §10.3 are still estimates until check 10.
+
+### Building and testing
+
+```bash
+# C++ core and tests (desktop)
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DSKIP_TOOLS=OFF && cmake --build build --target live_location_tests live_location_peer
+build/live_location_tests
+# Cross-implementation test (tools/python/live_location, see its README)
+.venv/bin/python -I cross_test.py ../../../build/live_location_peer path/to/strfry
+# Android
+cd android && ./gradlew assembleFdroidDebug -Parm64 -PdisableHWAsan
+./gradlew :sdk:testDebugUnitTest --tests 'app.organicmaps.sdk.livelocation.*'
+```
+
+## 23. Review of Phase 2 (2026-10-13)
+
+A brief first run on two phones: pairing and the rest worked, but no contact's dot ever appeared on
+the map. A review of the code found two serious bugs and five more problems, and three nits. Each
+was checked here before it was fixed. Each fix has a test that fails without it, except where noted.
+
+| Finding | Verdict | Change | Where |
+|---|---|---|---|
+| No dot on the map | **Right, two causes in drape.** Two C++ peers over the real default relays exchanged positions in 0.4 s, so the core was fine. The desktop app, rendered under Xvfb, showed the dots missing. Upstream drape passed a mark's `m_needOverlay` as the `subID` of its coloured symbol, so a mark that asked for no overlay got one anyway. The user mark layer is not part of the overlay tree, so that overlay never became visible and the circle was never drawn. Titles in that layer are never placed either | `needOverlay` goes in its own argument, and every other mark keeps the `subID` it had. Names go to the layer of bookmarks' labels. Rendered on the desktop before and after; drape's tests pass | `libs/drape_frontend/user_mark_shapes.cpp`, `libs/map/live_location_marks.*` |
+| 1. Changing home relays reaches no contact | **Right.** Nothing told contacts; during a share the listening relay and the viewers' signals parted | Every contact gets a state naming the new list, and a running share is re-keyed onto it. For a week, the current state is sent again daily and the old relays are still read | spec §11; §21 |
+| 2. One dishonest relay hides what honest ones deliver | **Right**, reproduced: a forged copy sent first left pairing at "Waiting". The Python test peer had the same bug | An event counts as received only once it matches its REQ and verifies | spec §11; `relay_pool.cpp`, `peer.py` |
+| 3. An invite link pairs without a tap | **Right**: step 2 sent the name, step 3 added the contact | Opening a link from outside the app asks first; nothing is sent before "Connect" | §11.2 |
+| 4. D16 was not implemented | **Right**, and not listed as a gap | A daily WorkManager job erases due keys while the app is not used; T7 says so | T7; §21 |
+| 5. A failed read destroys readable data | **Right, both paths** | Only ENOENT is "nothing stored"; nothing is written before a start has read the store or the user deleted it | §21; `store.cpp`, `manager.cpp` |
+| 6. TLS session resumption links connections | **Right**: one OkHttp client, one session cache | A TLS context per connection (no test: it needs Android's TLS stack) | §21 |
+| 7. A flooding relay can freeze the app | **Right**: three key derivations per contact for every inbox event, an unbounded queue, and the UI waiting on every call | Events nobody asked for, or that fail verification, are dropped before any work, and a relay that sends more than 32 fails. At most 256 messages per connection wait, and calls without a result are queued instead of waited for (the last two untested: they are in the Android layer) | `relay_pool.cpp`; §21 |
+| Nits | **Right**: UBSan reports the null `memcpy`; the non-unity build fails on three missing includes; GCC `-O3` warns five times | Fixed; the non-unity build passes, and GCC no longer warns | `secp256k1_sha256.c`, tests, `bytes.hpp` |
+
+**Tests now.** 79 C++ tests, passing with clang 18 (unity and non-unity builds) and GCC 13. The cross-implementation
+test passes 13 of 13 over strfry. Two C++ peers pair and share over the real default relays (nos.lol,
+nostr.mom, relay.nostr.net): the viewer had the sharer's first fix 0.4 s after it was given. The APK
+builds.
+
+**Still open.** A contact who opens CoMaps on none of the days of the week after a relay change
+keeps sending to the old relays until a later state reaches it (spec §11 says so). *Since
+addressed (§24): contacts answer, and the old relays are read until everyone has moved.* The device
+checklist's runs, battery and data figures above all, are still to come.
+
+## 24. Second review of Phase 2 (2026-10-15)
+
+Your verdicts on the fourteen judgement calls of §21, a proposal to catch a relay that stops
+delivering, and a crash from a light test on a phone. Each claim was checked here before it was acted
+on. Each change has a test that fails without it, except where noted.
+
+**The judgement calls.**
+
+| # | Call | Verdict | Change | Where |
+|---|---|---|---|---|
+| 1 | Pairing has connections of its own | Keep | — | §21 |
+| 2 | A background sharer listens on one relay, even while live | Keep. Checked: while live, a dead listening relay shows as a missing `OK` within 10 s, and a viewer's signal holds live mode for 120 s and comes every 60 s, so live mode survives the move | Your echo check, below | §10.3 |
+| 3 | Daily confirmations only while the app is open or sharing | Keep | — | §21 |
+| 4 | Hidden contacts stay in the inbox subscription | Keep. Checked: as you said, padding to multiples of 8 already hides one key more or less, unless the count crosses a multiple of 8 | — | §21 |
+| 5 | Changing relays during a share | Settled in §23: the share is re-keyed onto the new relays | — | — |
+| 6 | Where the switch is | Change | A section of its own, Settings → Live location sharing: the switch, then the settings, greyed and without values while the feature is off; deleting works either way. While it is on, "Share My Location" opens the feature's screen, which also sends the current location once. "Share live location" replaces the second "Share my location" | §11.1, §21 |
+| 7 | The notification | Keep. Your question, whether it could be silent: it is in effect, with no sound or vibration. Android's "Silent" importance can leave its icon out of the status bar, and the icon is what shows a share at a glance | — | §21 |
+| 8 | Background location pace | Keep the pace. An idle fix is published only after a real move | Publish when moved ≥ max(20 m, both fixes' accuracies added): your compromise between my max(50 m, the sum) and your more than 10 m and the larger accuracy. Or when the fix is at least twice as accurate (mine). Your first rule set a lower bar than the 50 m rule for every fix better than 50 m, and with equal accuracies 57 % of a still phone's fixes pass the larger accuracy, against 10 % for the sum | §10.3, §21 |
+| 9 | The "Sharing with N" chip | Change. Checked: the chip already opened Manage sharing, two taps to stop; the four were through the menu. It was hidden in planning and navigation | A round indicator like track recording's, with the number of people; a tap opens Manage sharing | §11.3, §21 |
+| 10 | QR first, a link second | Keep | — | §21 |
+| 11 | The old relays read for a week | Change | Contacts answer a relay change through the new relays; the old ones are read until everyone has moved, for at most 30 days; contacts that have not moved are labelled | spec §11; §11.5, §21 |
+| 12 | The D16 job whenever the feature is on | Keep | — | §21 |
+| 13 | Flood limits: 32 bad events, 256 waiting messages | Keep. Checked: an honest burst is one to three stored events per contact, so 256 is enough for at least 85 contacts, where §7 plans for 50. But an honest relay could count towards the 32: a REQ sent again may still be answered for its previous filters until its EOSE | Those events are dropped without counting | §21 |
+| 14 | The join question for a scanned QR code | Keep, reworded | "Connect with whoever created this invite?" | §11.2 |
+
+**The echo check (your proposal).** The listening connection also subscribes to the share's own
+posts. Measured first, on eight public relays, the three defaults among them: every accepted event
+came back to the connection that published it, at most 114 ms after its `OK`, and an exact duplicate
+(`OK true` with `duplicate:`) never did. Built as you chose: one miss within 15 s, and a relay that
+has never sent a post back is not judged. The back-off (5 minutes, doubling to 30) and trying the
+relay again alongside the one in use are mine: retried alone, a relay still deaf took the inbox
+back for minutes. The tests found a second bug on the way: a second relay's copy of a post was lost
+to deduplication, and that relay judged deaf. §10.3 and §21 have the details; spec §11 makes the
+check optional.
+
+**The crash.** A tap on a contact's dot or name aborted the app. The names are in the layer of
+search marks (§23), so drape reports a tap on one as a tap on the mark, and
+`Framework::FillUserMarkInfo()` had no case for this mark type: its default is `CHECK(false)`. It
+was my regression from §23's fix, and the sheet that §11.4 specifies had never been built either.
+A tap now opens that sheet over the map (your choice over the contact screen), and a tap on the dot
+itself, which has no overlay, finds it by position. Map test: `LiveLocationMarks_TapOnADot`.
+
+**Found on the way.**
+
+| Finding | Change |
+|---|---|
+| Stores of version 2 were refused once stores became version 3: the decoder accepted only version 1 and the current one | A range check. A test reads stores of every earlier version |
+| Labels that change with time alone (the 30 days, the waiting week) were refreshed only when something else changed | Refreshed on each tick of the clock |
+| Answering a relay change asked about every relay of the contact's that the user had not allowed. Each relay is asked about once, so when the contact then shared, the question that says live updates need the relay never came. Found while recording the view fixtures | The answer asks only when no relay it may use is named |
+| No answer was sent when the user allowed a relay later, or showed a hidden contact again | It is |
+| The repeats of the new list stopped after the week, so a contact who opened CoMaps later never learned it | They go on until the contact has moved (a **review** row in §21) |
+| Commit 205a3945, "a tap on a contact's dot no longer aborts", also holds most of the echo check's code; 579c1cd2 has the rest | Left as pushed, rather than rewrite the branch's history. Say if you want them split |
+
+**Tests now.** 87 C++ tests of the core pass with clang 18 (unity and non-unity builds) and GCC 13,
+and the map test with GCC. The map library's whole suite has seven failures that are not this
+branch's: with upstream's `libs/map` built in the same tree, the same seven fail. Six of them pass
+when run alone (they depend on files and settings that earlier tests leave behind), and `MapApiGe0`
+expects `cm.at` links that upstream's ge0 parser does not list. The cross-implementation test
+passes 13 of 13 over strfry, the JVM tests 8 of 8, and lint finds no errors. The APK builds.
+
+**For your verdict:** the six rows of §21 marked **review**.

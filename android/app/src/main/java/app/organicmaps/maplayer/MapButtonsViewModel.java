@@ -86,4 +86,17 @@ public class MapButtonsViewModel extends ViewModel
   {
     return mTrackRecorderState;
   }
+
+  // Live location (NLL): the number of people the user shares with, 0 while not sharing.
+  private final MutableLiveData<Integer> mLiveLocationSharing = new MutableLiveData<>(0);
+
+  public MutableLiveData<Integer> getLiveLocationSharing()
+  {
+    return mLiveLocationSharing;
+  }
+
+  public void setLiveLocationSharing(int count)
+  {
+    mLiveLocationSharing.setValue(count);
+  }
 }

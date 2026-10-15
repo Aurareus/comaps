@@ -217,8 +217,11 @@ void GenerateColoredSymbolShapes(ref_ptr<dp::GraphicsContext> context, ref_ptr<d
   }
   else
   {
+    // Live location (NLL): m_needOverlay used to be passed as the subID, so a mark that asked for no
+    // overlay got one anyway, and its symbol was never drawn. The subID stays what the marks with an
+    // overlay always had.
     ColoredSymbolShape(renderInfo.m_pivot, params, tileKey, kStartUserMarkOverlayIndex + renderInfo.m_index,
-                       renderInfo.m_coloredSymbols->m_needOverlay)
+                       1 /* subID */, renderInfo.m_coloredSymbols->m_needOverlay)
         .Draw(context, &batcher, textures);
   }
 }

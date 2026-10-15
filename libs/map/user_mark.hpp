@@ -58,6 +58,7 @@ public:
     DEBUG_MARK,  // Plain "DEBUG" results in a name collision.
     COLORED,
     TRAFFIC_LIGHT,
+    LIVE_LOCATION,  // Live location (NLL): contacts' positions, map/live_location_marks.hpp
     USER_MARK_TYPES_COUNT,
     USER_MARK_TYPES_COUNT_MAX = 1000,
   };

@@ -29,10 +29,18 @@ public abstract class BaseLocationProvider
 
   @NonNull
   protected final Listener mListener;
+  // Live location (NLL): a share alone in the background asks for balanced accuracy when idle
+  // (docs/LIVE_LOCATION.md §10.3). Applies from the next start().
+  protected boolean mBalancedPower;
 
   protected BaseLocationProvider(@NonNull Listener listener)
   {
     mListener = listener;
+  }
+
+  void setBalancedPower(boolean balanced)
+  {
+    mBalancedPower = balanced;
   }
 
   @RequiresPermission(anyOf = {ACCESS_COARSE_LOCATION, ACCESS_FINE_LOCATION})

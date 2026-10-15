@@ -134,8 +134,9 @@ invite = u8(1)                      version
 link   = "comaps://live/pair#" || base64url(invite)
 ```
 
-The invite is shown as a QR code of `link` or sent as `link` over any channel. Example: a 123-byte
-invite with three relays, a 183-character link, QR version 10 at error correction M. Receivers
+The invite is shown as a QR code of `link` or sent as `link` over any channel. With the three
+default relays it is 122 bytes, a 182-character link, QR version 10 at error correction M (the
+vectors' example, whose third relay is longer, is 123 bytes and 183 characters). Receivers
 reject an invite with trailing bytes, an `ipk` that is not a valid x-only key, or relays that break
 §5. Each invite is **single-use** (§6.3).
 
@@ -471,7 +472,13 @@ Every user has 1–4 **home relays**, user-configurable and in the user's order,
 list in the design doc. Every relay list a client sends (the invite, steps 2 and 3, states) keeps
 that order. A client that keeps a single connection open while idle, such as a sharer that nobody
 watches (design doc D17), keeps it to the first relay of its list that it can reach: its
-**listening relay**. Its inbox subscription then runs only there.
+**listening relay**. Its inbox subscription then runs only there. A sharer MAY add a filter for its own
+stream's key to that subscription, of the same epoch only (one epoch per connection, below): each event
+the relay accepts with `OK true` should then come back over the same connection. When one does not, the
+relay accepts events without delivering them, and the client SHOULD listen on the next relay, trying
+the first again later (design doc §10.3). An exact duplicate (`OK true` with `duplicate:`) is not
+delivered again, and a relay that has never sent an event back may simply not do so: neither proves
+anything.
 
 | Message | Published to | Read from |
 |---|---|---|
@@ -481,6 +488,33 @@ watches (design doc D17), keeps it to the first relay of its list that it can re
 | watch signal B→A | A's home relays | A reads its own home relays |
 
 Publishing to another user's relays is limited to those that relay consent allows (below).
+
+**Changing home relays.** Contacts learn a user's home relays only from the `relays` of that user's
+states (§8). When the user changes them, the app:
+
+- sends every contact its current state naming the new list. A running share is re-keyed, as for a
+  change of recipients (§9), so that its grants, its stream and its listening relay all move to the
+  new list; every other contact gets a state without `share`;
+- counts each contact as **not moved** until something new from it (a state or a signal) arrives
+  through one of the new home relays. A relay in both lists counts: the contact reaches the user there;
+- until every contact has moved, and at most through epoch `e_c + 30`, where `e_c` is the epoch of the
+  change, also reads its inbox on the previous home relays, which stay allowed (relay consent, below),
+  so that what contacts still send there arrives. What arrives there tells nothing of a move;
+- sends each contact that has not moved its current state again on each UTC day it runs, unless it has
+  already sent that contact a state that day, for as long as the contact has not moved. A state can be
+  read only until 01:00 UTC the next day (§8): without the repeats, a contact that did not open its
+  app that day would never learn the new list.
+
+A client that accepts a state naming relays other than those its last state to that contact was
+accepted on (the "answer") SHOULD send that contact its current state at once, through the relays now
+named and as relay consent allows; if no OK arrives, again with the next state, or when the user
+allows one of those relays. It sends no answer to a contact it hides. The answer tells the user's app
+that the contact has moved. Like any state, it lets the new relays see which of the user's inbox keys
+are real (T1).
+
+A contact that has not moved after the 30 days keeps publishing to the old relays, unread, until a
+state names the new ones and it answers; the user's app shows it as not moved, so that the user can ask
+them to open CoMaps.
 
 Subscriptions (NIP-01 `REQ`, at most 50 authors per filter; longer lists are split into several
 filters of the same `REQ`):
@@ -517,7 +551,10 @@ connection, whatever the IP address. Within one day, keys used over the same con
 linkable.
 
 Publishers send each event to all relevant relays and treat it as delivered when at least one relay
-answers `OK true`. Receivers deduplicate by event id.
+answers `OK true`. Receivers deduplicate by event id, counting an event as received only once its id
+and signature have been checked (§12 item 1) and it matches the filter it was sent for. Otherwise a
+relay that sends a broken or altered copy first would hide the intact copies that the other relays
+deliver.
 
 **Relay consent.** Every relay a phone connects to learns that phone's IP address, hence its rough
 location and provider, and when the connection happens. Contacts name relays: a sharer its home
@@ -527,7 +564,8 @@ contact. That happens when you view its share or send it watch signals, when you
 when you send it states, including when you stop sharing with it. So:
 
 - Implementations MUST NOT connect, to read or to publish, to a relay outside the user's own home
-  relays, the built-in default list, and relays the user has approved.
+  relays (and the previous ones, until every contact has moved or for 30 days after a change), the
+  built-in default list, and relays the user has approved.
 - For any other relay a contact names, the app asks once, naming the contact: "Bob's location comes
   through relay.example.org, which isn't one of yours. Its operator would see your internet address
   whenever you view Bob." An approval is remembered per relay, and can be revoked in the settings.
@@ -547,8 +585,10 @@ when you send it states, including when you stop sharing with it. So:
 Every event must pass all of these checks. Cheap ones may run first, but the signature MUST be
 verified before anything is decrypted (as NIP-44 requires):
 
-1. `kind` and `created_at` are integers, `created_at ≥ 0`; the event id equals SHA256 of its
-   serialization, and the BIP-340 signature is valid;
+1. the envelope is well typed: `id` and `pubkey` are 64 and `sig` 128 lowercase hex characters,
+   `kind` and `created_at` are integers, `created_at ≥ 0`, `tags` is an array of arrays of strings
+   and `content` is a string; the event id equals SHA256 of its serialization, and the BIP-340
+   signature is valid;
 2. kind and pubkey are among those expected for the subscription, and the `d` tag (and, for the
    joiner's pairing steps, the `p` tag) is as expected. A tag's value is the second element of the
    first tag with that name; other tags are ignored;
@@ -639,7 +679,9 @@ Further obligations:
 | pairing epoch | `e_p = epoch(now − 300)` at the inviter; the joiner accepts `epoch(now) − 1 ≤ e_p ≤ epoch(now)` |
 | joiner's confirmation | a state right after step 3, then one on each UTC day the joiner runs, through epoch `e_p + 7` |
 | removal offered for an unconfirmed contact | from `epoch_end(e_p + 7) + 3600` |
-| invite | 70 bytes plus the relay list (123 bytes with the three default relays) |
+| previous home relays read after a change | until every contact has moved, at most through epoch `e_c + 30` |
+| echo of an accepted event on the listening relay (optional) | within 15 s of its `OK` |
+| invite | 70 bytes plus the relay list (122 bytes with the three default relays) |
 | invite lifetime | at most 86400 s; joiners refuse `expires_at` more than 86400 + 300 s ahead |
 | JSON integers | within ±(2⁵³ − 1) |
 | relay lists | 1–4 `wss://` URLs of ≤ 64 bytes (`ws://` only to loopback) |
@@ -669,9 +711,14 @@ The primitives are checked separately against the published NIP-44 v2, BIP-340, 
 `test_protocol.py`, and a second implementation should port them too:
 
 - conflicting pairing events, forged or junk steps, and a step 1 meant for another joiner;
+- mistyped envelopes whose id and signature still verify (a tag given as a string) and uppercase hex;
 - a low-order Noise key;
 - plaintexts that break the JSON profile, and states and locations that fail the field checks;
 - non-canonical base64;
 - a confirmation that expires before the inviter runs, the daily confirmations through epoch
   `e_p + 7`, and the exact moment removal is first offered;
 - a watch signal that cannot reach an unwatched sharer's listening relay.
+
+`vectors/profile_cases.json` (made by `make_profile_cases.py`) lists plaintexts with the verdict of
+§12 item 5: hand-written cases for each rule of the profile (§5), and mutations of valid plaintexts.
+Another implementation must reach the same verdict on every one.

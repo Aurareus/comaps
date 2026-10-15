@@ -37,6 +37,8 @@ set(SRC
   gps_tracker.hpp
   isolines_manager.cpp
   isolines_manager.hpp
+  live_location_marks.cpp  # Live location (NLL)
+  live_location_marks.hpp
   mwm_url.cpp
   mwm_url.hpp
   place_page_info.cpp
@@ -97,6 +99,7 @@ target_link_libraries(${PROJECT_NAME}
     i18n
     indexer
     kml
+    live_location  # Live location (NLL)
     platform
     routing
     routing_common

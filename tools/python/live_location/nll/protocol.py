@@ -159,6 +159,8 @@ def is_number(x, lo: float = -math.inf, hi: float = math.inf) -> bool:
     return type(x) in (int, float) and math.isfinite(x) and lo <= x <= hi
 
 
+_HEX64 = re.compile(r'[0-9a-f]{64}')
+_HEX128 = re.compile(r'[0-9a-f]{128}')
 _RELAY_WSS = re.compile(r'wss://[\x21-\x7e]+')
 _RELAY_WS_LOOPBACK = re.compile(r'ws://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]{1,5})?(/[\x21-\x7e]*)?')
 
@@ -261,11 +263,24 @@ def sign_event(sk: bytes, created_at: int, kind: int, tags: list, content: str, 
     return ev.sign(sk, rng(32))
 
 
+def well_typed(ev: Event) -> bool:
+    """NIP-01 field types (§12 item 1): id, pubkey and sig lowercase hex of 64, 64 and 128 characters,
+    tags an array of arrays of strings, content a string. Without this, Python would accept uppercase hex
+    in a signature, or a string in place of a tag (iterating its characters), which a typed parser refuses."""
+    return (isinstance(ev.id, str) and _HEX64.fullmatch(ev.id) is not None
+            and isinstance(ev.pubkey, str) and _HEX64.fullmatch(ev.pubkey) is not None
+            and isinstance(ev.sig, str) and _HEX128.fullmatch(ev.sig) is not None
+            and isinstance(ev.content, str) and isinstance(ev.tags, list)
+            and all(isinstance(t, list) and all(isinstance(x, str) for x in t) for t in ev.tags))
+
+
 def check_event(ev: Event, expected_pubkeys, kind: int, d: str | None, now: int, p_tag: str | None = None) -> bool:
     """Envelope checks every receiver applies before decrypting (§12, items 1-4). `expected_pubkeys` None
     means any author (pairing steps from joiners). A tag's value is the second element of the first tag
     with that name; other tags are ignored."""
     try:
+        if not well_typed(ev):
+            return False
         if type(ev.kind) is not int or type(ev.created_at) is not int or ev.created_at < 0:
             return False
         if ev.kind != kind or (expected_pubkeys is not None and ev.pubkey not in expected_pubkeys):

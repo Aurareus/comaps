@@ -69,3 +69,7 @@
   path = 3party/glaze
   url = https://github.com/stephenberry/glaze
   branch = main
+# Live location (NLL): BIP-340 signatures for Nostr events, and SHA-256 (docs/LIVE_LOCATION.md, D9).
+[submodule "3party/secp256k1"]
+  path = 3party/secp256k1
+  url = https://github.com/bitcoin-core/secp256k1.git
