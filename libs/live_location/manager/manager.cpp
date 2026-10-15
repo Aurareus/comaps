@@ -1325,9 +1325,19 @@ void Manager::MaybePublishLocation(bool force)
         return;
       }
     }
-    else if (moved < m_config.m_idleMinMoveM || elapsed < m_config.m_idleMinIntervalMs)
+    else if (elapsed < m_config.m_idleMinIntervalMs)
     {
-      return;  // the heartbeat publishes otherwise
+      return;
+    }
+    else
+    {
+      // A move only when the two fixes' accuracy circles do not overlap: a phone that lies still, with
+      // the jumps of balanced accuracy, does not publish every fix. Or a fix at least twice as accurate
+      // as the one viewers have. Otherwise the heartbeat publishes.
+      double const threshold = std::max(m_config.m_idleMinMoveM, m_lastPublished->m_acc + m_lastFix->m_acc);
+      bool const sharper = m_lastPublished->m_acc > 0 && m_lastFix->m_acc * 2 <= m_lastPublished->m_acc;
+      if (moved < threshold && !sharper)
+        return;
     }
   }
   auto const event = m_sharer->PublishLocation(*m_lastFix, m_rng, Now());

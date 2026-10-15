@@ -486,6 +486,64 @@ UNIT_TEST(Manager_IdleSharingHoldsOneConnection)
   TEST(alice.Events().m_location == LocationRequest::Live, ());
 }
 
+size_t EventsReceived(World & world, std::string const & url)
+{
+  size_t n = 0;
+  for (auto const & [link, messages] : world.Relay(url).m_received)
+    for (auto const & message : messages)
+      n += message.rfind("[\"EVENT\"", 0) == 0 ? 1 : 0;
+  return n;
+}
+
+UNIT_TEST(Manager_IdleSharingPublishesMovesNotJitter)
+{
+  World world;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+  bob.M().SetForeground(false);
+  alice.M().SetForeground(false);
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+  double constexpr kMetre = 1.0 / 111'195;  // in degrees of latitude
+  auto const fix = [&](double northM, double accuracyM)
+  {
+    Location f = FixAt(world, 48.8566 + northM * kMetre, 2.3522);
+    f.m_acc = accuracyM;
+    return f;
+  };
+  alice.M().OnLocation(fix(0, 30));
+  world.Run(31'000);
+  size_t const base = EventsReceived(world, "wss://nos.lol");
+  TEST_GREATER(base, 0, ());
+
+  // Balanced accuracy, lying still: fixes 55 m apart, each +-30 m. Their circles overlap: nothing.
+  for (int i = 0; i < 8; ++i)
+  {
+    alice.M().OnLocation(fix(i % 2 == 0 ? 55 : 0, 30));
+    world.Run(31'000);
+  }
+  TEST_EQUAL(EventsReceived(world, "wss://nos.lol"), base, ("jitter is not a move"));
+
+  // A fix three times as accurate goes out, then each 25 m step of a walk with good fixes.
+  alice.M().OnLocation(fix(0, 10));
+  world.Run(31'000);
+  TEST_EQUAL(EventsReceived(world, "wss://nos.lol"), base + 1, ("sharper"));
+  for (int i = 1; i <= 3; ++i)
+  {
+    alice.M().OnLocation(fix(25 * i, 8));
+    world.Run(31'000);
+  }
+  TEST_EQUAL(EventsReceived(world, "wss://nos.lol"), base + 4, ("a walk"));
+
+  // Lying still with GPS: jumps of 16 m stay below 20 m.
+  for (int i = 0; i < 4; ++i)
+  {
+    alice.M().OnLocation(fix(75 + (i % 2 == 0 ? 16 : 0), 5));
+    world.Run(31'000);
+  }
+  TEST_EQUAL(EventsReceived(world, "wss://nos.lol"), base + 4, ());
+}
+
 UNIT_TEST(Manager_AListeningRelayThatStopsDeliveringIsLeft)
 {
   World world;
