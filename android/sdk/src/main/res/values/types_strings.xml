@@ -904,6 +904,9 @@
     <string name="type.organic.only">Organic only</string>
     <string name="type.organic.yes">Organic options</string>
     <string name="type.organic.no">No organic options</string>
+    <string name="type.second_hand.only">Second-hand only</string>
+    <string name="type.second_hand.yes">Second-hand options</string>
+    <string name="type.second_hand.no">No second-hand options</string>
     <string name="type.place.city">City</string>
     <string name="type.place.city.capital">Capital</string>
     <string name="type.place.city.capital.10">City</string>
@@ -1307,6 +1310,7 @@
     <string name="type.shop.florist">Florist</string>
     <string name="type.shop.funeral_directors">Funeral Directors</string>
     <string name="type.shop.furniture">Furniture Store</string>
+    <string name="type.shop.games">Game Shop</string>
     <string name="type.shop.garden_centre">Garden Center</string>
     <string name="type.shop.gas">Gas Store</string>
     <string name="type.shop.gift">Gift Shop</string>
