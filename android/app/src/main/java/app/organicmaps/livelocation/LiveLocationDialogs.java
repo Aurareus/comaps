@@ -11,6 +11,7 @@ import androidx.annotation.StringRes;
 import androidx.appcompat.app.AlertDialog;
 import app.organicmaps.R;
 import app.organicmaps.sdk.livelocation.LiveLocation;
+import app.organicmaps.sdk.livelocation.LiveLocationModels.Consent;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.ConsentRequest;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Sharing;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -35,9 +36,9 @@ final class LiveLocationDialogs
   private LiveLocationDialogs() {}
 
   /**
-   * Relay consent (docs/LIVE_LOCATION.md §11.4). The core keeps either answer: an approval until
-   * revoked, a refusal as "do not ask again". `onAnswered` runs after an answer, not when the dialog
-   * goes with its activity.
+   * Relay consent (docs/LIVE_LOCATION.md §11.4). The core keeps an approval and a refusal until revoked
+   * in Settings; "Not now" asks again the next time the relay is needed, at most once per run.
+   * `onAnswered` runs after an answer, not when the dialog goes with its activity.
    */
   @NonNull
   static AlertDialog showConsent(@NonNull Activity activity, @NonNull ConsentRequest request,
@@ -53,7 +54,13 @@ final class LiveLocationDialogs
     };
     final DialogInterface.OnClickListener answer = (dialog, which) ->
     {
-      LiveLocation.setConsent(request.url, which == DialogInterface.BUTTON_POSITIVE, request.contactName);
+      final Consent consent = switch (which)
+      {
+        case DialogInterface.BUTTON_POSITIVE -> Consent.Allow;
+        case DialogInterface.BUTTON_NEUTRAL -> Consent.Refuse;
+        default -> Consent.NotNow;
+      };
+      LiveLocation.setConsent(request.url, consent, request.contactName);
       if (onAnswered != null)
         onAnswered.run();
     };
@@ -63,6 +70,7 @@ final class LiveLocationDialogs
         .setCancelable(false)
         .setPositiveButton(R.string.live_location_allow, answer)
         .setNegativeButton(R.string.live_location_not_now, answer)
+        .setNeutralButton(R.string.live_location_dont_allow, answer)
         .show();
   }
 

@@ -7,6 +7,7 @@ import androidx.annotation.Nullable;
 import app.organicmaps.R;
 import app.organicmaps.sdk.Framework;
 import app.organicmaps.sdk.livelocation.LiveLocation;
+import app.organicmaps.sdk.livelocation.LiveLocationModels.Consent;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Contact;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Position;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
@@ -56,7 +57,7 @@ public class ContactFragment extends LiveLocationFragment
       views.text(getString(R.string.live_location_live_updates_off_message, contact.name, contact.liveRelay));
       if (!contact.liveRelay.isEmpty())
         views.outlinedButton(getString(R.string.live_location_allow_relay, contact.liveRelay),
-                             v -> LiveLocation.setConsent(contact.liveRelay, true, contact.name));
+                             v -> LiveLocation.setConsent(contact.liveRelay, Consent.Allow, contact.name));
     }
 
     final Position position = positionOf(contact.id);

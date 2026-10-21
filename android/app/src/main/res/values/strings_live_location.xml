@@ -101,6 +101,7 @@
   <string name="live_location_consent_sending">Messages to %1$s go through %2$s, which isn\'t one of yours. Its operator would see your internet address when you send them, for example when you stop sharing with %1$s.</string>
   <string name="live_location_allow">Allow</string>
   <string name="live_location_not_now">Not now</string>
+  <string name="live_location_dont_allow">Don\'t allow</string>
 
   <!-- Sharing -->
   <string name="live_location_share_with">Share with</string>

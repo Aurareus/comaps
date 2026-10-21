@@ -11,6 +11,7 @@ import androidx.annotation.MainThread;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.WorkerThread;
+import app.organicmaps.sdk.livelocation.LiveLocationModels.Consent;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.ConsentRequest;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Contact;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.LocationMode;
@@ -188,11 +189,11 @@ public final class LiveLocation
     return sRunning && nativeSetHomeRelays(relays.toArray(new String[0]));
   }
 
-  /** The user's answer about a relay (relay consent): kept until revoked. */
-  public static void setConsent(@NonNull String url, boolean allowed, @NonNull String forContact)
+  /** The user's answer about a relay (relay consent). Allowing and refusing are kept until revoked. */
+  public static void setConsent(@NonNull String url, @NonNull Consent consent, @NonNull String forContact)
   {
     if (sRunning)
-      nativeSetConsent(url, allowed, forContact);
+      nativeSetConsent(url, consent.ordinal(), forContact);
   }
 
   public static void revokeConsent(@NonNull String url)
@@ -211,6 +212,18 @@ public final class LiveLocation
   {
     if (sRunning)
       nativeSetAllowLive(allow);
+  }
+
+  /** The dot colour contacts see: a name from {@link Settings#dotColors}, or "" to let each of them pick. */
+  public static boolean setColor(@NonNull String color)
+  {
+    return sRunning && nativeSetColor(color);
+  }
+
+  /** Sharing stops at this battery level, 0 to 50 percent; 0: never. */
+  public static boolean setLowBatteryStop(int percent)
+  {
+    return sRunning && nativeSetLowBatteryStop(percent);
   }
 
   // --- Pairing ----------------------------------------------------------------------------------
@@ -333,6 +346,7 @@ public final class LiveLocation
     return sRunning && nativeChangeSharing(ids(recipients), untils(recipients));
   }
 
+  /** Another end for a current recipient's share, earlier or later (0: until stopped). Same stream. */
   public static boolean extendSharing(@NonNull String id, long until)
   {
     return sRunning && nativeExtendSharing(id, until);
@@ -501,10 +515,12 @@ public final class LiveLocation
   private static native String nativeGetSettings();
   private static native boolean nativeSetName(@NonNull String name);
   private static native boolean nativeSetHomeRelays(@NonNull String[] relays);
-  private static native void nativeSetConsent(@NonNull String url, boolean allowed, @NonNull String forContact);
+  private static native void nativeSetConsent(@NonNull String url, int consent, @NonNull String forContact);
   private static native void nativeRevokeConsent(@NonNull String url);
   private static native void nativeSetRequestLive(boolean request);
   private static native void nativeSetAllowLive(boolean allow);
+  private static native boolean nativeSetColor(@NonNull String color);
+  private static native boolean nativeSetLowBatteryStop(int percent);
   @Nullable
   private static native String nativeCreateInvite(boolean byLink);
   @Nullable

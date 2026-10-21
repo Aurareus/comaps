@@ -554,7 +554,7 @@ JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_native
 JNIEXPORT jstring JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeGetSettings(JNIEnv * env, jclass)
 {
   std::string settings = "{}";
-  Run([&settings](Manager & manager) { settings = SettingsJson(manager.GetSettings()).Dump(); });
+  Run([&settings](Manager & manager) { settings = SettingsJson(manager.GetSettings(), manager.IsStarted()).Dump(); });
   return ToJava(env, settings);
 }
 
@@ -582,12 +582,13 @@ JNIEXPORT jboolean JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_na
 }
 
 JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeSetConsent(JNIEnv * env, jclass,
-                                                                                           jstring url,
-                                                                                           jboolean allowed,
+                                                                                           jstring url, jint answer,
                                                                                            jstring forContact)
 {
-  Post([u = ToUtf8(env, url), allowed, c = ToUtf8(env, forContact)](Manager & manager)
-  { manager.SetConsent(u, allowed, c); });
+  // LiveLocationModels.Consent's ordinals.
+  Consent const consent = answer == 0 ? Consent::Allow : answer == 1 ? Consent::NotNow : Consent::Refuse;
+  Post([u = ToUtf8(env, url), consent, c = ToUtf8(env, forContact)](Manager & manager)
+  { manager.SetConsent(u, consent, c); });
 }
 
 JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeRevokeConsent(JNIEnv * env, jclass,
@@ -606,6 +607,22 @@ JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_native
                                                                                              jboolean allow)
 {
   Post([allow](Manager & manager) { manager.SetAllowLive(allow); });
+}
+
+JNIEXPORT jboolean JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeSetColor(JNIEnv * env, jclass,
+                                                                                             jstring color)
+{
+  bool ok = false;
+  Run([&ok, c = ToUtf8(env, color)](Manager & manager) mutable { ok = manager.SetColor(std::move(c)); });
+  return ok;
+}
+
+JNIEXPORT jboolean JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeSetLowBatteryStop(JNIEnv *, jclass,
+                                                                                                      jint percent)
+{
+  bool ok = false;
+  Run([&ok, percent](Manager & manager) { ok = manager.SetLowBatteryStop(percent); });
+  return ok;
 }
 
 JNIEXPORT jstring JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeCreateInvite(JNIEnv * env, jclass,

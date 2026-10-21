@@ -124,6 +124,9 @@ public final class LiveLocationModelsTest
     assertTrue(bob.liveUpdatesOff);
     assertEquals("ws://127.0.0.1:9", bob.liveRelay);
     assertEquals(new Pairing(view("pairing_joiner_compare")).sas, bob.sas);
+    // His other relay is Alice's own: something reaches him.
+    assertEquals("", bob.blockedRelay);
+    assertEquals("teal", bob.color);
 
     final Contact alice = Contact.list(view("contacts_sharer")).get(0);
     assertEquals("Alice", alice.name);
@@ -132,6 +135,18 @@ public final class LiveLocationModelsTest
     assertEquals(Long.valueOf(0), alice.iShareUntil);
     assertNull(alice.sharesWithMeUntil);
     assertFalse(alice.notMoved || alice.moveOverdue);
+    assertEquals("", alice.color);
+  }
+
+  @Test
+  public void blockedContact() throws Exception
+  {
+    // None of a contact's relays may be used: the core names the one that would do, in the same key.
+    final JSONObject view = new JSONObject(view("contacts_viewer").toString());
+    final JSONObject entry = view.getJSONArray("contacts").getJSONObject(0);
+    assertTrue(entry.has("blocked_relay"));
+    entry.put("blocked_relay", "wss://relay.bob.example");
+    assertEquals("wss://relay.bob.example", Contact.list(view).get(0).blockedRelay);
   }
 
   @Test
@@ -165,6 +180,9 @@ public final class LiveLocationModelsTest
     assertEquals(8.0, bob.accuracy, 0);
     assertTrue(bob.timeMs > 1_700_000_000_000L);
     assertFalse(bob.stale);
+    // Bob shares with a colour, at 10 % battery.
+    assertTrue(bob.low);
+    assertEquals("teal", bob.color);
   }
 
   @Test
@@ -189,15 +207,29 @@ public final class LiveLocationModelsTest
   public void settings() throws Exception
   {
     final Settings settings = new Settings(view("settings"));
+    assertTrue(settings.readable);
     assertEquals("Alice", settings.name);
     assertFalse(settings.homeRelays.isEmpty());
     assertEquals(1, settings.approved.size());
     assertEquals("ws://127.0.0.1:9", settings.approved.get(0)[0]);
     assertEquals("Bob", settings.approved.get(0)[1]);
-    assertTrue(settings.declined.isEmpty());
+    assertEquals(1, settings.declined.size());
+    assertEquals("ws://127.0.0.1:8", settings.declined.get(0)[0]);
+    assertEquals("Carol", settings.declined.get(0)[1]);
     assertEquals(3, settings.defaultRelays.size());
     assertEquals("wss://nos.lol", settings.defaultRelays.get(0));
     assertTrue(settings.requestLive && settings.allowLive);
     assertEquals(5, settings.lowBatteryStop);
+    assertEquals("purple", settings.color);
+    // CoMaps' bookmark colours without the greys, in their order.
+    assertEquals(14, settings.dotColors.size());
+    assertEquals("red", settings.dotColors.get(0).name);
+    assertEquals(0xE51B23, settings.dotColors.get(0).rgb);
+    assertEquals("brown", settings.dotColors.get(13).name);
+
+    // A store that cannot be read: the same view, flagged.
+    final JSONObject unreadable = new JSONObject(view("settings").toString());
+    unreadable.put("readable", false);
+    assertFalse(new Settings(unreadable).readable);
   }
 }

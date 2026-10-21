@@ -18,6 +18,8 @@ from cross_test import CppPeer, Strfry  # noqa: E402
 
 # Nothing listens there: a relay that is not the user's own, to make the core ask for consent.
 OTHER_RELAY = 'ws://127.0.0.1:9'
+# One the user refused for good ("Don't allow").
+REFUSED_RELAY = 'ws://127.0.0.1:8'
 
 
 def main():
@@ -80,8 +82,11 @@ def main():
         alice.cmd('foreground on')
         if bob.wait(lambda e: e['event'] == 'contacts' and not e['contacts'][0]['not_moved'], m, 60) is None:
             raise RuntimeError('no answer from Alice')
+        # Bob shares with a dot colour, and his battery is low.
         m_alice = alice.mark()
+        bob.cmd('color teal')
         m = bob.cmd('share Alice')
+        bob.cmd('battery 10')
         bob.cmd('fix 52.5200066 13.404954 8')
         record('sharing_active', bob.wait(lambda e: e['event'] == 'sharing' and e['active'], m))
         record('location_idle', bob.wait(lambda e: e['event'] == 'location' and e['mode'] == 'Idle', m))
@@ -95,6 +100,8 @@ def main():
         record('contacts_sharer', bob.wait(lambda e: e['event'] == 'contacts', m))
 
         alice.cmd('consent %s allow Bob' % OTHER_RELAY)
+        alice.cmd('consent %s refuse Carol' % REFUSED_RELAY)
+        alice.cmd('color purple')
         m = alice.cmd('settings')
         record('settings', alice.wait(lambda e: e['event'] == 'settings', m))
 

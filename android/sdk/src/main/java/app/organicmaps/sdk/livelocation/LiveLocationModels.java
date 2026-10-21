@@ -60,6 +60,15 @@ public final class LiveLocationModels
     /** The relay live updates need, when they are off: the user may allow it. */
     @NonNull
     public final String liveRelay;
+    /**
+     * None of the contact's relays may be used, so nothing reaches it, nor is its share followed: this one,
+     * the first of its relays, would do. Empty otherwise.
+     */
+    @NonNull
+    public final String blockedRelay;
+    /** The dot colour the contact chose (a name of {@link Settings#dotColors}), empty if none. */
+    @NonNull
+    public final String color;
 
     Contact(@NonNull JSONObject json)
     {
@@ -77,6 +86,8 @@ public final class LiveLocationModels
       iShareUntil = optionalLong(json, "i_share");
       liveUpdatesOff = json.optBoolean("live_updates_off");
       liveRelay = json.optString("live_relay");
+      blockedRelay = json.optString("blocked_relay");
+      color = json.optString("color");
     }
 
     @NonNull
@@ -162,6 +173,11 @@ public final class LiveLocationModels
     public final long timeMs;
     /** Over two minutes old, or its stream ended. */
     public final boolean stale;
+    /** The sharer's battery is low. */
+    public final boolean low;
+    /** The dot colour the sharer chose (a name of {@link Settings#dotColors}), empty if none. */
+    @NonNull
+    public final String color;
 
     Position(@NonNull JSONObject json)
     {
@@ -172,6 +188,8 @@ public final class LiveLocationModels
       accuracy = json.optDouble("acc");
       timeMs = json.optLong("ts");
       stale = json.optBoolean("stale");
+      low = json.optBoolean("low");
+      color = json.optString("color");
     }
 
     @NonNull
@@ -239,6 +257,16 @@ public final class LiveLocationModels
     }
   }
 
+  /** The user's answer to a question about a relay. The order is the native side's. */
+  public enum Consent
+  {
+    Allow,
+    /** Asked again the next time the relay is needed, at most once per run. */
+    NotNow,
+    /** Never asked again; Settings lists it, and it can be allowed there. */
+    Refuse
+  }
+
   public static final class ConsentRequest
   {
     public enum Purpose
@@ -287,8 +315,24 @@ public final class LiveLocationModels
     Live
   }
 
+  /** A dot colour a user may choose: its name in the protocol, and its colour as 0xRRGGBB. */
+  public static final class DotColor
+  {
+    @NonNull
+    public final String name;
+    public final int rgb;
+
+    DotColor(@NonNull JSONObject json)
+    {
+      name = json.optString("name");
+      rgb = json.optInt("rgb");
+    }
+  }
+
   public static final class Settings
   {
+    /** False while the stored data cannot be read: these are defaults, not the user's, and edits fail. */
+    public final boolean readable;
     @NonNull
     public final String name;
     @NonNull
@@ -296,30 +340,51 @@ public final class LiveLocationModels
     /** Relays approved under relay consent, with the contact each was approved for. */
     @NonNull
     public final List<String[]> approved;
+    /** Relays the user refused for good ("Don't allow"), with the contact each was refused for. */
     @NonNull
-    public final List<String> declined;
+    public final List<String[]> declined;
     /** The relays a new user starts with. */
     @NonNull
     public final List<String> defaultRelays;
     public final boolean requestLive;
     public final boolean allowLive;
+    /** Sharing stops at this battery level, in percent; 0: never. */
     public final int lowBatteryStop;
+    /** The dot colour contacts see, a name of {@link #dotColors}; empty: each of them picks one. */
+    @NonNull
+    public final String color;
+    @NonNull
+    public final List<DotColor> dotColors;
 
     Settings(@NonNull JSONObject json) throws JSONException
     {
+      readable = json.optBoolean("readable", true);
       name = json.optString("name");
       homeRelays = strings(json.optJSONArray("relays"));
-      final List<String[]> list = new ArrayList<>();
-      final JSONArray array = json.optJSONArray("approved");
-      if (array != null)
-        for (int i = 0; i < array.length(); ++i)
-          list.add(new String[] {array.getJSONObject(i).optString("url"), array.getJSONObject(i).optString("contact")});
-      approved = Collections.unmodifiableList(list);
-      declined = strings(json.optJSONArray("declined"));
+      approved = relaysFor(json.optJSONArray("approved"));
+      declined = relaysFor(json.optJSONArray("declined"));
       defaultRelays = strings(json.optJSONArray("default_relays"));
       requestLive = json.optBoolean("request_live", true);
       allowLive = json.optBoolean("allow_live", true);
       lowBatteryStop = json.optInt("low_battery_stop", 5);
+      color = json.optString("color");
+      final List<DotColor> colors = new ArrayList<>();
+      final JSONArray array = json.optJSONArray("dot_colors");
+      if (array != null)
+        for (int i = 0; i < array.length(); ++i)
+          colors.add(new DotColor(array.getJSONObject(i)));
+      dotColors = Collections.unmodifiableList(colors);
+    }
+
+    /** Pairs of a relay and the contact it was decided for. */
+    @NonNull
+    private static List<String[]> relaysFor(@Nullable JSONArray array) throws JSONException
+    {
+      final List<String[]> list = new ArrayList<>();
+      if (array != null)
+        for (int i = 0; i < array.length(); ++i)
+          list.add(new String[] {array.getJSONObject(i).optString("url"), array.getJSONObject(i).optString("contact")});
+      return Collections.unmodifiableList(list);
     }
   }
 }

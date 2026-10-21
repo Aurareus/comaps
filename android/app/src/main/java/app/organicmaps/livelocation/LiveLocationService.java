@@ -64,9 +64,12 @@ public class LiveLocationService extends Service implements LocationListener, Li
     @Override
     public void onReceive(Context context, Intent intent)
     {
-      // Plugged in, the share goes on whatever the level.
+      // Plugged in, the share goes on whatever the level, and viewers are not told the battery is low.
       if (intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0)
+      {
+        LiveLocation.onBatteryLevel(100);
         return;
+      }
       final int level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
       final int scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
       if (level >= 0 && scale > 0)
