@@ -185,6 +185,7 @@ async def scenario(alice, bob, carol):
     following = [asyncio.ensure_future(bob.follow(900, on_position=lambda n, b: seen['Bob'].append(b))),
                  asyncio.ensure_future(carol.follow(900, on_position=lambda n, b: seen['Carol'].append(b)))]
     await asyncio.sleep(2)
+    alice.cmd('color teal')
     m = alice.cmd('share Bob Carol')
     alice.cmd('fix 52.5200066 13.404954 8')
 
@@ -197,6 +198,7 @@ async def scenario(alice, bob, carol):
     check(await until(lambda: any(abs(b['lat'] - 52.5200066) < 1e-9 for b in seen['Bob']) and
                       any(abs(b['lat'] - 52.5200066) < 1e-9 for b in seen['Carol']), 30),
           'both Python followers decrypt the C++ sharer\'s position')
+    check(bob.colors.get('Alice') == 'teal', 'the Python follower reads the C++ sharer\'s dot colour')
     live = await alice.await_event(lambda e: e['event'] == 'location' and e['mode'] == 'Live', m, 90)
     check(live is not None, 'Python watch signals make the C++ sharer live')
 
@@ -220,10 +222,12 @@ async def scenario(alice, bob, carol):
 
     # 5. Bob (Python) shares with Alice (C++).
     m = alice.mark()
-    sharing = asyncio.ensure_future(bob.share(['Alice'], 600, 48.8566, 2.3522))
+    sharing = asyncio.ensure_future(bob.share(['Alice'], 600, 48.8566, 2.3522, color='orange'))
     shown = await alice.await_event(lambda e: e['event'] == 'positions' and position(e, 'Bob') and
                                     abs(position(e, 'Bob')['lat'] - 48.8566) < 1e-9, m, 60)
     check(shown is not None, 'the C++ viewer decrypts the Python sharer\'s position')
+    check(shown is not None and position(shown, 'Bob')['color'] == 'orange',
+          'the C++ viewer reads the Python sharer\'s dot colour')
     sharing.cancel()
 
     # 6. Alice stops: Bob sees it.

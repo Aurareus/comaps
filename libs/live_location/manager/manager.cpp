@@ -26,7 +26,11 @@ int64_t constexpr kCatchUpMs = 30'000;    // how long the previous epoch's state
 int64_t constexpr kPairingRetryMs = 30'000;
 size_t constexpr kMaxPreviousRelays = 8;  // after several changes before everyone moved
 int64_t constexpr kMoveEpochs = 30;       // the previous home relays are read at most through epoch e_c + 30
-int64_t constexpr kEchoMemoryEpochs = 30;  // a relay that sent an event back is judged for 30 days after
+
+bool Contains(Relays const & relays, std::string const & url)
+{
+  return std::find(relays.begin(), relays.end(), url) != relays.end();
+}
 
 double DistanceM(Location const & a, Location const & b)
 {
@@ -218,18 +222,19 @@ SecretBytes Manager::Encode(std::set<ByteArray<32>> & digests) const
   }
 
   // Version 4: the dot colour, then whom each refusal was for, in the order of the refused relays above,
-  // the contacts' colours, in the order of the contacts, and the echo record.
+  // the contacts' colours, in the order of the contacts, and the echo record of the relays still in use.
   writer.String(m_settings.m_color);
   for (auto const & declined : m_settings.m_declined)
     writer.String(declined.second);
   for (auto const & peer : m_peers)
     writer.String(peer->m_color);
-  writer.U32(static_cast<uint32_t>(m_echoed.size()));
-  for (auto const & [url, epoch] : m_echoed)
-  {
+  std::vector<std::string> echoed;
+  for (auto const & url : m_echoed)
+    if (Contains(m_settings.m_homeRelays, url) || Contains(m_settings.m_previousRelays, url))
+      echoed.push_back(url);
+  writer.U32(static_cast<uint32_t>(echoed.size()));
+  for (auto const & url : echoed)
     writer.String(url);
-    writer.I64(epoch);
-  }
 
   SecretBytes out = writer.Finish();
   digests = writer.SecretDigests();
@@ -344,11 +349,8 @@ void Manager::Decode(ByteSpan data)
       declined.second = reader.String();
     for (auto & peer : m_peers)
       peer->m_color = reader.String();
-    for (uint32_t i = 0, n = reader.Count(12); i < n; ++i)
-    {
-      std::string url = reader.String();
-      m_echoed[std::move(url)] = reader.I64();
-    }
+    for (uint32_t i = 0, n = reader.Count(4); i < n; ++i)
+      m_echoed.insert(reader.String());
   }
   if (!reader.AtEnd())
     throw binary::FormatError("trailing data");
@@ -397,21 +399,9 @@ bool Manager::Start()
     break;
   }
   m_started = true;
-  // The echo check judges the relays that sent an event back in the last 30 days from the first post on,
-  // also those that stopped before this run (spec §11).
-  std::set<std::string> echoing;
-  int64_t const epoch = EpochOf(Now());
-  for (auto it = m_echoed.begin(); it != m_echoed.end();)
-  {
-    if (it->second + kEchoMemoryEpochs < epoch)
-    {
-      it = m_echoed.erase(it);
-      continue;
-    }
-    echoing.insert(it->first);
-    ++it;
-  }
-  m_pool->SetEchoing(std::move(echoing));
+  // The echo check judges a relay that has ever sent an event back, also one that stopped before this run
+  // (spec §11).
+  m_pool->SetEchoing(m_echoed);
   OnClock();  // erases what is due after the time the app was closed, and expires invites
   NotifyContacts();
   NotifySharing();
@@ -501,13 +491,8 @@ std::optional<std::string> Manager::Color() const
 
 void Manager::OnEchoed(std::string const & url)
 {
-  // Remembered by the day, so that the store is written once a day per relay at most.
-  int64_t const epoch = EpochOf(Now());
-  auto const it = m_echoed.find(url);
-  if (it != m_echoed.end() && it->second == epoch)
-    return;
-  m_echoed[url] = epoch;
-  Save();
+  if (m_echoed.insert(url).second)
+    Save();
 }
 
 Relays Manager::OldRelays() const
@@ -656,8 +641,8 @@ void Manager::AnnounceRelays()
   }
   for (auto const & peer : m_peers)
     if (granted.count(peer->m_contact) == 0)
-      rekey.m_states.emplace_back(peer->m_contact,
-                                  StateEvent(*peer->m_contact, m_settings.m_homeRelays, std::nullopt, m_rng, now));
+      rekey.m_states.emplace_back(
+          peer->m_contact, StateEvent(*peer->m_contact, m_settings.m_homeRelays, std::nullopt, m_rng, now, Color()));
   Shuffle(rekey.m_states, m_rng);
   Save();  // the seqs and created_at of these states, and the new stream, before they leave
   PublishRekey(std::move(rekey), oldEpoch, oldRelays);
@@ -712,6 +697,7 @@ bool Manager::SetColor(std::string color)
     if (m_sharer->IsSharing())
       for (auto const & grant : m_sharer->GetGrants())
         states.emplace_back(grant.first, m_sharer->CurrentState(grant.first, m_rng, Now()));
+    Shuffle(states, m_rng);
   }
   Save();
   for (auto const & [contact, event] : states)
@@ -725,6 +711,7 @@ bool Manager::SetLowBatteryStop(int percent)
     return false;
   m_settings.m_lowBatteryStop = percent;
   Save();
+  m_batteryArmed = true;  // a level chosen while sharing applies at once
   if (m_battery >= 0)
     OnBatteryLevel(m_battery);
   return true;
@@ -1376,6 +1363,8 @@ bool Manager::StartSharing(Recipients const & recipients)
   Rekey rekey = m_sharer->Start(ToGrants(recipients), m_rng, now);
   m_resumable.clear();
   m_lastFix.reset();  // a fix from before the share could be hours old
+  m_battery = -1;     // and so could the battery level
+  m_batteryArmed = false;
   m_lastPublished.reset();
   m_liveUntil = 0;
   Save();
@@ -1541,7 +1530,12 @@ void Manager::OnBatteryLevel(int percent)
 {
   m_battery = percent;
   int const stop = m_settings.m_lowBatteryStop;  // 0: never
-  if (m_sharer && m_sharer->IsSharing() && stop > 0 && percent <= stop)
+  if (!m_sharer || !m_sharer->IsSharing() || stop == 0)
+    return;
+  // A share started at or below the level is the user's choice: it runs until the battery has been above.
+  if (percent > stop)
+    m_batteryArmed = true;
+  else if (m_batteryArmed)
     StopSharing();
 }
 

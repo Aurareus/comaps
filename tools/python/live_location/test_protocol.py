@@ -720,6 +720,13 @@ def state_text(**over):
 good_share = {'until': 0, 'pk': stream.pubkey(), 'key': p.b64encode(stream.key)}
 check(P.read_control(erin_a, raw_state(state_text(share=good_share), now + 22), now + 22) is not None,
       'a well-formed state is accepted')
+# The dot colour is cosmetic. A short string is kept, whatever the name (an app ignores names it does not
+# know); one of another type or size is ignored, not the state with its grant (§8).
+for what, value, kept in [('a name', 'teal', 'teal'), ('a name of a later version', 'mauve', 'mauve'),
+                          ('32 bytes', 'x' * 32, 'x' * 32), ('33 bytes', 'x' * 33, None), ('empty', '', None),
+                          ('a number', 7, None), ('null', None, None)]:
+    body = P.decode_plaintext(state_text(share=good_share, color=value))
+    check(not raises(lambda: P.check_state(body)) and P.state_color(body) == kept, 'the dot colour: ' + what)
 bad_texts = {
     'NaN': state_text().replace(b'"ts": %d' % now, b'"ts": NaN'),
     'Infinity': state_text().replace(b'"ts": %d' % now, b'"ts": Infinity'),

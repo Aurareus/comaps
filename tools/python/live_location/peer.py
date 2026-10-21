@@ -233,6 +233,7 @@ class Peer:
         self.decoy_seed = bytes.fromhex(state['decoy_seed']) if 'decoy_seed' in state else rng(32)
         self.contacts = {d['name']: contact_from_dict(d) for d in state.get('contacts', [])}
         self.positions = {}        # name -> last location, in memory only
+        self.colors = {}           # name -> the dot colour from its last state, or None
         self.removed_at = {}       # name -> (time, old stream key, old stream pk)
         self.probe_results = {}    # name -> {'events': n, 'decrypted': n}
 
@@ -404,6 +405,7 @@ class Peer:
                 self.follow_relays(c, st, lambda: P.state_event(c, self.relays, None, self.rng, now()))
                 old = views[name].grant
                 views[name].on_state(st, now())
+                self.colors[name] = views[name].color
                 grant = views[name].grant
                 if grant is not None and (old is None or grant['pk'] != old['pk']):
                     until = time.strftime(' until %H:%M', time.localtime(grant['until'])) if grant['until'] else ''
@@ -467,12 +469,12 @@ class Peer:
 
     # --- Sharing ----------------------------------------------------------------------------------
 
-    async def share(self, to, seconds, lat, lon, walk=False, until=0, on_live=None):
+    async def share(self, to, seconds, lat, lon, walk=False, until=0, on_live=None, color=None):
         """Shares a position with the contacts named in `to`: every 5 s while a recipient watches, every
         60 s otherwise. Stops after `seconds`, with the states first and the old stream's end after their
         OKs (spec §9)."""
         recipients = {self.contacts[n]: until for n in to}
-        sharer = P.Sharer(self.relays)
+        sharer = P.Sharer(self.relays, color)
         epoch = P.epoch_of(now())
         await self._rekey(sharer.start(recipients, self.rng, now()), None)
         live_until = 0
@@ -557,6 +559,7 @@ async def main():
     s.add_argument('--lat', type=float, default=52.5200066)
     s.add_argument('--lon', type=float, default=13.404954)
     s.add_argument('--walk', action='store_true')
+    s.add_argument('--color', help='the dot colour viewers are asked to show, e.g. teal (spec §8)')
     args = ap.parse_args()
 
     peer = Peer(args.state, args.name, args.relays)
@@ -572,7 +575,7 @@ async def main():
                 log('summary %s: %d events after the removal, %d decrypted with the old key'
                     % (name, res['events'], res['decrypted']))
         elif args.command == 'share':
-            await peer.share(args.to, args.minutes * 60, args.lat, args.lon, args.walk)
+            await peer.share(args.to, args.minutes * 60, args.lat, args.lon, args.walk, color=args.color)
     finally:
         await peer.net.close()
 

@@ -372,7 +372,8 @@ Each direction has a single addressable slot (kind `30484`, `d = ""`, pubkey `ct
 ```json
 {"t":"state","seq":7,"ts":1760000200,
  "relays":["wss://nos.lol","wss://nostr.mom","wss://relay.primal.net"],
- "share":{"until":1760003800,"pk":"<stream pubkey, 64 hex>","key":"<stream key, base64 of 32 bytes>"}}
+ "share":{"until":1760003800,"pk":"<stream pubkey, 64 hex>","key":"<stream key, base64 of 32 bytes>"},
+ "color":"teal"}
 ```
 
 - `seq` is a per-direction counter, starting at 1 and strictly increasing across epochs.
@@ -383,6 +384,10 @@ Each direction has a single addressable slot (kind `30484`, `d = ""`, pubkey `ct
   (§6.3). The first carries no `share`; each later one is the joiner's current state.
 - `share` is present while the sender shares with this recipient. `until` is when this
   recipient's access ends (0 = until stopped). A state without `share` ends any earlier grant.
+- `color`, optional, is the colour the sender asks viewers to draw its dot in: in this version one of
+  `red`, `pink`, `purple`, `deeppurple`, `blue`, `lightblue`, `cyan`, `teal`, `green`, `lime`,
+  `yellow`, `orange`, `deeporange` and `brown`. The latest state counts: one without `color` leaves
+  the colour to the viewer. A viewer draws a name it does not know as if there were none (§12).
 - Encryption: `content = NIP-44(ctl_ck(e), plaintext)`, control class.
 - `expiration = epoch_end(e) + 3600`.
 - Published to the **recipient's** home relays (its inbox, §11).
@@ -478,7 +483,9 @@ the relay accepts with `OK true` should then come back over the same connection.
 relay accepts events without delivering them, and the client SHOULD listen on the next relay, trying
 the first again later (design doc §10.3). An exact duplicate (`OK true` with `duplicate:`) is not
 delivered again, and a relay that has never sent an event back may simply not do so: neither proves
-anything.
+anything. A client SHOULD remember which of its home relays have sent an event back, across runs and
+for as long as they stay among its home relays: one that stopped delivering before the client started
+would otherwise never be judged.
 
 | Message | Published to | Read from |
 |---|---|---|
@@ -504,6 +511,10 @@ states (§8). When the user changes them, the app:
   already sent that contact a state that day, for as long as the contact has not moved. A state can be
   read only until 01:00 UTC the next day (§8): without the repeats, a contact that did not open its
   app that day would never learn the new list.
+
+A contact that never finished connecting, whose confirmation week (§6.3) is over without one, is left
+out of the last three points: it gets no repeats, the previous relays are not read for it, and it is
+not shown as not moved (the app offers to remove it instead).
 
 A client that accepts a state naming relays other than those its last state to that contact was
 accepted on (the "answer") SHOULD send that contact its current state at once, through the relays now
@@ -566,12 +577,16 @@ when you send it states, including when you stop sharing with it. So:
 - Implementations MUST NOT connect, to read or to publish, to a relay outside the user's own home
   relays (and the previous ones, until every contact has moved or for 30 days after a change), the
   built-in default list, and relays the user has approved.
-- For any other relay a contact names, the app asks once, naming the contact: "Bob's location comes
+- For any other relay a contact names, the app asks, naming the contact: "Bob's location comes
   through relay.example.org, which isn't one of yours. Its operator would see your internet address
-  whenever you view Bob." An approval is remembered per relay, and can be revoked in the settings.
+  whenever you view Bob." The user can allow the relay, which is remembered per relay and can be
+  revoked in the settings; refuse it, which is remembered too, and listed in the settings so that it
+  can be allowed later; or put the question off, and the app asks again the next time the relay is
+  needed, at most once each time it runs.
 - Until approved, a relay is skipped. The app reads, publishes and pairs through the contact's
   remaining relays, if any. Skipping a removed recipient's relay when sending it a state without
-  `share` costs nothing: revocation is cryptographic (§9).
+  `share` costs nothing: revocation is cryptographic (§9). While none of a contact's relays may be
+  used, nothing reaches that contact, and the app shows which relay it would need.
 - A viewer takes a sharer's listening relay to be the first of the list in its states. If the viewer
   may not use that relay, its signals cannot reach the sharer while nobody watches, so faster
   updates never start (§10). An app that sends signals MUST then say, when it asks for that relay,
@@ -606,7 +621,7 @@ defined in §5.
 
 | `t` | Required | Optional |
 |---|---|---|
-| `state` | `seq` integer ≥ 1; `ts` integer ≥ 0; `relays` per §5 | `share`: an object with `until` an integer ≥ 0, `pk` 64 lowercase hex characters that decode to a valid x-only key, and `key` base64 of exactly 32 bytes. An invalid `share` makes the whole state invalid |
+| `state` | `seq` integer ≥ 1; `ts` integer ≥ 0; `relays` per §5 | `share`: an object with `until` an integer ≥ 0, `pk` 64 lowercase hex characters that decode to a valid x-only key, and `key` base64 of exactly 32 bytes. An invalid `share` makes the whole state invalid. `color`: a string of 1–32 bytes; anything else is ignored, the state is not |
 | `loc` | `seq` integer ≥ 1; `ts` integer ≥ 0 (ms); `lat` number in [−90, 90]; `lon` number in [−180, 180]; `acc` number ≥ 0 | `spd` number ≥ 0; `brg` number in [0, 360); `alt` number; `low` boolean; `nav` object with `eta` integer ≥ 0, `dist` number ≥ 0 and `dest` string of at most 48 bytes, each optional |
 | `end` | `seq` integer ≥ 1; `ts` integer ≥ 0 | — |
 | `watch` | `ts` integer ≥ 0; `until` integer ≥ 0 | — |
@@ -679,12 +694,13 @@ Further obligations:
 | pairing epoch | `e_p = epoch(now − 300)` at the inviter; the joiner accepts `epoch(now) − 1 ≤ e_p ≤ epoch(now)` |
 | joiner's confirmation | a state right after step 3, then one on each UTC day the joiner runs, through epoch `e_p + 7` |
 | removal offered for an unconfirmed contact | from `epoch_end(e_p + 7) + 3600` |
-| previous home relays read after a change | until every contact has moved, at most through epoch `e_c + 30` |
+| previous home relays read after a change | until every contact has moved (not counting those that never finished connecting), at most through epoch `e_c + 30` |
 | echo of an accepted event on the listening relay (optional) | within 15 s of its `OK` |
 | invite | 70 bytes plus the relay list (122 bytes with the three default relays) |
 | invite lifetime | at most 86400 s; joiners refuse `expires_at` more than 86400 + 300 s ahead |
 | JSON integers | within ±(2⁵³ − 1) |
 | relay lists | 1–4 `wss://` URLs of ≤ 64 bytes (`ws://` only to loopback) |
+| dot colour (`color`) | a name of 1–32 bytes, from 14 in this version (§8) |
 | authors per REQ filter | ≤ 50 |
 | inbox subscription | padded with decoys to a multiple of 8 |
 

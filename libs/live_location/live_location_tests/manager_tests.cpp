@@ -4,6 +4,7 @@
 #include "live_location/live_location_tests/scenario.hpp"
 
 #include "live_location/manager/manager.hpp"
+#include "live_location/manager/marks.hpp"
 #include "live_location/protocol/common.hpp"
 #include "live_location/protocol/constants.hpp"
 #include "live_location/store/store.hpp"
@@ -21,7 +22,8 @@
 #include <vector>
 
 // Whole phones against in-process relays: pairing, sharing, live updates, relays down, time limits,
-// revocation, the connection policy, relay consent, restarts and the store's key rotation.
+// revocation, the connection policy, relay consent, restarts, the store's key rotation, dot colours and
+// the battery.
 namespace manager_tests
 {
 using namespace live_location;
@@ -563,6 +565,69 @@ UNIT_TEST(Manager_AnAnswerDoesNotAskForTheOtherRelays)
   TEST(bob.Events().m_consents[0].m_purpose == ConsentRequest::Purpose::LiveUpdates, ());
 }
 
+UNIT_TEST(Manager_NobodyWaitsForAContactThatNeverFinishedConnecting)
+{
+  World world;
+  std::string const kOwn = "wss://own.example";
+  std::string const kCarols = "wss://carol.example";
+  world.m_transport.Add(kOwn);
+  world.m_transport.Add(kCarols);
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+  alice.M().SetConsent(kCarols, Consent::Allow, "Carol");
+  bob.M().SetConsent(kOwn, Consent::Allow, "Alice");
+
+  // Carol, on a relay of her own, opens Alice's invite and compares the codes, then loses her phone before
+  // Alice accepts: Alice's contact for her never finishes connecting.
+  std::string inviteId;
+  {
+    Phone carol(world, "Carol");
+    TEST(carol.M().SetHomeRelays({kCarols}), ());
+    carol.M().SetForeground(true);
+    auto const invite = alice.M().CreateInvite(false);
+    auto const opened = carol.M().OpenInvite(invite->m_link);
+    TEST(opened && opened->m_stage == PairingInfo::Stage::Waiting, ());
+    world.Run(3'000);
+    carol.M().ConfirmCode(opened->m_id, true);
+    inviteId = invite->m_id;
+  }
+  alice.M().Decide(inviteId, true, true);
+  world.Run(3'000);
+  TEST(alice.Contact("Carol") && alice.Contact("Carol")->m_waiting, ());
+  alice.M().SetForeground(false);
+  bob.M().SetForeground(false);
+  world.Run(8 * 86'400'000LL);
+  alice.M().SetForeground(true);
+  bob.M().SetForeground(true);
+  world.Run(3'000);
+  TEST(alice.Contact("Carol")->m_offerRemoval, ("past her first week"));
+
+  // Alice moves to a relay of her own, and Bob answers. Carol, who will not, is not labelled as not moved
+  // (she is offered for removal instead), the old relays are not read for her, and she gets the new list
+  // once, not again each day.
+  size_t const toCarol = EventsReceived(world, kCarols);
+  TEST(alice.M().SetHomeRelays({kOwn}), ());
+  world.Run(5'000);
+  TEST(!alice.Contact("Bob")->m_notMoved, ());
+  TEST(!alice.Contact("Carol")->m_notMoved && alice.Contact("Carol")->m_offerRemoval, ());
+  world.Run(120'000);
+  auto const connections = alice.M().Pool().Connections();
+  TEST(!connections.empty(), ());
+  for (auto const & connection : connections)
+    TEST_EQUAL(connection.first, kOwn, ());
+  alice.M().SetForeground(false);
+  bob.M().SetForeground(false);
+  for (int day = 1; day <= 2; ++day)
+  {
+    world.Run(86'400'000);
+    alice.M().SetForeground(true);
+    world.Run(10'000);
+    alice.M().SetForeground(false);
+  }
+  TEST_EQUAL(EventsReceived(world, kCarols), toCarol + 1, ());
+}
+
 UNIT_TEST(Manager_TimeLimitsAndStop)
 {
   World world;
@@ -731,6 +796,71 @@ UNIT_TEST(Manager_AListeningRelayThatStopsDeliveringIsLeft)
   TEST(alice.Events().m_location == LocationRequest::Live, ("Bob's signal arrives through nostr.mom"));
 }
 
+UNIT_TEST(Manager_ARelayThatEverSentAnEventBackIsJudgedInEveryRun)
+{
+  World world;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+  bob.M().SetForeground(false);
+  alice.M().SetForeground(false);
+  double lat = 35.68;
+  // Starts a share, and gives the relay it listens on once things settle.
+  auto const share = [&]
+  {
+    TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+    // The first event leaves before the listening subscription is open, so nothing waits for it to come
+    // back: the second one tells.
+    for (int i = 0; i < 2; ++i)
+    {
+      lat += 0.001;
+      alice.M().OnLocation(FixAt(world, lat, 139.69));
+      world.Run(100'000);  // the echo or the wait for it, and the publishing connections closing
+    }
+    auto const connections = alice.M().Pool().Connections();
+    return connections.size() == 1 ? connections[0].first : std::string();
+  };
+  auto const stop = [&]
+  {
+    alice.M().StopSharing();
+    world.Run(20'000);
+  };
+
+  // nos.lol, the listening relay, sends Alice's events back. Then her CoMaps is killed, and nos.lol stops
+  // delivering.
+  TEST_EQUAL(share(), "wss://nos.lol", ());
+  alice.Restart();
+  alice.M().DismissResume();
+  world.Relay("wss://nos.lol").m_deaf = true;
+
+  // In the next run, the first event that should come back does not, and Alice listens on the next relay;
+  // still so weeks later.
+  TEST_EQUAL(share(), "wss://nostr.mom", ());
+  stop();
+  world.Run(40 * 86'400'000LL);
+  alice.Restart();
+  TEST_EQUAL(share(), "wss://nostr.mom", ());
+  stop();
+
+  // Only relays in use are remembered: once Alice has left nos.lol, and nobody sends there any more, it is
+  // forgotten. Coming back to it, she relies on it as on any relay that never sent anything back.
+  alice.M().SetForeground(true);
+  bob.M().SetForeground(true);
+  std::vector<std::string> const others(kDefaultRelays.begin() + 1, kDefaultRelays.end());
+  TEST(alice.M().SetHomeRelays(others), ());
+  world.Run(10'000);
+  TEST(!alice.Contact("Bob")->m_notMoved, ());
+  TEST(alice.M().SetHomeRelays({others.rbegin(), others.rend()}), ());
+  world.Run(10'000);
+  TEST(alice.M().GetSettings().m_previousRelays.empty(), ());
+  alice.Restart();
+  TEST(alice.M().SetHomeRelays({kDefaultRelays.begin(), kDefaultRelays.end()}), ());
+  alice.M().SetForeground(false);
+  bob.M().SetForeground(false);
+  world.Run(10'000);
+  TEST_EQUAL(share(), "wss://nos.lol", ());
+}
+
 UNIT_TEST(Manager_LiveUpdatesNeedTheListeningRelay)
 {
   World world;
@@ -739,8 +869,8 @@ UNIT_TEST(Manager_LiveUpdatesNeedTheListeningRelay)
   Phone bob(world, "Bob");
   TEST(alice.M().SetHomeRelays({"wss://relay.alice.example", "wss://nos.lol"}), ());
   {
-    // Bob is asked about Alice's own relay before pairing through it, and refuses: the pairing goes
-    // through her other relay.
+    // Bob is asked about Alice's own relay before pairing through it, and says "Not now": the pairing
+    // goes through her other relay.
     alice.M().SetForeground(true);
     bob.M().SetForeground(true);
     auto const invite = alice.M().CreateInvite(false);
@@ -764,6 +894,59 @@ UNIT_TEST(Manager_LiveUpdatesNeedTheListeningRelay)
   TEST(!bob.Contact("Alice")->m_liveUpdatesOff && alice.Events().m_location == LocationRequest::Live,
        ("allowed: live updates start"));
   TEST(bob.Contact("Alice")->m_liveRelay.empty(), ());
+}
+
+UNIT_TEST(Manager_NotNowAsksAgainInTheNextRunDontAllowNever)
+{
+  World world;
+  std::string const kOwn = "wss://own.example";
+  world.m_transport.Add(kOwn);
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+  auto const & asked = bob.Events().m_consents;
+  auto const shareAndStop = [&]
+  {
+    TEST(bob.M().StartSharing({{bob.Id("Alice"), 0}}), ());
+    world.Run(3'000);
+    bob.M().StopSharing();
+    world.Run(20'000);
+  };
+
+  // Alice moves to a relay of her own. Bob's app asks before sending there, and he answers "Not now":
+  // nothing can reach Alice, and her contact says which relay it would take.
+  TEST(alice.M().SetHomeRelays({kOwn}), ());
+  world.Run(3'000);
+  TEST_EQUAL(asked.size(), 1, ());
+  bob.M().SetConsent(kOwn, Consent::NotNow, "Alice");
+  TEST_EQUAL(bob.Contact("Alice")->m_blockedRelay, kOwn, ());
+  TEST(bob.M().GetSettings().m_declined.empty(), ());
+
+  // Not asked again in this run, even for a share; asked again in the next.
+  shareAndStop();
+  TEST_EQUAL(asked.size(), 1, ());
+  bob.Restart();
+  bob.M().SetForeground(true);
+  shareAndStop();
+  TEST_EQUAL(asked.size(), 2, ());
+
+  // "Don't allow" is kept: never asked again, and listed in Settings with the contact it was for.
+  bob.M().SetConsent(kOwn, Consent::Refuse, "Alice");
+  bob.Restart();
+  bob.M().SetForeground(true);
+  TEST(bob.M().StartSharing({{bob.Id("Alice"), 0}}), ());
+  world.Run(3'000);
+  TEST_EQUAL(asked.size(), 2, ());
+  auto const & declined = bob.M().GetSettings().m_declined;
+  TEST(declined.size() == 1 && declined.begin()->first == kOwn && declined.begin()->second == "Alice", ());
+  TEST_EQUAL(bob.Contact("Alice")->m_blockedRelay, kOwn, ("the label is where it can be allowed"));
+  TEST(!alice.Contact("Bob")->m_sharesWithMeUntil, ());
+
+  // Allowed after all: Bob's app answers through it, with the share.
+  bob.M().SetConsent(kOwn, Consent::Allow, "Alice");
+  world.Run(5'000);
+  TEST(bob.M().GetSettings().m_declined.empty() && bob.Contact("Alice")->m_blockedRelay.empty(), ());
+  TEST(!alice.Contact("Bob")->m_notMoved && alice.Contact("Bob")->m_sharesWithMeUntil, ());
 }
 
 UNIT_TEST(Manager_SurvivesRestartsAndRotatesKeys)
@@ -927,5 +1110,96 @@ UNIT_TEST(Manager_SendsOnlyFixesReceiversAccept)
   PositionInfo const * seen = bob.Position("Alice");
   TEST(seen && std::abs(seen->m_location.m_lat - 52.52) < 1e-9, ("Bob sees Alice"));
   TEST(seen && !seen->m_location.m_brg && !seen->m_location.m_spd && seen->m_location.m_alt == 34.0, ());
+}
+
+UNIT_TEST(Manager_TheDotColourTravelsWithTheShare)
+{
+  World world;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+  TEST(!alice.M().SetColor("grey") && !alice.M().SetColor("Teal"), ("the bookmark colours, without the greys"));
+  TEST(alice.M().SetColor("teal"), ());
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+  alice.M().OnLocation(FixAt(world, 52.52, 13.405));
+  world.Run(3'000);
+  auto const shown = [&] { return MarksFor(bob.Events().m_positions); };
+  TEST(bob.Position("Alice") && bob.Position("Alice")->m_color == "teal", ());
+  TEST(shown().size() == 1 && shown()[0].m_rgba == DotColorRgba("teal"), ());
+
+  // Changed while sharing, it reaches Bob at once. With none, Bob's app picks one.
+  TEST(alice.M().SetColor("orange"), ());
+  world.Run(3'000);
+  TEST(shown().size() == 1 && shown()[0].m_rgba == DotColorRgba("orange"), ());
+  TEST(alice.M().SetColor(""), ());
+  world.Run(3'000);
+  TEST(bob.Position("Alice")->m_color.empty(), ());
+  TEST(shown().size() == 1 && shown()[0].m_rgba == ColorOf(bob.Id("Alice")), ());
+
+  // Both phones keep it.
+  TEST(alice.M().SetColor("purple"), ());
+  world.Run(3'000);
+  alice.Restart();
+  bob.Restart();
+  TEST_EQUAL(alice.M().GetSettings().m_color, "purple", ());
+  TEST_EQUAL(bob.Contact("Alice")->m_color, "purple", ());
+}
+
+UNIT_TEST(Manager_LowBattery)
+{
+  World world;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+  auto const sharing = [&] { return alice.Events().m_sharing.m_active; };
+  double lat = 52.52;
+  auto const low = [&]
+  {
+    lat += 0.001;
+    alice.M().OnLocation(FixAt(world, lat, 13.405));
+    world.Run(4'000);  // live: fixes at least 3 s apart
+    PositionInfo const * seen = bob.Position("Alice");
+    TEST(seen && std::abs(seen->m_location.m_lat - lat) < 1e-9, ());
+    return seen->m_location.m_low.value_or(false);
+  };
+
+  // At 15 % and below, Bob's app shows that Alice's battery is low; not once it charges (100).
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+  alice.M().OnBatteryLevel(16);
+  TEST(!low(), ());
+  alice.M().OnBatteryLevel(15);
+  TEST(low(), ());
+  alice.M().OnBatteryLevel(100);
+  TEST(!low(), ());
+
+  // The share stops when the battery runs down to 5 %, ...
+  TEST_EQUAL(alice.M().GetSettings().m_lowBatteryStop, 5, ());
+  alice.M().OnBatteryLevel(6);
+  TEST(sharing(), ());
+  alice.M().OnBatteryLevel(5);
+  TEST(!sharing(), ());
+  world.Run(15'000);
+  TEST(!bob.Contact("Alice")->m_sharesWithMeUntil, ());
+
+  // ... but one started there runs: the user chose to share. Once the battery has been above, it stops.
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+  alice.M().OnBatteryLevel(4);
+  alice.M().OnBatteryLevel(3);
+  TEST(sharing(), ());
+  alice.M().OnBatteryLevel(100);
+  alice.M().OnBatteryLevel(5);
+  TEST(!sharing(), ());
+
+  // "Never" stops nothing; a level chosen while sharing applies at once.
+  TEST(!alice.M().SetLowBatteryStop(51) && !alice.M().SetLowBatteryStop(-1), ());
+  TEST(alice.M().SetLowBatteryStop(0), ());
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+  alice.M().OnBatteryLevel(30);
+  alice.M().OnBatteryLevel(1);
+  TEST(sharing(), ());
+  TEST(alice.M().SetLowBatteryStop(15), ());
+  TEST(!sharing(), ());
+  alice.Restart();
+  TEST_EQUAL(alice.M().GetSettings().m_lowBatteryStop, 15, ());
 }
 }  // namespace manager_tests

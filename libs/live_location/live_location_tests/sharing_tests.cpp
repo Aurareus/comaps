@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cctype>
 #include <memory>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -344,6 +345,24 @@ UNIT_TEST(Receiving_StatesAndLocations)
   std::string const goodShare = share("0", stream.Pubkey(), key);
   TEST(ReadControl(erinA, Wire(rawState(Object(With(state(), "share", goodShare)), now + 22)), now + 22),
        ("a well-formed state is accepted"));
+
+  // The dot colour is cosmetic. A short string is kept, whatever the name (the app ignores names it does not
+  // know); one of another type or size is ignored, not the state with its grant (§8).
+  std::vector<std::tuple<std::string, std::string, std::optional<std::string>>> const colors = {
+      {"a name", Quote("teal"), "teal"},
+      {"a name of a later version", Quote("mauve"), "mauve"},
+      {"32 bytes", Quote(std::string(32, 'x')), std::string(32, 'x')},
+      {"33 bytes", Quote(std::string(33, 'x')), std::nullopt},
+      {"empty", Quote(""), std::nullopt},
+      {"a number", "7", std::nullopt},
+      {"null", "null", std::nullopt},
+  };
+  for (auto const & [what, value, kept] : colors)
+  {
+    auto const decoded = DecodePlaintext(AsBytes(Object(With(With(state(), "share", goodShare), "color", value))));
+    auto const parsed = decoded ? ParseState(*decoded) : std::nullopt;
+    TEST(parsed && parsed->m_share && parsed->m_color == kept, (what));
+  }
 
   std::string upperPk = stream.Pubkey();
   std::transform(upperPk.begin(), upperPk.end(), upperPk.begin(),

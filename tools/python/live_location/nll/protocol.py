@@ -214,6 +214,18 @@ def check_state(body: dict):
         check_share(body['share'])
 
 
+COLOR_MAX_BYTES = 32
+
+
+def state_color(state: dict) -> str | None:
+    """The sender's dot colour (§8): a name of 1 to 32 bytes, kept whatever it is (an app ignores names it
+    does not know). Anything else is ignored, not the state with its grant."""
+    color = state.get('color')
+    if isinstance(color, str) and 0 < len(color.encode()) <= COLOR_MAX_BYTES:
+        return color
+    return None
+
+
 def check_loc(body: dict):
     ok = (is_int(body.get('seq'), 1) and is_int(body.get('ts')) and is_number(body.get('lat'), -90, 90)
           and is_number(body.get('lon'), -180, 180) and is_number(body.get('acc'), 0))
@@ -747,16 +759,18 @@ def control_event(contact: Contact, body: dict, rng, now: int) -> Event:
                       seal(body, SIZE_CONTROL, d.conversation_key(), rng), rng)
 
 
-def state_body(seq: int, now: int, relays: list, share: dict | None = None) -> dict:
+def state_body(seq: int, now: int, relays: list, share: dict | None = None, color: str | None = None) -> dict:
     body = {'t': 'state', 'seq': seq, 'ts': now, 'relays': check_relays(relays)}
     if share is not None:
         body['share'] = share
+    if color is not None:
+        body['color'] = color
     return body
 
 
-def state_event(contact: Contact, relays: list, share: dict | None, rng, now: int) -> Event:
+def state_event(contact: Contact, relays: list, share: dict | None, rng, now: int, color: str | None = None) -> Event:
     contact.seq_out += 1
-    return control_event(contact, state_body(contact.seq_out, now, relays, share), rng, now)
+    return control_event(contact, state_body(contact.seq_out, now, relays, share, color), rng, now)
 
 
 def share_grant(until: int, stream_pk: str, stream_key: bytes) -> dict:
@@ -928,17 +942,18 @@ class Sharer:
     """Sharer side of §9: one stream for all current recipients, replaced whenever anyone is added or
     removed (including by `until`) and at every new epoch. Nothing here is written to disk."""
 
-    def __init__(self, relays: list):
+    def __init__(self, relays: list, color: str | None = None):
         self.relays = check_relays(relays)
+        self.color = color       # the dot colour the states carry (§8), or None
         self.grants = {}         # Contact -> until (0 = until stopped)
         self.stream = None
         self.stream_epoch = None
         self.not_before = 0
 
     def _states(self, removed: list, rng, now: int) -> list:
-        evs = [state_event(c, self.relays, share_grant(u, self.stream.pubkey(), self.stream.key), rng, now)
-               for c, u in self.grants.items()]
-        evs += [state_event(c, self.relays, None, rng, now) for c in removed]
+        evs = [state_event(c, self.relays, share_grant(u, self.stream.pubkey(), self.stream.key), rng, now,
+                           self.color) for c, u in self.grants.items()]
+        evs += [state_event(c, self.relays, None, rng, now, self.color) for c in removed]
         return shuffle(evs, rng)
 
     def start(self, grants: dict, rng, now: int) -> Rekey:
@@ -976,7 +991,7 @@ class Sharer:
         (§6.3). It carries the grant while `contact` is a recipient, so that sending it never ends a share."""
         until = self.grants.get(contact)
         share = None if until is None else share_grant(until, self.stream.pubkey(), self.stream.key)
-        return state_event(contact, self.relays, share, rng, now)
+        return state_event(contact, self.relays, share, rng, now, self.color)
 
     def stop(self, rng, now: int) -> Rekey:
         """Same shape as change() seen from a removed recipient: states (shuffled), then the end."""
@@ -1014,8 +1029,10 @@ class Following:
         self.position = None
         self.stale = False
         self.ended_at = None
+        self.color = None
 
     def on_state(self, state: dict, now: int):
+        self.color = state_color(state)
         share = state.get('share')
         if share is None or (share['until'] and share['until'] <= now):
             self.stop()
