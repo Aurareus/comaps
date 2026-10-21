@@ -118,7 +118,7 @@ public class ManageSharingFragment extends LiveLocationFragment
     if (mResume)
     {
       mResume = false;
-      resume();
+      resume(true);
     }
   }
 
@@ -135,6 +135,13 @@ public class ManageSharingFragment extends LiveLocationFragment
     final Context context = requireContext();
     final Sharing sharing = LiveLocation.getSharing();
     final List<Contact> contacts = LiveLocation.getContacts();
+    // Also when the map's offer led here for the permissions, and the user comes back from the settings.
+    if (!sharing.active && !sharing.resumable.isEmpty())
+    {
+      views.text(LiveLocationDialogs.resumeMessage(context, sharing));
+      views.button(getString(R.string.live_location_resume_button), v -> resume(false));
+      views.outlinedButton(getString(R.string.live_location_dont_resume), v -> LiveLocation.dismissResume());
+    }
     if (sharing.live)
       views.text(getString(R.string.live_location_live_now));
 
@@ -311,16 +318,28 @@ public class ManageSharingFragment extends LiveLocationFragment
     refreshLater();
   }
 
-  /** After the process died while sharing: the same people, with the same ends, once the permissions are there. */
-  private void resume()
+  /**
+   * After the process died while sharing: the same people, with the same ends, once the permissions are
+   * there. From the map's offer, the screen then closes.
+   */
+  private void resume(boolean thenClose)
   {
+    final List<Recipient> resumable = LiveLocation.getSharing().resumable;
     final long now = System.currentTimeMillis() / 1000;
     final List<Recipient> recipients = new ArrayList<>();
-    for (Recipient recipient : LiveLocation.getSharing().resumable)
+    for (Recipient recipient : resumable)
       if (recipient.until == 0 || recipient.until > now)
         recipients.add(recipient);
     if (recipients.isEmpty())
+    {
+      if (!resumable.isEmpty())
+      {
+        // Every end has passed since the offer was made.
+        LiveLocation.dismissResume();
+        LiveLocationDialogs.showMessage(requireActivity(), null, getString(R.string.live_location_resume_ended));
+      }
       return;
+    }
     withPermissions(() -> {
       if (!LiveLocation.startSharing(recipients))
       {
@@ -328,7 +347,8 @@ public class ManageSharingFragment extends LiveLocationFragment
         return;
       }
       LiveLocationService.start(requireContext());
-      requireActivity().finish();
+      if (thenClose)
+        requireActivity().finish();
     });
   }
 

@@ -1959,7 +1959,10 @@ std::vector<PositionInfo> Manager::Positions() const
 SharingInfo Manager::Sharing() const
 {
   SharingInfo info;
-  info.m_resumable = m_resumable;
+  int64_t const now = Now();
+  for (auto const & [id, until] : m_resumable)
+    if (until == 0 || until > now)  // not one whose end has passed since
+      info.m_resumable.emplace_back(id, until);
   if (!m_sharer || !m_sharer->IsSharing())
     return info;
   info.m_active = true;

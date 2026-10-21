@@ -162,18 +162,24 @@ final class LiveLocationDialogs
   @NonNull
   static AlertDialog showResume(@NonNull Activity activity, @NonNull Sharing sharing, @NonNull Runnable onResume)
   {
-    final String names = LiveLocationText.joinNames(activity, LiveLocationText.namesOf(sharing.resumable));
-    final long until = LiveLocationText.latestUntil(sharing.resumable);
-    final String message = until == 0 ? activity.getString(R.string.live_location_resume, names)
-                                      : activity.getString(R.string.live_location_resume_until, names,
-                                                           LiveLocationText.time(activity, until));
     return new MaterialAlertDialogBuilder(activity)
         .setTitle(R.string.live_location_resume_title)
-        .setMessage(message)
+        .setMessage(resumeMessage(activity, sharing))
         .setCancelable(false)
         .setPositiveButton(R.string.live_location_resume_button, (dialog, which) -> onResume.run())
         .setNegativeButton(R.string.live_location_dont_resume, (dialog, which) -> LiveLocation.dismissResume())
         .show();
+  }
+
+  /** Who the share that stopped with the process went to, and until when; and whether to share again. */
+  @NonNull
+  static String resumeMessage(@NonNull Context context, @NonNull Sharing sharing)
+  {
+    final String names = LiveLocationText.joinNames(context, LiveLocationText.namesOf(sharing.resumable));
+    final long until = LiveLocationText.latestUntil(sharing.resumable);
+    return until == 0
+      ? context.getString(R.string.live_location_resume, names)
+      : context.getString(R.string.live_location_resume_until, names, LiveLocationText.time(context, until));
   }
 
   /** A list in a dialog, such as the relays in Settings, kept current by its own rows' actions. */

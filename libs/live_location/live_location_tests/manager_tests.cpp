@@ -668,6 +668,30 @@ UNIT_TEST(Manager_TimeLimitsAndStop)
   TEST(!bob.Position("Alice") && !bob.Contact("Alice")->m_sharesWithMeUntil, ("stopping ends it for Bob"));
 }
 
+UNIT_TEST(Manager_OnlyWhatHasNotEndedResumes)
+{
+  World world;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Phone carol(world, "Carol");
+  Pair(world, alice, bob);
+  Pair(world, alice, carol);
+
+  // Alice's process dies while she shares with Bob for ten minutes and with Carol until she stops.
+  int64_t const until = world.m_executor.Now() + 600;
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), until}, {alice.Id("Carol"), 0}}), ());
+  world.Run(2'000);
+  alice.Restart();
+  TEST_EQUAL(alice.Events().m_sharing.m_resumable.size(), 2, ());
+
+  // Opened after Bob's end, the app offers to resume the share with Carol only.
+  world.Run(600'000);
+  alice.Restart();
+  auto const resumable = alice.Events().m_sharing.m_resumable;
+  TEST(resumable.size() == 1 && resumable[0].first == alice.Id("Carol"), ());
+  TEST(alice.M().StartSharing(resumable), ());
+}
+
 UNIT_TEST(Manager_RemovingSomeoneKeepsTheOthers)
 {
   World world;

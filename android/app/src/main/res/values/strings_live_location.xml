@@ -132,6 +132,7 @@
   <string name="live_location_resume_until">CoMaps was closed while you shared your location with %1$s until %2$s. Share it again?</string>
   <string name="live_location_resume_button">Resume</string>
   <string name="live_location_dont_resume">Don\'t resume</string>
+  <string name="live_location_resume_ended">That share would have ended by now, so there is nothing to resume.</string>
 
   <!-- Managing a share -->
   <string name="live_location_manage_sharing">Manage sharing</string>
