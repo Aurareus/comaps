@@ -190,7 +190,8 @@ screen on a phone, or nearly; it says what relays can and cannot see (§11.6).
 - **Manage sharing.** Tick two contacts within a second or two: one change, so B, already
   following, sees a single pause (30 to 120 s). Untick one: it stops at once. Tick one and leave the
   screen at once: the share includes it. "Until…" with a time that has already passed today means
-  tomorrow. "Stop all" stops everything; so does Share My Location → "Stop sharing location".
+  tomorrow; rotating the phone while its clock shows closes the clock, as it does the "For" list.
+  "Stop all" stops everything; so does Share My Location → "Stop sharing location".
 - **Contact details.** Title "Contact details". While sharing with the contact: "Sharing your
   location with them", "Until …", "Change" (earlier, later, until stopped), and "Stop sharing with
   …". "Hide on the map" has its explanation below the switch. "Battery low" when the contact's
@@ -208,7 +209,10 @@ screen on a phone, or nearly; it says what relays can and cannot see (§11.6).
 - **An unreachable contact.** On A: Relays → remove every relay but your own. On B, answer "Don't
   allow" about it: B's contact list shows A as "Unreachable until you allow a relay", A's details say
   "Messages to A need …", and in Manage sharing A carries that warning; ticking A asks about the
-  relay first, and "Allow" then shares with A. Restore A's relays afterwards.
+  relay first, and "Allow" then shares with A. Then an invite through that relay: on B, Settings →
+  Live location sharing → Relays for contacts → revoke it; A makes a link invite, which has only that
+  relay; B opens the link, answering "Not now" if asked: B's screen names the relay with "Allow …",
+  rather than calling the invite invalid, and "Allow …" connects. Restore A's relays afterwards.
 - **Settings.** The rows have icons, and values or explanations below their titles: Appear as (your
   name), Dot color, Relays (a dialog: the list, moving up, removing, adding), Relays for contacts
   (a dialog: allowed ones to revoke, refused ones to allow), the two live update switches, Stop
@@ -218,10 +222,12 @@ screen on a phone, or nearly; it says what relays can and cannot see (§11.6).
   entry is not listed at all.
 - **Low battery.** While sharing, `adb shell dumpsys battery unplug; adb shell dumpsys battery set
   level 14`: B's sheet and A's details on B show "Battery low"; `adb shell dumpsys battery set ac 1`
-  (charging): it goes. Then the stop: set "Stop sharing at low battery" to 15 %, `set level 20`,
-  `set level 15` → the share stops. Start a share at level 12: it runs (you chose to share); `set
-  level 20`, then `set level 12` → it stops. "Never": nothing stops it. `adb shell dumpsys battery
-  reset` afterwards.
+  (charging): it goes. Then the stop, unplugged again (`set ac 0`): set "Stop sharing at low
+  battery" to 15 %, `set level 20`, `set level 15` → the share stops. Start a share at level 12: it
+  runs (you chose to share). `set ac 1`, `set level 15`, `set ac 0`: it still runs (charging up to
+  the level is not above it), and so after picking 15 % again in Settings. `set ac 1`, `set level
+  20`, `set level 12`: it runs while plugged in; `set ac 0` → it stops. "Never": nothing stops it.
+  `adb shell dumpsys battery reset` afterwards.
 - **Changing home relays** (spec §11). With B's CoMaps closed, A: Settings → Live location sharing →
   Relays → add a relay (for instance `wss://relay.damus.io`) and remove one default. A's contact list
   shows B as "Hasn't picked up your new relays yet"; B's details explain. B opens CoMaps: B is asked
@@ -237,7 +243,10 @@ screen on a phone, or nearly; it says what relays can and cannot see (§11.6).
   notification permission → sharing does not start, and Manage sharing explains.
 - **Resume after the process died.** While sharing: `adb shell am kill app.comaps.fdroid.debug`
   does not stop a foreground service, so use `adb shell am force-stop app.comaps.fdroid.debug`,
-  then open CoMaps: the map offers "Resume sharing?" with the same people and end time.
+  then open CoMaps: the map offers "Resume sharing?" with the same people and end time. With
+  CoMaps' notifications turned off, "Resume" leads to Manage sharing, which asks for them; back
+  from the settings with them on, Manage sharing offers "Resume" at its top. A share "For 15
+  minutes", force-stopped, with CoMaps opened again after its end: nothing is offered.
 - **Share My Location.** With the feature on, the menu's "Share My Location" opens the feature's
   screen; its "Send current location" opens the system share sheet with a link to the current
   position, as the menu entry does with the feature off. While sharing, the row "Sharing with N
