@@ -93,7 +93,7 @@ public class LiveLocationSettingsFragment extends PreferenceFragmentCompat
 
     final boolean enabled = LiveLocationFeature.isEnabled(context);
     final Settings settings = enabled ? LiveLocation.getSettings() : null;
-    final boolean readable = settings != null && settings.readable && !LiveLocationFeature.hasStoreError();
+    final boolean readable = settings != null && settings.readable;
     if (enabled && !readable)
       screen.addPreference(note(getString(R.string.live_location_store_error)));
     if (readable)

@@ -135,7 +135,7 @@ public:
   virtual void OnSharing(SharingInfo const &) {}
   virtual void OnConsentNeeded(ConsentRequest const &) {}
   virtual void OnLocationRequest(LocationRequest) {}
-  /// The store could not be read or written; the app may offer to delete the live location data.
+  /// The store exists but could not be read; the app may offer to delete the live location data.
   virtual void OnStoreError() {}
 };
 

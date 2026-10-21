@@ -59,6 +59,12 @@ class World;
 class TestKeys : public store::InsecureKeyWrapper
 {
 public:
+  std::optional<Wrapped> Wrap(Key const & dataKey) override
+  {
+    if (m_failing)
+      return {};
+    return InsecureKeyWrapper::Wrap(dataKey);
+  }
   std::optional<Key> Unwrap(Wrapped const & wrapped) override
   {
     if (m_failing)
@@ -1063,6 +1069,27 @@ UNIT_TEST(Manager_AStoreThatCannotBeReadIsNeverOverwritten)
   TEST(alice.Contact("Bob"), ("the contact survived"));
   TEST_EQUAL(alice.M().GetSettings().m_name, "Alice", ());
   TEST(alice.M().GetSettings().m_requestLive, ());
+}
+
+UNIT_TEST(Manager_AFailedWriteIsNoStoreError)
+{
+  World world;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+
+  // The key store fails while a deleted contact's keys need a new wrapping key: the write fails, but the
+  // data was read and is the user's, and the next change writes it all.
+  alice.Keys().m_failing = true;
+  alice.M().DeleteContact(alice.Id("Bob"));
+  world.Run(15'000);
+  TEST_EQUAL(alice.Events().m_storeErrors, 0, ());
+  TEST(alice.M().IsStarted() && !alice.Contact("Bob"), ());
+  alice.Keys().m_failing = false;
+  TEST(alice.M().SetName("Alicia"), ());
+  alice.Restart();
+  TEST(!alice.Contact("Bob"), ());
+  TEST_EQUAL(alice.M().GetSettings().m_name, "Alicia", ());
 }
 
 UNIT_TEST(Manager_StopWaitsForTheRelaysBeforeItIsFreed)
