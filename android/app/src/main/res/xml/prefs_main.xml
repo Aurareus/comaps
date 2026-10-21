@@ -58,6 +58,7 @@
     android:title="@string/live_location_sharing"
     app:fragment="app.organicmaps.livelocation.LiveLocationSettingsFragment"
     app:icon="@drawable/ic_live_location_settings"
+    app:isPreferenceVisible="@bool/live_location_supported"
     android:summary="@string/live_location_setting_summary" />
 
   <PreferenceScreen

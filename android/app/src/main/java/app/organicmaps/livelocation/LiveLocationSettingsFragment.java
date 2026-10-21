@@ -4,20 +4,20 @@ import android.content.Context;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.View;
+import androidx.annotation.DrawableRes;
 import androidx.annotation.Keep;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.StringRes;
 import androidx.core.view.ViewCompat;
 import androidx.preference.Preference;
-import androidx.preference.PreferenceCategory;
 import androidx.preference.PreferenceFragmentCompat;
-import androidx.preference.PreferenceGroup;
 import androidx.preference.PreferenceScreen;
 import androidx.preference.SwitchPreferenceCompat;
 import androidx.recyclerview.widget.RecyclerView;
 import app.organicmaps.R;
 import app.organicmaps.sdk.livelocation.LiveLocation;
+import app.organicmaps.sdk.livelocation.LiveLocationModels.Consent;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Settings;
 import app.organicmaps.util.Utils;
 import app.organicmaps.util.WindowInsetUtils.ScrollableContentInsetsListener;
@@ -27,15 +27,19 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Live location (NLL): Settings → Live location sharing (docs/LIVE_LOCATION.md §11.5): the switch,
- * then the user's name, relays in order (the first that works listens, D17), the relays allowed for
- * contacts, the live update switches (D4), and deleting everything. While the feature is off, the rows
- * show their titles only, greyed: the values live in the encrypted store, which only the running core
- * reads. Deleting stays possible.
+ * Live location (NLL): Settings → Live location sharing (docs/LIVE_LOCATION.md §11.5), laid out like the
+ * other settings pages: the switch, what relays can see, then one row per setting with its value or an
+ * explanation below the title. The relay lists open in dialogs. While the feature is off, or its data
+ * cannot be read, the rows show their titles only, greyed: the values live in the encrypted store, which
+ * only the running core reads. What relays can see and deleting stay usable.
  */
 @Keep
 public class LiveLocationSettingsFragment extends PreferenceFragmentCompat
 {
+  /** The levels at which sharing may stop, in percent; 0: never. */
+  private static final int[] LOW_BATTERY_LEVELS = {0, 5, 10, 15, 20, 30};
+  private static final int MAX_RELAYS = 4; // spec §11
+
   @Override
   public void onAttach(@NonNull Context context)
   {
@@ -83,26 +87,38 @@ public class LiveLocationSettingsFragment extends PreferenceFragmentCompat
     screen.addPreference(toggle);
     LiveLocationSettingsSwitch.bind(this, toggle, () -> getListView().post(this::build));
 
-    final Settings settings = LiveLocationFeature.isEnabled(context) ? LiveLocation.getSettings() : null;
-    if (LiveLocationFeature.isEnabled(context) && LiveLocationFeature.hasStoreError())
-      screen.addPreference(note(getString(R.string.live_location_store_error)));
-    if (settings == null)
-      addTitles(screen);
-    else
-      addSettings(screen, settings);
+    screen.addPreference(row(R.drawable.ic_live_location_info, getString(R.string.live_location_what_relays_see),
+                             getString(R.string.live_location_what_relays_see_summary),
+                             () -> startActivity(LiveLocationActivity.whatRelaysSeeIntent(context))));
 
-    screen.addPreference(row(getString(R.string.live_location_delete_all), null,
+    final boolean enabled = LiveLocationFeature.isEnabled(context);
+    final Settings settings = enabled ? LiveLocation.getSettings() : null;
+    final boolean readable = settings != null && settings.readable && !LiveLocationFeature.hasStoreError();
+    if (enabled && !readable)
+      screen.addPreference(note(getString(R.string.live_location_store_error)));
+    if (readable)
+      addSettings(screen, settings);
+    else
+      addTitles(screen);
+
+    screen.addPreference(row(R.drawable.ic_live_location_delete, getString(R.string.live_location_delete_all),
+                             getString(R.string.live_location_delete_all_summary),
                              () -> LiveLocationSettingsSwitch.confirmDeletion(requireActivity(), this::build)));
   }
 
-  /** Off: what is here, without any value. */
+  /** Off, or unreadable: what is here, without any value. */
   private void addTitles(@NonNull PreferenceScreen screen)
   {
-    for (@StringRes int title : new int[] {R.string.live_location_your_name, R.string.live_location_relays,
-                                           R.string.live_location_approved_relays, R.string.live_location_request_live,
-                                           R.string.live_location_allow_live, R.string.live_location_low_battery_title})
+    final int[][] rows = {{R.drawable.ic_profile, R.string.live_location_appear_as},
+                          {R.drawable.ic_live_location_palette, R.string.live_location_dot_color},
+                          {R.drawable.ic_live_location_relays, R.string.live_location_relays},
+                          {R.drawable.ic_live_location_contacts, R.string.live_location_approved_relays},
+                          {R.drawable.ic_live_location_view, R.string.live_location_request_live},
+                          {R.drawable.ic_speed, R.string.live_location_allow_live},
+                          {R.drawable.ic_live_location_battery, R.string.live_location_low_battery_title}};
+    for (int[] row : rows)
     {
-      final Preference preference = row(getString(title), null, null);
+      final Preference preference = row(row[0], getString(row[1]), null, null);
       preference.setEnabled(false);
       screen.addPreference(preference);
     }
@@ -110,56 +126,41 @@ public class LiveLocationSettingsFragment extends PreferenceFragmentCompat
 
   private void addSettings(@NonNull PreferenceScreen screen, @NonNull Settings settings)
   {
-    final PreferenceGroup name = category(screen, R.string.live_location_your_name);
-    name.addPreference(row(settings.name.isEmpty() ? "—" : settings.name, null, () -> rename(settings.name)));
-
-    final PreferenceGroup relays = category(screen, R.string.live_location_relays);
-    relays.addPreference(note(getString(R.string.live_location_relays_summary)));
-    final List<String> homeRelays = settings.homeRelays;
-    for (int i = 0; i < homeRelays.size(); ++i)
-    {
-      final int index = i;
-      relays.addPreference(row(homeRelays.get(i), null, () -> relayActions(homeRelays, index)));
-    }
-    if (!homeRelays.isEmpty() && !settings.defaultRelays.contains(homeRelays.get(0)))
-      relays.addPreference(note(getString(R.string.live_location_relays_first_not_default, homeRelays.get(0))));
-    if (homeRelays.size() < 2)
-      relays.addPreference(note(getString(R.string.live_location_relays_few)));
-    relays.addPreference(row(getString(R.string.live_location_add_relay), null, () -> addRelay(homeRelays)));
-
-    if (!settings.approved.isEmpty())
-    {
-      final PreferenceGroup approved = category(screen, R.string.live_location_approved_relays);
-      for (String[] approval : settings.approved)
-      {
-        final String url = approval[0];
-        approved.addPreference(
-            row(url, getString(R.string.live_location_approved_for, approval[1]), () -> revoke(url)));
-      }
-    }
-
-    final PreferenceGroup live = category(screen, R.string.live_location);
-    live.addPreference(toggle(R.string.live_location_request_live, settings.requestLive, LiveLocation::setRequestLive));
-    live.addPreference(toggle(R.string.live_location_allow_live, settings.allowLive, LiveLocation::setAllowLive));
-    live.addPreference(note(getString(R.string.live_location_low_battery, settings.lowBatteryStop)));
+    screen.addPreference(row(R.drawable.ic_profile, getString(R.string.live_location_appear_as),
+                             settings.name.isEmpty() ? getString(R.string.live_location_not_set) : settings.name,
+                             () -> rename(settings.name)));
+    screen.addPreference(
+        row(R.drawable.ic_live_location_palette, getString(R.string.live_location_dot_color),
+            LiveLocationText.colorName(requireContext(), settings.color),
+            () -> LiveLocationDialogs.showDotColors(requireActivity(), settings.dotColors, settings.color, color -> {
+              LiveLocation.setColor(color);
+              build();
+            })));
+    screen.addPreference(row(R.drawable.ic_live_location_relays, getString(R.string.live_location_relays),
+                             getString(R.string.live_location_relays_summary), this::showRelays));
+    final String forContacts = settings.approved.isEmpty() && settings.declined.isEmpty()
+                                 ? getString(R.string.live_location_approved_relays_none)
+                                 : getString(R.string.live_location_approved_relays_count, settings.approved.size(),
+                                             settings.declined.size());
+    screen.addPreference(row(R.drawable.ic_live_location_contacts, getString(R.string.live_location_approved_relays),
+                             forContacts, this::showContactRelays));
+    screen.addPreference(toggle(R.drawable.ic_live_location_view, R.string.live_location_request_live,
+                                R.string.live_location_request_live_summary, settings.requestLive,
+                                LiveLocation::setRequestLive));
+    screen.addPreference(toggle(R.drawable.ic_speed, R.string.live_location_allow_live,
+                                R.string.live_location_allow_live_summary, settings.allowLive,
+                                LiveLocation::setAllowLive));
+    screen.addPreference(row(R.drawable.ic_live_location_battery, getString(R.string.live_location_low_battery_title),
+                             lowBatteryName(settings.lowBatteryStop), () -> pickLowBattery(settings.lowBatteryStop)));
   }
 
   @NonNull
-  private PreferenceGroup category(@NonNull PreferenceScreen screen, @StringRes int title)
-  {
-    final PreferenceCategory category = new PreferenceCategory(requireContext());
-    category.setTitle(title);
-    category.setIconSpaceReserved(true);
-    screen.addPreference(category);
-    return category;
-  }
-
-  @NonNull
-  private Preference row(@NonNull CharSequence title, @Nullable CharSequence summary, @Nullable Runnable onClick)
+  private Preference row(@DrawableRes int icon, @NonNull CharSequence title, @Nullable CharSequence summary,
+                         @Nullable Runnable onClick)
   {
     final Preference preference = new Preference(requireContext());
     preference.setPersistent(false);
-    preference.setIconSpaceReserved(true);
+    preference.setIcon(icon);
     preference.setSingleLineTitle(false);
     preference.setTitle(title);
     preference.setSummary(summary);
@@ -177,8 +178,11 @@ public class LiveLocationSettingsFragment extends PreferenceFragmentCompat
   @NonNull
   private Preference note(@NonNull CharSequence text)
   {
-    final Preference preference = row("", text, null);
-    preference.setTitle(null);
+    final Preference preference = new Preference(requireContext());
+    preference.setPersistent(false);
+    preference.setIconSpaceReserved(true);
+    preference.setSelectable(false);
+    preference.setSummary(text);
     return preference;
   }
 
@@ -188,14 +192,16 @@ public class LiveLocationSettingsFragment extends PreferenceFragmentCompat
   }
 
   @NonNull
-  private Preference toggle(@StringRes int title, boolean checked, @NonNull OnToggle onToggle)
+  private Preference toggle(@DrawableRes int icon, @StringRes int title, @StringRes int summary, boolean checked,
+                            @NonNull OnToggle onToggle)
   {
     final SwitchPreferenceCompat preference = new SwitchPreferenceCompat(requireContext());
     preference.setPersistent(false);
-    preference.setIconSpaceReserved(true);
+    preference.setIcon(icon);
     preference.setSingleLineTitle(false);
     preference.setWidgetLayoutResource(R.layout.preference_switch);
     preference.setTitle(title);
+    preference.setSummary(summary);
     preference.setChecked(checked);
     preference.setOnPreferenceChangeListener((p, value) -> {
       onToggle.set((Boolean) value);
@@ -206,7 +212,7 @@ public class LiveLocationSettingsFragment extends PreferenceFragmentCompat
 
   private void rename(@NonNull String current)
   {
-    LiveLocationDialogs.showText(requireActivity(), R.string.live_location_your_name_title,
+    LiveLocationDialogs.showText(requireActivity(), R.string.live_location_appear_as,
                                  getString(R.string.live_location_your_name_message), current, null,
                                  InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS, text -> {
                                    if (text.isEmpty())
@@ -220,7 +226,59 @@ public class LiveLocationSettingsFragment extends PreferenceFragmentCompat
                                  });
   }
 
-  private void relayActions(@NonNull List<String> relays, int index)
+  @NonNull
+  private String lowBatteryName(int percent)
+  {
+    return percent == 0 ? getString(R.string.live_location_low_battery_never)
+                        : getString(R.string.live_location_low_battery_at, percent);
+  }
+
+  private void pickLowBattery(int current)
+  {
+    final CharSequence[] names = new CharSequence[LOW_BATTERY_LEVELS.length];
+    int checked = -1;
+    for (int i = 0; i < names.length; ++i)
+    {
+      names[i] = lowBatteryName(LOW_BATTERY_LEVELS[i]);
+      if (LOW_BATTERY_LEVELS[i] == current)
+        checked = i;
+    }
+    new MaterialAlertDialogBuilder(requireActivity())
+        .setTitle(R.string.live_location_low_battery_title)
+        .setSingleChoiceItems(names, checked,
+                              (dialog, which) -> {
+                                LiveLocation.setLowBatteryStop(LOW_BATTERY_LEVELS[which]);
+                                dialog.dismiss();
+                                build();
+                              })
+        .setNegativeButton(R.string.cancel, null)
+        .show();
+  }
+
+  /** The home relays in order, each to move up or remove, and adding one. */
+  private void showRelays()
+  {
+    LiveLocationDialogs.showRows(requireActivity(), R.string.live_location_relays, (views, refresh) -> {
+      final Settings settings = LiveLocation.getSettings();
+      if (settings == null)
+        return;
+      final List<String> relays = settings.homeRelays;
+      views.text(getString(R.string.live_location_relays_summary));
+      for (int i = 0; i < relays.size(); ++i)
+      {
+        final int index = i;
+        views.row(relays.get(i), null, null, v -> relayActions(relays, index, refresh));
+      }
+      if (!relays.isEmpty() && !settings.defaultRelays.contains(relays.get(0)))
+        views.text(getString(R.string.live_location_relays_first_not_default, relays.get(0)));
+      if (relays.size() < 2)
+        views.text(getString(R.string.live_location_relays_few));
+      if (relays.size() < MAX_RELAYS)
+        views.outlinedButton(getString(R.string.live_location_add_relay), v -> addRelay(relays, refresh));
+    });
+  }
+
+  private void relayActions(@NonNull List<String> relays, int index, @NonNull Runnable refresh)
   {
     final List<CharSequence> items = new ArrayList<>();
     final boolean canMoveUp = index > 0;
@@ -240,12 +298,13 @@ public class LiveLocationSettingsFragment extends PreferenceFragmentCompat
                     else
                       changed.remove(index);
                     LiveLocation.setHomeRelays(changed);
+                    refresh.run();
                     build();
                   })
         .show();
   }
 
-  private void addRelay(@NonNull List<String> relays)
+  private void addRelay(@NonNull List<String> relays, @NonNull Runnable refresh)
   {
     LiveLocationDialogs.showText(requireActivity(), R.string.live_location_add_relay, null, "wss://",
                                  getString(R.string.live_location_relay_hint), InputType.TYPE_TEXT_VARIATION_URI,
@@ -259,11 +318,54 @@ public class LiveLocationSettingsFragment extends PreferenceFragmentCompat
                                    if (!LiveLocation.setHomeRelays(changed))
                                      LiveLocationDialogs.showMessage(requireActivity(), null,
                                                                      getString(R.string.live_location_relay_invalid));
+                                   refresh.run();
                                    build();
                                  });
   }
 
-  private void revoke(@NonNull String url)
+  /** The relays contacts use that the user answered about: allowed ones to revoke, refused ones to allow. */
+  private void showContactRelays()
+  {
+    LiveLocationDialogs.showRows(requireActivity(), R.string.live_location_approved_relays, (views, refresh) -> {
+      final Settings settings = LiveLocation.getSettings();
+      if (settings == null)
+        return;
+      if (settings.approved.isEmpty() && settings.declined.isEmpty())
+      {
+        views.text(getString(R.string.live_location_approved_relays_empty));
+        return;
+      }
+      if (!settings.approved.isEmpty())
+      {
+        views.header(getString(R.string.live_location_allowed));
+        for (String[] approval : settings.approved)
+        {
+          final String url = approval[0];
+          views.row(url, forContact(R.string.live_location_approved_for, approval[1]), null, v -> revoke(url, refresh));
+        }
+      }
+      if (!settings.declined.isEmpty())
+      {
+        views.header(getString(R.string.live_location_refused));
+        for (String[] refusal : settings.declined)
+        {
+          final String url = refusal[0];
+          final String contact = refusal[1];
+          views.row(url, forContact(R.string.live_location_refused_for, contact), null,
+                    v -> allowRefused(url, contact, refresh));
+        }
+      }
+    });
+  }
+
+  /** "Allowed for Bob"; a relay answered about while connecting does not name the contact. */
+  @NonNull
+  private String forContact(@StringRes int text, @NonNull String contact)
+  {
+    return contact.isEmpty() ? getString(R.string.live_location_when_connecting) : getString(text, contact);
+  }
+
+  private void revoke(@NonNull String url, @NonNull Runnable refresh)
   {
     new MaterialAlertDialogBuilder(requireActivity())
         .setTitle(url)
@@ -271,6 +373,24 @@ public class LiveLocationSettingsFragment extends PreferenceFragmentCompat
         .setPositiveButton(R.string.live_location_revoke,
                            (dialog, which) -> {
                              LiveLocation.revokeConsent(url);
+                             refresh.run();
+                             build();
+                           })
+        .show();
+  }
+
+  private void allowRefused(@NonNull String url, @NonNull String contact, @NonNull Runnable refresh)
+  {
+    final String message = contact.isEmpty() ? getString(R.string.live_location_allow_refused_any, url)
+                                             : getString(R.string.live_location_allow_refused, url, contact);
+    new MaterialAlertDialogBuilder(requireActivity())
+        .setTitle(url)
+        .setMessage(message)
+        .setNegativeButton(R.string.cancel, null)
+        .setPositiveButton(R.string.live_location_allow,
+                           (dialog, which) -> {
+                             LiveLocation.setConsent(url, Consent.Allow, contact);
+                             refresh.run();
                              build();
                            })
         .show();

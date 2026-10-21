@@ -88,13 +88,6 @@ public class ContactsFragment extends LiveLocationFragment
                   host().open(ContactFragment.class, R.string.live_location_contacts, args);
                 });
     }
-
-    views.header(getString(R.string.live_location_sharing));
-    views.row(getString(R.string.live_location_what_relays_see), null, null, v -> {
-      final Bundle args = new Bundle();
-      args.putBoolean(ExplanationFragment.ARG_FROM_CONTACTS, true);
-      host().open(ExplanationFragment.class, R.string.live_location_what_relays_see, args);
-    });
   }
 
   /** The current location as a link, through the share sheet: what "Share My Location" does without this feature. */

@@ -6,11 +6,11 @@ import app.organicmaps.R;
 
 /**
  * Live location (NLL): what relays can see (docs/LIVE_LOCATION.md §11.6). Shown once when the feature
- * is first turned on, where the user turns it on when it is off, and from the contacts screen.
+ * is first turned on, where the user turns it on when it is off, and from Settings, to read only.
  */
 public class ExplanationFragment extends LiveLocationFragment
 {
-  static final String ARG_FROM_CONTACTS = "from_contacts";
+  static final String ARG_JUST_READ = "just_read";
 
   @Override
   protected void render(@NonNull LiveLocationViews views)
@@ -25,9 +25,9 @@ public class ExplanationFragment extends LiveLocationFragment
     views.text(getString(R.string.live_location_explain_7));
 
     final Bundle args = getArguments();
-    if (args != null && args.getBoolean(ARG_FROM_CONTACTS))
+    if (args != null && args.getBoolean(ARG_JUST_READ))
     {
-      views.button(getString(R.string.live_location_got_it), v -> getParentFragmentManager().popBackStack());
+      views.button(getString(R.string.live_location_got_it), v -> requireActivity().finish());
       return;
     }
     if (!LiveLocationFeature.isEnabled(requireContext()))

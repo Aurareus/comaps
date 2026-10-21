@@ -5,8 +5,9 @@
 
   <!-- The feature -->
   <string name="live_location">Live location</string>
-  <string name="live_location_setting">Live location sharing (experimental)</string>
-  <string name="live_location_setting_summary">Share your location with people you choose. It is encrypted end to end and travels through relays.</string>
+  <string name="live_location_setting">Live location sharing</string>
+  <!-- Settings: the entry's summary, a short list of what is in there -->
+  <string name="live_location_setting_summary">Name, dot color, relays, live updates</string>
   <string name="live_location_setting_where">When enabled, you\'ll find it in the main menu under %1$s.</string>
   <string name="live_location_sharing">Live location sharing</string>
   <string name="live_location_turned_off_title">Live location is off</string>
@@ -150,8 +151,13 @@
   <string name="live_location_contact_details">Contact details</string>
 
   <!-- Settings -->
-  <string name="live_location_your_name">Your name</string>
-  <string name="live_location_relays">Your relays</string>
+  <string name="live_location_what_relays_see_summary">How your location stays private</string>
+  <string name="live_location_appear_as">Appear as</string>
+  <string name="live_location_not_set">Not set</string>
+  <string name="live_location_dot_color">Dot color</string>
+  <string name="live_location_dot_color_automatic">Automatic</string>
+  <string name="live_location_dot_color_message">The color of your dot on your contacts\' maps. Automatic: each of them sees a color of their own app\'s choosing.</string>
+  <string name="live_location_relays">Relays</string>
   <string name="live_location_relays_summary">Your phone listens on the first one that works. Only wss:// addresses are accepted.</string>
   <string name="live_location_add_relay">Add relay</string>
   <string name="live_location_relay_hint">wss://relay.example.org</string>
@@ -160,13 +166,26 @@
   <string name="live_location_relays_few">With fewer than two relays, sharing stops working whenever that relay is down.</string>
   <string name="live_location_move_up">Move up</string>
   <string name="live_location_remove">Remove</string>
-  <string name="live_location_approved_relays">Relays you allowed for contacts</string>
+  <string name="live_location_approved_relays">Relays for contacts</string>
+  <string name="live_location_approved_relays_none">Relays your contacts use that aren\'t yours</string>
+  <string name="live_location_approved_relays_count">%1$d allowed, %2$d refused</string>
+  <string name="live_location_approved_relays_empty">When a contact uses a relay that isn\'t one of yours, CoMaps asks you before it connects there. Your answers are listed here.</string>
+  <string name="live_location_allowed">Allowed</string>
+  <string name="live_location_refused">Refused</string>
   <string name="live_location_approved_for">Allowed for %s</string>
+  <string name="live_location_refused_for">Refused for %s</string>
+  <string name="live_location_allow_refused">Allow %1$s? Its operator would see your internet address whenever your phone uses it for %2$s.</string>
+  <string name="live_location_allow_refused_any">Allow %s? Its operator would see your internet address whenever your phone uses it.</string>
+  <string name="live_location_when_connecting">While connecting with a new contact</string>
   <string name="live_location_revoke">Revoke</string>
   <string name="live_location_request_live">Request live updates when viewing</string>
+  <string name="live_location_request_live_summary">While you view a contact\'s location, their phone sends a new position every few seconds. Otherwise, only after a move or every 5 minutes.</string>
   <string name="live_location_allow_live">Allow viewers to request live updates</string>
-  <string name="live_location_low_battery">Sharing stops at %d%% battery.</string>
-  <string name="live_location_low_battery_title">Stop sharing on low battery</string>
+  <string name="live_location_allow_live_summary">While a contact views your location, your phone sends a new position every few seconds. This uses more battery.</string>
+  <string name="live_location_low_battery_title">Stop sharing at low battery</string>
+  <string name="live_location_low_battery_at">At %d%%</string>
+  <string name="live_location_low_battery_never">Never</string>
+  <string name="live_location_delete_all_summary">Your contacts, their keys and these settings</string>
 
   <!-- What relays can see: docs/LIVE_LOCATION.md §11.6 -->
   <string name="live_location_what_relays_see">What relays can see</string>

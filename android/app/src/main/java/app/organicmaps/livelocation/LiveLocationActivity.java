@@ -25,6 +25,7 @@ public class LiveLocationActivity extends BaseToolbarActivity implements LiveLoc
   static final String SCREEN_JOIN = "join";
   static final String SCREEN_RESUME = "resume";
   static final String SCREEN_EXPLAIN = "explain";
+  static final String SCREEN_WHAT_RELAYS_SEE = "what_relays_see";
   static final String SCREEN_CONTACT = "contact";
 
   @Nullable
@@ -60,6 +61,15 @@ public class LiveLocationActivity extends BaseToolbarActivity implements LiveLoc
     return contactsIntent(context).putExtra(EXTRA_SCREEN, SCREEN_EXPLAIN);
   }
 
+  /** What relays can see, to read only, e.g. from Settings: also while the feature is off. */
+  @NonNull
+  public static Intent whatRelaysSeeIntent(@NonNull Context context)
+  {
+    return contactsIntent(context)
+        .putExtra(EXTRA_SCREEN, SCREEN_WHAT_RELAYS_SEE)
+        .putExtra(ExplanationFragment.ARG_JUST_READ, true);
+  }
+
   /** One contact's screen, e.g. from the sheet of its dot on the map. */
   @NonNull
   public static Intent contactIntent(@NonNull Context context, @NonNull String contactId)
@@ -73,7 +83,7 @@ public class LiveLocationActivity extends BaseToolbarActivity implements LiveLoc
   protected Class<? extends Fragment> getFragmentClass()
   {
     final String screen = getIntent().getStringExtra(EXTRA_SCREEN);
-    if (!LiveLocationFeature.isEnabled(this) || SCREEN_EXPLAIN.equals(screen))
+    if (!LiveLocationFeature.isEnabled(this) || SCREEN_EXPLAIN.equals(screen) || SCREEN_WHAT_RELAYS_SEE.equals(screen))
       return ExplanationFragment.class;
     if (SCREEN_MANAGE.equals(screen))
       return ManageSharingFragment.class;
@@ -90,6 +100,8 @@ public class LiveLocationActivity extends BaseToolbarActivity implements LiveLoc
   protected int getToolbarTitle()
   {
     final String screen = getIntent().getStringExtra(EXTRA_SCREEN);
+    if (SCREEN_WHAT_RELAYS_SEE.equals(screen))
+      return R.string.live_location_what_relays_see;
     if (!LiveLocationFeature.isEnabled(this) || SCREEN_EXPLAIN.equals(screen))
       return R.string.live_location_sharing;
     if (SCREEN_MANAGE.equals(screen))
@@ -99,7 +111,7 @@ public class LiveLocationActivity extends BaseToolbarActivity implements LiveLoc
     if (SCREEN_RESUME.equals(screen))
       return R.string.live_location_share_my_location;
     if (SCREEN_CONTACT.equals(screen))
-      return R.string.live_location_contacts;
+      return R.string.live_location_contact_details;
     // The main menu's "Share My Location" leads here while the feature is on.
     return R.string.share_my_location;
   }

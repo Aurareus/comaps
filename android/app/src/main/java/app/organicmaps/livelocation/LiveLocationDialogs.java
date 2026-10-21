@@ -4,7 +4,11 @@ import android.app.Activity;
 import android.content.DialogInterface;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewGroup;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.GridView;
+import android.widget.ImageView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.StringRes;
@@ -13,10 +17,14 @@ import app.organicmaps.R;
 import app.organicmaps.sdk.livelocation.LiveLocation;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Consent;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.ConsentRequest;
+import app.organicmaps.sdk.livelocation.LiveLocationModels.DotColor;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Sharing;
+import app.organicmaps.util.Graphics;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
+import java.util.List;
+import java.util.Objects;
 
 /** Live location (NLL): the dialogs shared by the map and the live location screens. */
 final class LiveLocationDialogs
@@ -31,6 +39,12 @@ final class LiveLocationDialogs
   interface TextDone
   {
     void done(@NonNull String text);
+  }
+
+  interface Rows
+  {
+    /** Adds the dialog's rows; `refresh` builds them again, e.g. after a change. */
+    void render(@NonNull LiveLocationViews views, @NonNull Runnable refresh);
   }
 
   private LiveLocationDialogs() {}
@@ -90,6 +104,66 @@ final class LiveLocationDialogs
         .setPositiveButton(R.string.live_location_resume_button, (dialog, which) -> onResume.run())
         .setNegativeButton(R.string.live_location_dont_resume, (dialog, which) -> LiveLocation.dismissResume())
         .show();
+  }
+
+  /** A list in a dialog, such as the relays in Settings, kept current by its own rows' actions. */
+  @NonNull
+  static AlertDialog showRows(@NonNull Activity activity, @StringRes int title, @NonNull Rows rows)
+  {
+    final LayoutInflater inflater = LayoutInflater.from(activity);
+    final View view = inflater.inflate(R.layout.dialog_live_location_rows, null);
+    final LiveLocationViews views = new LiveLocationViews(inflater, view.findViewById(R.id.live_location_content));
+    final Runnable[] refresh = new Runnable[1];
+    refresh[0] = () ->
+    {
+      views.clear();
+      rows.render(views, refresh[0]);
+    };
+    refresh[0].run();
+    return new MaterialAlertDialogBuilder(activity)
+        .setTitle(title)
+        .setView(view)
+        .setPositiveButton(R.string.done, null)
+        .show();
+  }
+
+  /** The dot colour contacts see: CoMaps' bookmark colours, or "Automatic", which leaves it to each of them. */
+  static void showDotColors(@NonNull Activity activity, @NonNull List<DotColor> colors, @NonNull String current,
+                            @NonNull TextDone chosen)
+  {
+    final GridView grid = (GridView) LayoutInflater.from(activity).inflate(R.layout.fragment_color_grid, null);
+    grid.setAdapter(new ArrayAdapter<>(activity, 0, colors) {
+      @NonNull
+      @Override
+      public View getView(int position, @Nullable View convertView, @NonNull ViewGroup parent)
+      {
+        final View view = convertView != null
+                            ? convertView
+                            : LayoutInflater.from(activity).inflate(R.layout.color_row, parent, false);
+        final DotColor color = Objects.requireNonNull(getItem(position));
+        final int argb = 0xFF000000 | color.rgb;
+        final ImageView circle = view.findViewById(R.id.iv__color);
+        circle.setImageDrawable(
+            color.name.equals(current)
+                ? Graphics.drawCircleAndImage(argb, R.dimen.track_circle_size, R.drawable.ic_done,
+                                              R.dimen.bookmark_icon_size, activity)
+                : Graphics.drawCircle(argb, R.dimen.select_color_circle_size, activity.getResources()));
+        view.setContentDescription(LiveLocationText.colorName(activity, color.name));
+        return view;
+      }
+    });
+    final AlertDialog dialog =
+        new MaterialAlertDialogBuilder(activity)
+            .setTitle(R.string.live_location_dot_color)
+            .setMessage(R.string.live_location_dot_color_message)
+            .setView(grid)
+            .setNeutralButton(R.string.live_location_dot_color_automatic, (d, which) -> chosen.done(""))
+            .setNegativeButton(R.string.cancel, null)
+            .show();
+    grid.setOnItemClickListener((parent, view, position, id) -> {
+      dialog.dismiss();
+      chosen.done(colors.get(position).name);
+    });
   }
 
   @NonNull

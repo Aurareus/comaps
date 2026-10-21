@@ -137,6 +137,7 @@ public final class LiveLocationStatusIcon extends Drawable
     return changed;
   }
 
+  @SuppressWarnings("deprecation") // still abstract
   @Override
   public int getOpacity()
   {

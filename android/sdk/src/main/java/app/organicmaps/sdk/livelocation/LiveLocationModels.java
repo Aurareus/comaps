@@ -358,7 +358,7 @@ public final class LiveLocationModels
 
     Settings(@NonNull JSONObject json) throws JSONException
     {
-      readable = json.optBoolean("readable", true);
+      readable = json.optBoolean("readable"); // a view without it is not from a running core
       name = json.optString("name");
       homeRelays = strings(json.optJSONArray("relays"));
       approved = relaysFor(json.optJSONArray("approved"));

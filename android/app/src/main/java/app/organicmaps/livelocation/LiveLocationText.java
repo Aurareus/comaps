@@ -86,6 +86,31 @@ final class LiveLocationText
     return String.join("\n", lines);
   }
 
+  /** A dot colour's name (spec §8), in the words of CoMaps' bookmark colours; "Automatic" for none. */
+  @NonNull
+  static String colorName(@NonNull Context context, @NonNull String color)
+  {
+    final int name = switch (color)
+    {
+      case "red" -> R.string.red;
+      case "pink" -> R.string.pink;
+      case "purple" -> R.string.purple;
+      case "deeppurple" -> R.string.deep_purple;
+      case "blue" -> R.string.blue;
+      case "lightblue" -> R.string.light_blue;
+      case "cyan" -> R.string.cyan;
+      case "teal" -> R.string.teal;
+      case "green" -> R.string.green;
+      case "lime" -> R.string.lime;
+      case "yellow" -> R.string.yellow;
+      case "orange" -> R.string.orange;
+      case "deeporange" -> R.string.deep_orange;
+      case "brown" -> R.string.brown;
+      default -> R.string.live_location_dot_color_automatic;
+    };
+    return context.getString(name);
+  }
+
   /** Verified, not verified, or flagged: the codes must be compared (§11.2). */
   @NonNull
   static String badge(@NonNull Context context, @NonNull Contact contact)
