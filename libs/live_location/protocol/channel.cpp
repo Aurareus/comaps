@@ -90,7 +90,7 @@ nostr::Event ControlEvent(Contact & contact, json::Value const & body, crypto::R
 }
 
 nostr::Event StateEvent(Contact & contact, Relays const & relays, std::optional<Share> const & share, crypto::Rng & rng,
-                        int64_t now)
+                        int64_t now, std::optional<std::string> const & color)
 {
   contact.m_seqOut += 1;
   State state;
@@ -98,6 +98,7 @@ nostr::Event StateEvent(Contact & contact, Relays const & relays, std::optional<
   state.m_ts = now;
   state.m_relays = relays;
   state.m_share = share;
+  state.m_color = color;
   return ControlEvent(contact, ToJson(state), rng, now);
 }
 

@@ -20,10 +20,19 @@ struct Settings
   Relays m_previousRelays;      // the home relays before the last change, still read and allowed until all
   int64_t m_relaysChanged = 0;  // contacts moved, at most through this epoch + 30 (spec §11); 0: never changed
   std::map<std::string, std::string> m_approved;  // relay consent: url -> the contact it was approved for
-  std::set<std::string> m_declined;               // asked once and refused
+  std::map<std::string, std::string> m_declined;  // refused for good ("Don't allow"): url -> the contact
   bool m_requestLive = true;                      // ask sharers for live updates while viewing (D4)
   bool m_allowLive = true;                        // honour viewers' requests for live updates (D4)
-  int m_lowBatteryStop = 5;                       // stop sharing at this battery level, in percent
+  int m_lowBatteryStop = 5;                       // stop sharing at this battery level, in percent; 0: never
+  std::string m_color;                            // the dot colour contacts see (DotColors), "": theirs to pick
+};
+
+/// The user's answer to a question about a relay (relay consent, spec §11).
+enum class Consent
+{
+  Allow,
+  NotNow,  // asked again the next time the relay is needed, at most once per run
+  Refuse,  // never asked again; Settings lists it, and it can be allowed there
 };
 
 struct ContactInfo
@@ -42,6 +51,10 @@ struct ContactInfo
   std::optional<int64_t> m_iShareUntil;        // 0: until stopped
   bool m_liveUpdatesOff = false;               // live updates need a relay the user has not allowed ...
   std::string m_liveRelay;                     // ... this one
+  /// None of the contact's relays may be used, so nothing can be sent to it nor its share followed; this
+  /// one, the first in its list, would do. Empty otherwise.
+  std::string m_blockedRelay;
+  std::string m_color;  // the dot colour the contact chose (DotColors), "" if none
 };
 
 struct PairingInfo
@@ -74,8 +87,9 @@ struct PositionInfo
 {
   std::string m_contactId;
   std::string m_name;
-  Location m_location;
+  Location m_location;   // m_low: the sharer's battery is low
   bool m_stale = false;  // over 2 minutes old, or its stream ended
+  std::string m_color;   // the dot colour the contact chose, "" if none
 };
 
 struct SharingInfo
@@ -136,6 +150,7 @@ struct ManagerConfig
   int64_t m_heartbeatMs = 300'000;       // otherwise every 5 min
   int64_t m_watchIntervalMs = 60'000;    // viewers signal every minute
   int64_t m_watchLease = 120;            // seconds a signal keeps the sharer live
+  int m_lowBattery = 15;                 // positions say "low" at this battery level and below (Android's own)
   int64_t m_staleAfter = 120;            // seconds after which a position is shown as old
   int64_t m_viewTickMs = 10'000;         // how often positions are re-checked while viewing
 };

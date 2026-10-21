@@ -67,7 +67,8 @@ enum class Placement
 /// "deaf" (m_deafBackoff*), and a FirstReachable subscription moves to the next relay. When the back-off
 /// is over, the subscription runs on both until an event published comes back over the deaf relay or
 /// does not. Publishing to it goes on throughout. A relay that has never sent such an event back is not
-/// judged at all: some relays might never do so.
+/// judged at all: some relays might never do so. Which relays have is the app's to remember across runs
+/// (SetEchoing(), OnEchoed()): a relay already deaf when the app starts would otherwise never be judged.
 class RelayPool
 {
 public:
@@ -77,6 +78,7 @@ public:
   using EoseFn = std::function<void(std::string const & url)>;
   using DoneFn = std::function<void(bool delivered)>;
   using AllowFn = std::function<bool(std::string const & url)>;
+  using EchoFn = std::function<void(std::string const & url)>;
 
   RelayPool(Transport & transport, Executor & executor, crypto::Rng & rng, AllowFn isAllowed, PoolConfig config = {});
   ~RelayPool();
@@ -107,6 +109,10 @@ public:
   bool IsFailing(std::string const & url) const;
   /// Whether `url` accepted an event without delivering it, and is backing off for it (the echo check).
   bool IsDeaf(std::string const & url) const;
+  /// Relays known to send an event back to the connection that published it, e.g. on an earlier run.
+  void SetEchoing(std::set<std::string> urls) { m_echoing.insert(urls.begin(), urls.end()); }
+  /// Called on every event that comes back to the connection that published it.
+  void OnEchoed(EchoFn fn) { m_onEchoed = std::move(fn); }
   /// The relay a FirstReachable subscription on `urls` relies on: the first that is allowed, not failing,
   /// and not found deaf, else the first that is not failing.
   std::optional<std::string> FirstReachable(Relays const & urls) const;
@@ -171,6 +177,7 @@ private:
   std::map<std::string, Health> m_health;
   std::map<std::string, Deafness> m_deaf;
   std::set<std::string> m_echoing;  // relays that have sent an event back to the connection that published it
+  EchoFn m_onEchoed;
   std::vector<std::unique_ptr<Connection>> m_closed;  // destroyed outside their own callbacks
 };
 }  // namespace live_location::relay

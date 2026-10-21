@@ -85,9 +85,9 @@ std::string SasDigits(Key const & k1);
 
 /// A channel event towards `contact` (kind 30484, d "") carrying `body`; created_at strictly increases.
 nostr::Event ControlEvent(Contact & contact, json::Value const & body, crypto::Rng & rng, int64_t now);
-/// The next state towards `contact`, with `share` while sharing with it.
+/// The next state towards `contact`, with `share` while sharing with it, and the sender's dot colour if any.
 nostr::Event StateEvent(Contact & contact, Relays const & relays, std::optional<Share> const & share, crypto::Rng & rng,
-                        int64_t now);
+                        int64_t now, std::optional<std::string> const & color = {});
 
 /// The keys that may sign the peer's events towards me: epochs e-1..e+1 (clock skew), minus erased
 /// ones, by public key.

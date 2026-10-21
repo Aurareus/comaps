@@ -620,6 +620,8 @@ void RelayPool::OnClosed(uint64_t connectionId, std::string const & reason)
 void RelayPool::OnEcho(Connection & connection, std::string const & eventId)
 {
   m_echoing.insert(connection.m_url);
+  if (m_onEchoed)
+    m_onEchoed(connection.m_url);
   if (auto const echo = connection.m_echoes.find(eventId); echo != connection.m_echoes.end())
   {
     Cancel(echo->second);

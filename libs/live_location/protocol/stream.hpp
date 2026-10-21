@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -23,7 +24,8 @@ struct Stream
   int64_t m_lastCreated = 0;
 
   static Stream Create(crypto::Rng & rng);
-  std::string Pubkey() const;
+  /// Hex; derived once, on first use: the inbox compares every event against it (the echo check).
+  std::string const & Pubkey() const;
 
   /// The next location; `fix` gives everything but seq.
   nostr::Event LocationEvent(Location fix, crypto::Rng & rng, int64_t now);
@@ -33,6 +35,8 @@ struct Stream
 
 private:
   int64_t NextCreatedAt(int64_t now);
+
+  mutable std::string m_pubkey;
 };
 
 /// A location or end of the granted stream, newer than `lastSeq`, or nothing. Any failure discards the
@@ -60,6 +64,8 @@ public:
 
   /// The relays the states name, from the next state on. Throws std::invalid_argument for an invalid list.
   void SetRelays(Relays relays);
+  /// The dot colour the states carry, from the next state on (§8).
+  void SetColor(std::optional<std::string> color) { m_color = std::move(color); }
 
   bool IsSharing() const { return m_stream.has_value(); }
   Grants const & GetGrants() const { return m_grants; }
@@ -73,7 +79,8 @@ public:
   /// A new recipient set (or the same one at a new epoch): every state (new grants and share-less ones,
   /// shuffled), then the old stream's end. The new stream stays silent until NotBefore().
   Rekey Change(Grants grants, crypto::Rng & rng, int64_t now);
-  /// A new `until` for a CURRENT recipient: same stream, no re-key. Adding someone goes through Change(),
+  /// A new `until` for a CURRENT recipient, earlier or later: same stream, no re-key (once the new `until`
+  /// passes, Tick() re-keys without the recipient). Adding someone goes through Change(),
   /// so that a newcomer cannot read what was published before it was granted. Throws
   /// std::invalid_argument for anyone else, or for an `until` in the past.
   nostr::Event Extend(ContactPtr const & contact, int64_t until, crypto::Rng & rng, int64_t now);
@@ -93,6 +100,7 @@ private:
                                                           int64_t now);
 
   Relays m_relays;
+  std::optional<std::string> m_color;
   Grants m_grants;
   std::optional<Stream> m_stream;
   int64_t m_streamEpoch = 0;

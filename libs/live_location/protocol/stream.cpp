@@ -17,9 +17,11 @@ Stream Stream::Create(crypto::Rng & rng)
   return out;
 }
 
-std::string Stream::Pubkey() const
+std::string const & Stream::Pubkey() const
 {
-  return ToHex(crypto::GetXOnlyPublicKey(m_secret));
+  if (m_pubkey.empty())
+    m_pubkey = ToHex(crypto::GetXOnlyPublicKey(m_secret));
+  return m_pubkey;
 }
 
 int64_t Stream::NextCreatedAt(int64_t now)
@@ -88,10 +90,10 @@ std::vector<std::pair<ContactPtr, nostr::Event>> Sharer::States(std::vector<Cont
   for (auto const & grant : m_grants)
   {
     Share const share{grant.second, m_stream->Pubkey(), m_stream->m_key};
-    out.emplace_back(grant.first, StateEvent(*grant.first, m_relays, share, rng, now));
+    out.emplace_back(grant.first, StateEvent(*grant.first, m_relays, share, rng, now, m_color));
   }
   for (auto const & contact : removed)
-    out.emplace_back(contact, StateEvent(*contact, m_relays, std::nullopt, rng, now));
+    out.emplace_back(contact, StateEvent(*contact, m_relays, std::nullopt, rng, now, m_color));
   Shuffle(out, rng);
   return out;
 }
@@ -148,7 +150,7 @@ nostr::Event Sharer::CurrentState(ContactPtr const & contact, crypto::Rng & rng,
   std::optional<Share> share;
   if (auto const until = UntilOf(contact))
     share = Share{*until, m_stream->Pubkey(), m_stream->m_key};
-  return StateEvent(*contact, m_relays, share, rng, now);
+  return StateEvent(*contact, m_relays, share, rng, now, m_color);
 }
 
 Rekey Sharer::Stop(crypto::Rng & rng, int64_t now)

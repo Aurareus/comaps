@@ -2,9 +2,12 @@
 
 #include "live_location/manager/types.hpp"
 
+#include <array>
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // Contacts' positions as dots on the map (design doc §11.4): the decisions, without the map. libs/map
@@ -25,7 +28,18 @@ struct MarkSpec
 
 uint32_t constexpr kStaleColor = 0x9E9E9EFF;
 
-/// A colour per contact, the same for its id on every run.
+/// The colours a user may choose for the dot contacts see (spec §8, `color`): CoMaps' bookmark colours
+/// without the greys, which mean an old position. By their names in the protocol, in CoMaps' order.
+struct DotColor
+{
+  std::string_view m_name;
+  uint32_t m_rgba;
+};
+extern std::array<DotColor, 14> const kDotColors;
+/// The colour of a name in kDotColors, or nothing for a name this app does not know.
+std::optional<uint32_t> DotColorRgba(std::string_view name);
+
+/// A colour per contact, the same for its id on every run: for a contact that chose none.
 uint32_t ColorOf(std::string const & contactId);
 
 /// One mark per position.

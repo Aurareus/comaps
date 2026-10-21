@@ -15,6 +15,7 @@ json::Value PositionsJson(std::vector<PositionInfo> const & positions);
 json::Value SharingJson(SharingInfo const & sharing);
 json::Value ConsentJson(ConsentRequest const & request);
 json::Value LocationRequestJson(LocationRequest request);
-json::Value SettingsJson(Settings const & settings);
+/// `readable`: the store was read (Manager::IsStarted()); otherwise these are defaults, not the user's.
+json::Value SettingsJson(Settings const & settings, bool readable = true);
 char const * StageName(PairingInfo::Stage stage);
 }  // namespace live_location

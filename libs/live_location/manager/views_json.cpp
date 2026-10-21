@@ -1,6 +1,7 @@
 #include "live_location/manager/views_json.hpp"
 
 #include "live_location/manager/manager.hpp"
+#include "live_location/manager/marks.hpp"
 #include "live_location/protocol/constants.hpp"
 
 namespace live_location
@@ -68,7 +69,9 @@ json::Value ContactsJson(std::vector<ContactInfo> const & contacts)
         .Set("shares_with_me", Optional(c.m_sharesWithMeUntil))
         .Set("i_share", Optional(c.m_iShareUntil))
         .Set("live_updates_off", json::Value::Bool(c.m_liveUpdatesOff))
-        .Set("live_relay", json::Value::String(c.m_liveRelay));
+        .Set("live_relay", json::Value::String(c.m_liveRelay))
+        .Set("blocked_relay", json::Value::String(c.m_blockedRelay))
+        .Set("color", json::Value::String(c.m_color));
     list.Push(std::move(item));
   }
   auto out = json::Value::Object();
@@ -88,7 +91,9 @@ json::Value PositionsJson(std::vector<PositionInfo> const & positions)
         .Set("lon", json::Value::Double(p.m_location.m_lon))
         .Set("acc", json::Value::Double(p.m_location.m_acc))
         .Set("ts", json::Value::Int(p.m_location.m_ts))
-        .Set("stale", json::Value::Bool(p.m_stale));
+        .Set("stale", json::Value::Bool(p.m_stale))
+        .Set("low", json::Value::Bool(p.m_location.m_low.value_or(false)))
+        .Set("color", json::Value::String(p.m_color));
     list.Push(std::move(item));
   }
   auto out = json::Value::Object();
@@ -137,7 +142,7 @@ json::Value LocationRequestJson(LocationRequest request)
   return out;
 }
 
-json::Value SettingsJson(Settings const & settings)
+json::Value SettingsJson(Settings const & settings, bool readable)
 {
   auto relays = json::Value::Array();
   for (auto const & url : settings.m_homeRelays)
@@ -150,13 +155,26 @@ json::Value SettingsJson(Settings const & settings)
     approved.Push(std::move(item));
   }
   auto declined = json::Value::Array();
-  for (auto const & url : settings.m_declined)
-    declined.Push(json::Value::String(url));
+  for (auto const & [url, contact] : settings.m_declined)
+  {
+    auto item = json::Value::Object();
+    item.Set("url", json::Value::String(url)).Set("contact", json::Value::String(contact));
+    declined.Push(std::move(item));
+  }
+  auto colors = json::Value::Array();
+  for (auto const & color : kDotColors)
+  {
+    auto item = json::Value::Object();
+    item.Set("name", json::Value::String(std::string(color.m_name)))
+        .Set("rgb", json::Value::Int(static_cast<int64_t>(color.m_rgba >> 8)));
+    colors.Push(std::move(item));
+  }
   auto defaults = json::Value::Array();
   for (auto const & url : kDefaultRelays)
     defaults.Push(json::Value::String(std::string(url)));
   auto out = json::Value::Object();
   out.Set("event", json::Value::String("settings"))
+      .Set("readable", json::Value::Bool(readable))
       .Set("name", json::Value::String(settings.m_name))
       .Set("relays", std::move(relays))
       .Set("approved", std::move(approved))
@@ -164,7 +182,9 @@ json::Value SettingsJson(Settings const & settings)
       .Set("default_relays", std::move(defaults))
       .Set("request_live", json::Value::Bool(settings.m_requestLive))
       .Set("allow_live", json::Value::Bool(settings.m_allowLive))
-      .Set("low_battery_stop", json::Value::Int(settings.m_lowBatteryStop));
+      .Set("low_battery_stop", json::Value::Int(settings.m_lowBatteryStop))
+      .Set("color", json::Value::String(settings.m_color))
+      .Set("dot_colors", std::move(colors));
   return out;
 }
 }  // namespace live_location

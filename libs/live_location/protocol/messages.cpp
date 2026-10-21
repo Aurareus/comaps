@@ -170,6 +170,8 @@ json::Value ToJson(State const & state)
         .Set("key", json::Value::String(Base64Encode(state.m_share->m_key)));
     out.Set("share", std::move(share));
   }
+  if (state.m_color)
+    out.Set("color", json::Value::String(*state.m_color));
   return out;
 }
 
@@ -306,6 +308,12 @@ std::optional<State> ParseState(json::Value const & message)
     out.m_share = ParseShare(*share);
     if (!out.m_share)
       return {};
+  }
+  // Cosmetic: a colour that isn't a short string is ignored, not the state with its grant (§8).
+  if (auto const * color = message.Get("color");
+      color != nullptr && color->IsString() && !color->AsString().empty() && color->AsString().size() <= kMaxColorBytes)
+  {
+    out.m_color = color->AsString();
   }
   return out;
 }

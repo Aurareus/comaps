@@ -13,6 +13,32 @@ std::array<uint32_t, 8> constexpr kPalette = {0xE53935FF, 0x1E88E5FF, 0x43A047FF
                                               0x8E24AAFF, 0x00ACC1FF, 0xD81B60FF, 0x6D4C41FF};
 }  // namespace
 
+// The values of kml::ColorFromPredefinedColor(), which this library does not depend on.
+std::array<DotColor, 14> const kDotColors = {{
+    {"red", 0xE51B23FF},
+    {"pink", 0xFF4182FF},
+    {"purple", 0x9B24B2FF},
+    {"deeppurple", 0x6639BFFF},
+    {"blue", 0x0066CCFF},
+    {"lightblue", 0x249CF2FF},
+    {"cyan", 0x14BECDFF},
+    {"teal", 0x00A58CFF},
+    {"green", 0x3C8C3CFF},
+    {"lime", 0x93BF39FF},
+    {"yellow", 0xFFC800FF},
+    {"orange", 0xFF9600FF},
+    {"deeporange", 0xF06432FF},
+    {"brown", 0x804633FF},
+}};
+
+std::optional<uint32_t> DotColorRgba(std::string_view name)
+{
+  for (auto const & color : kDotColors)
+    if (color.m_name == name)
+      return color.m_rgba;
+  return {};
+}
+
 uint32_t ColorOf(std::string const & contactId)
 {
   auto const digest = crypto::Sha256(AsBytes(contactId));
@@ -30,7 +56,8 @@ std::vector<MarkSpec> MarksFor(std::vector<PositionInfo> const & positions)
     mark.m_lon = position.m_location.m_lon;
     mark.m_label = position.m_name;
     mark.m_stale = position.m_stale;
-    mark.m_rgba = position.m_stale ? kStaleColor : ColorOf(position.m_contactId);
+    mark.m_rgba =
+        position.m_stale ? kStaleColor : DotColorRgba(position.m_color).value_or(ColorOf(position.m_contactId));
     out.push_back(std::move(mark));
   }
   return out;

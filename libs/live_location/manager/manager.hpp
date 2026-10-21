@@ -44,18 +44,25 @@ public:
   void SetForeground(bool foreground);
 
   Settings const & GetSettings() const { return m_settings; }
+  /// The store was read, or deleted: the settings are the user's, and edits take.
+  bool IsStarted() const { return m_started; }
   bool SetName(std::string name);
   /// Contacts learn the new list from a state sent to each of them now, and answer through it. Until every
   /// contact has sent something through the new list, for at most 30 days, the previous relays are still
   /// read, and each contact that has not gets the state again on each day the app runs (spec §11). A
   /// running share is re-keyed onto the new list.
   bool SetHomeRelays(Relays relays);
-  /// The user's answer about a relay (relay consent, spec §11). Approvals are kept until revoked; a
-  /// refusal means the app does not ask again.
-  void SetConsent(std::string const & url, bool allowed, std::string const & forContact);
+  /// The user's answer about a relay (relay consent, spec §11). Approvals and refusals are kept until
+  /// revoked; "not now" lasts for this run.
+  void SetConsent(std::string const & url, Consent consent, std::string const & forContact);
   void RevokeConsent(std::string const & url);
   void SetRequestLive(bool request);
   void SetAllowLive(bool allow);
+  /// The dot colour contacts see: a name of kDotColors, or "" to let each viewer pick. The current
+  /// recipients get a state with it at once, everyone else with their next one (spec §8).
+  bool SetColor(std::string color);
+  /// Sharing stops at this battery level, 0..50 percent; 0: never.
+  bool SetLowBatteryStop(int percent);
 
   /// The inviter's side: a QR code lives 10 minutes, a link a day. Nothing without a valid name.
   std::optional<PairingInfo> CreateInvite(bool byLink);
@@ -81,12 +88,14 @@ public:
   bool StartSharing(Recipients const & recipients);
   /// A new set of recipients (re-keys the stream). Empty stops sharing.
   bool ChangeSharing(Recipients const & recipients);
-  /// A later time limit for a current recipient (same stream).
+  /// Another time limit for a current recipient, earlier or later (same stream).
   bool ExtendSharing(std::string const & id, int64_t until);
   void StopSharing();
   void DismissResume();
   /// A fix from the location provider. Its m_ts is the fix time in milliseconds.
   void OnLocation(Location const & fix);
+  /// While unplugged; 100 while charging. At or below m_lowBattery positions say so; at or below the
+  /// user's stop level the share stops.
   void OnBatteryLevel(int percent);
 
   std::vector<ContactInfo> Contacts() const;
@@ -122,6 +131,10 @@ private:
   bool MovePending() const;
   /// The previous home relays that are no longer home relays, while MovePending().
   Relays OldRelays() const;
+  /// The user's dot colour for states, if any.
+  std::optional<std::string> Color() const;
+  /// A relay sent an event back to the connection that published it (the echo check).
+  void OnEchoed(std::string const & url);
   bool IsAllowed(std::string const & url) const;
   Relays Allowed(Relays const & relays) const;
   void AskConsent(std::string const & url, std::string const & contactName, ConsentRequest::Purpose purpose);
@@ -189,6 +202,8 @@ private:
   std::vector<std::unique_ptr<Peer>> m_peers;
   std::vector<std::unique_ptr<Session>> m_sessions;
   std::set<std::string> m_asked;  // relays asked about in this run
+  std::map<std::string, int64_t> m_echoed;  // relays that sent an event back: url -> epoch of the last time
+  int m_battery = -1;                       // the last level reported, -1: none
 
   // Sharing
   std::unique_ptr<Sharer> m_sharer;

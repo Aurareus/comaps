@@ -181,7 +181,7 @@ void Pair(World & world, Phone & inviter, Phone & joiner)
   if (opened->m_stage == PairingInfo::Stage::NeedsConsent)
   {
     for (auto const & url : opened->m_needsConsent)
-      joiner.M().SetConsent(url, false, "");
+      joiner.M().SetConsent(url, Consent::NotNow, "");
     opened = joiner.M().OpenInvite(invite->m_link);
   }
   TEST(opened && opened->m_stage == PairingInfo::Stage::Waiting, ());
@@ -311,7 +311,7 @@ UNIT_TEST(Manager_ChangedHomeRelaysReachContacts)
   TEST_EQUAL(bob.Events().m_consents.size(), 1, ());
   TEST_EQUAL(bob.Events().m_consents[0].m_url, kOwn, ());
   TEST(bob.Events().m_consents[0].m_purpose == ConsentRequest::Purpose::Sending, ());
-  bob.M().SetConsent(kOwn, true, "Alice");
+  bob.M().SetConsent(kOwn, Consent::Allow, "Alice");
   world.Run(3'000);
   TEST(!alice.Contact("Bob")->m_notMoved, ("allowed: Bob answers there"));
   SetDown(world, kDefaults, true);
@@ -334,7 +334,7 @@ UNIT_TEST(Manager_ChangedHomeRelaysReachContacts)
   TEST(alice.Contact("Carol")->m_sharesWithMeUntil, ("through the old relays, still read that week"));
 
   // Alice's app, open again that week, has sent Carol the new list too.
-  carol.M().SetConsent(kOwn, true, "Alice");
+  carol.M().SetConsent(kOwn, Consent::Allow, "Alice");
   SetDown(world, kDefaults, true);
   int64_t const until = world.m_executor.Now() + 3600;
   TEST(carol.M().ExtendSharing(carol.Id("Alice"), until), ());
@@ -366,8 +366,8 @@ UNIT_TEST(Manager_ChangingHomeRelaysMovesARunningShare)
   Phone alice(world, "Alice");
   Phone bob(world, "Bob");
   TEST(bob.M().SetHomeRelays({kBobs}), ());
-  alice.M().SetConsent(kBobs, true, "Bob");
-  bob.M().SetConsent(kOwn, true, "Alice");
+  alice.M().SetConsent(kBobs, Consent::Allow, "Bob");
+  bob.M().SetConsent(kOwn, Consent::Allow, "Alice");
   Pair(world, alice, bob);
 
   alice.M().SetForeground(false);
@@ -396,23 +396,29 @@ UNIT_TEST(Manager_ReadsStoresOfEarlierVersions)
   Phone bob(world, "Bob");
   Pair(world, alice, bob);
 
-  // Version 2 is version 3 without, per contact, whether it moved (1 byte) and where states went (Bob's
-  // relays: a count, then each with its length). Version 1 is version 2 without its last fields: no
-  // previous relays (4 bytes), no change (8).
+  // Version 3 is version 4 without its last fields: no dot colour (a length, 4 bytes), whom refusals were
+  // for (none), Bob's colour (4) and no echo record (4). Version 2 is version 3 without, per contact,
+  // whether it moved (1 byte) and where states went (Bob's relays: a count, then each with its length).
+  // Version 1 is version 2 without its last fields: no previous relays (4 bytes), no change (8).
   store::Store store(alice.Path(), alice.Keys(), ScenarioRng());
   SecretBytes contents;
   TEST(store.Load(contents) == store::Store::Result::Loaded, ());
-  TEST_EQUAL(contents[0], 3, ());
+  TEST_EQUAL(contents[0], 4, ());
+  auto const zeros = [](SecretBytes const & bytes, size_t n)
+  { return std::all_of(bytes.end() - n, bytes.end(), [](uint8_t b) { return b == 0; }); };
+  TEST(zeros(contents, 12), ());
+  SecretBytes third(ByteSpan(contents.data(), contents.size() - 12));
+  third[0] = 3;
   size_t tail = 1 + 4;
   for (auto const & url : kDefaultRelays)
     tail += 4 + url.size();
-  SecretBytes second(ByteSpan(contents.data(), contents.size() - tail));
+  SecretBytes second(ByteSpan(third.data(), third.size() - tail));
   second[0] = 2;
-  TEST(std::all_of(second.end() - 12, second.end(), [](uint8_t b) { return b == 0; }), ());
+  TEST(zeros(second, 12), ());
   SecretBytes first(ByteSpan(second.data(), second.size() - 12));
   first[0] = 1;
 
-  for (auto const * earlier : {&second, &first})
+  for (auto const * earlier : {&third, &second, &first})
   {
     TEST(store.Save(*earlier, {}), ());
     alice.Restart();
@@ -420,14 +426,15 @@ UNIT_TEST(Manager_ReadsStoresOfEarlierVersions)
     TEST_EQUAL(alice.M().GetSettings().m_name, "Alice", ());
   }
 
-  // Nothing to answer after the upgrade: Bob's relays are where Alice's states went.
+  // Where Alice's last state to Bob went is unknown after an upgrade from version 1 or 2: she answers his
+  // next state once. Had he learned new relays of hers before, she would not have, ever (spec §11).
   alice.M().SetForeground(true);
   bob.M().SetForeground(true);
   size_t const before = EventsReceived(world, "wss://nos.lol");
   TEST(bob.M().StartSharing({{bob.Id("Alice"), 0}}), ());
   world.Run(5'000);
   TEST(alice.Contact("Bob")->m_sharesWithMeUntil, ());
-  TEST_EQUAL(EventsReceived(world, "wss://nos.lol"), before + 2, ("Bob's grant and first position, no answer"));
+  TEST_EQUAL(EventsReceived(world, "wss://nos.lol"), before + 3, ("Bob's grant, his first position, Alice's answer"));
 }
 
 UNIT_TEST(Manager_OldRelaysAreReadUntilEveryContactMovedForAtMost30Days)
@@ -445,9 +452,9 @@ UNIT_TEST(Manager_OldRelaysAreReadUntilEveryContactMovedForAtMost30Days)
   bob.M().SetForeground(false);
   carol.M().SetForeground(false);
   dave.M().SetForeground(false);
-  bob.M().SetConsent(kOwn, true, "Alice");
-  carol.M().SetConsent(kOwn, true, "Alice");
-  dave.M().SetConsent(kOwn, false, "Alice");  // Dave refused Alice's relay ("Not now")
+  bob.M().SetConsent(kOwn, Consent::Allow, "Alice");
+  carol.M().SetConsent(kOwn, Consent::Allow, "Alice");
+  dave.M().SetConsent(kOwn, Consent::Refuse, "Alice");  // Dave refused Alice's relay ("Don't allow")
 
   TEST(alice.M().SetHomeRelays({kOwn}), ());
   world.Run(3'000);
@@ -505,7 +512,7 @@ UNIT_TEST(Manager_AContactAnswersAMoveOnce)
   Phone alice(world, "Alice");
   Phone bob(world, "Bob");
   Pair(world, alice, bob);
-  bob.M().SetConsent(kOwn, true, "Alice");
+  bob.M().SetConsent(kOwn, Consent::Allow, "Alice");
   TEST(alice.M().SetHomeRelays({kOwn}), ());
   world.Run(5'000);
   TEST(!alice.Contact("Bob")->m_notMoved, ());
@@ -752,7 +759,7 @@ UNIT_TEST(Manager_LiveUpdatesNeedTheListeningRelay)
   TEST_EQUAL(bob.Contact("Alice")->m_liveRelay, "wss://relay.alice.example", ("the relay Bob may allow"));
   TEST(alice.Events().m_location == LocationRequest::Idle, ("Alice never heard Bob's signals"));
 
-  bob.M().SetConsent(bob.Contact("Alice")->m_liveRelay, true, "Alice");
+  bob.M().SetConsent(bob.Contact("Alice")->m_liveRelay, Consent::Allow, "Alice");
   world.Run(70'000);
   TEST(!bob.Contact("Alice")->m_liveUpdatesOff && alice.Events().m_location == LocationRequest::Live,
        ("allowed: live updates start"));
@@ -859,7 +866,7 @@ UNIT_TEST(Manager_AStoreThatCannotBeReadIsNeverOverwritten)
   TEST(!alice.M().SetName("Alicia"), ("nothing is written over it"));
   TEST(!alice.M().SetHomeRelays({"wss://relay.example"}), ());
   alice.M().SetRequestLive(false);
-  alice.M().SetConsent("wss://relay.example", true, "Bob");
+  alice.M().SetConsent("wss://relay.example", Consent::Allow, "Bob");
 
   // It works again: everything is still there.
   alice.Keys().m_failing = false;

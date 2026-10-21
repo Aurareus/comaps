@@ -92,11 +92,16 @@ bool Execute(Manager & manager, Executor const & executor, std::vector<std::stri
     return manager.SetName(arg(0));
   if (command == "relays")
     return manager.SetHomeRelays(args);
-  if (command == "consent")
+  if (command == "consent")  // consent <url> allow|notnow|refuse <contact>
   {
-    manager.SetConsent(arg(0), arg(1) == "allow", arg(2));
+    Consent const consent = arg(1) == "allow" ? Consent::Allow : arg(1) == "notnow" ? Consent::NotNow : Consent::Refuse;
+    manager.SetConsent(arg(0), consent, arg(2));
     return true;
   }
+  if (command == "color")  // color [<name>]: none for each viewer's pick
+    return manager.SetColor(arg(0));
+  if (command == "lowbattery")
+    return manager.SetLowBatteryStop(std::stoi(arg(0)));
   if (command == "foreground")
   {
     manager.SetForeground(arg(0) == "on");
@@ -195,7 +200,7 @@ bool Execute(Manager & manager, Executor const & executor, std::vector<std::stri
   }
   if (command == "settings")
   {
-    Print(SettingsJson(manager.GetSettings()));
+    Print(SettingsJson(manager.GetSettings(), manager.IsStarted()));
     return true;
   }
   if (command == "pairings")

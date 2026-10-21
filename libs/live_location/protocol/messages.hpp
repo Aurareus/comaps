@@ -40,7 +40,10 @@ struct State
   int64_t m_ts = 0;
   Relays m_relays;
   std::optional<Share> m_share;
+  std::optional<std::string> m_color;  // the sender's dot colour: a name; one the receiver doesn't know is ignored
 };
+
+size_t constexpr kMaxColorBytes = 32;
 
 struct Nav
 {
