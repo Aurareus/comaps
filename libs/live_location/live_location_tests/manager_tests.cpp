@@ -397,19 +397,23 @@ UNIT_TEST(Manager_ReadsStoresOfEarlierVersions)
   Phone alice(world, "Alice");
   Phone bob(world, "Bob");
   Pair(world, alice, bob);
+  // A refusal, as the old "Not now" stored it: for no one.
+  alice.M().SetConsent("wss://refused.example", Consent::Refuse, "");
+  alice.Restart();
+  TEST_EQUAL(alice.M().GetSettings().m_declined.size(), 1, ("version 4 keeps a refusal"));
 
-  // Version 3 is version 4 without its last fields: no dot colour (a length, 4 bytes), whom refusals were
-  // for (none), Bob's colour (4) and no echo record (4). Version 2 is version 3 without, per contact,
-  // whether it moved (1 byte) and where states went (Bob's relays: a count, then each with its length).
-  // Version 1 is version 2 without its last fields: no previous relays (4 bytes), no change (8).
+  // Version 3 is version 4 without its last fields: no dot colour (a length, 4 bytes), whom the refusal
+  // was for (no one, 4), Bob's colour (4) and no echo record (4). Version 2 is version 3 without, per
+  // contact, whether it moved (1 byte) and where states went (Bob's relays: a count, then each with its
+  // length). Version 1 is version 2 without its last fields: no previous relays (4 bytes), no change (8).
   store::Store store(alice.Path(), alice.Keys(), ScenarioRng());
   SecretBytes contents;
   TEST(store.Load(contents) == store::Store::Result::Loaded, ());
   TEST_EQUAL(contents[0], 4, ());
   auto const zeros = [](SecretBytes const & bytes, size_t n)
   { return std::all_of(bytes.end() - n, bytes.end(), [](uint8_t b) { return b == 0; }); };
-  TEST(zeros(contents, 12), ());
-  SecretBytes third(ByteSpan(contents.data(), contents.size() - 12));
+  TEST(zeros(contents, 16), ());
+  SecretBytes third(ByteSpan(contents.data(), contents.size() - 16));
   third[0] = 3;
   size_t tail = 1 + 4;
   for (auto const & url : kDefaultRelays)
@@ -426,6 +430,8 @@ UNIT_TEST(Manager_ReadsStoresOfEarlierVersions)
     alice.Restart();
     TEST(alice.Contact("Bob") && !alice.Contact("Bob")->m_notMoved, ("the contacts of an earlier store"));
     TEST_EQUAL(alice.M().GetSettings().m_name, "Alice", ());
+    // Its refusals were all "Not now": asked about again.
+    TEST(alice.M().GetSettings().m_declined.empty(), ());
   }
 
   // Where Alice's last state to Bob went is unknown after an upgrade from version 1 or 2: she answers his

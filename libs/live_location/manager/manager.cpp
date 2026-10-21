@@ -352,6 +352,12 @@ void Manager::Decode(ByteSpan data)
     for (uint32_t i = 0, n = reader.Count(4); i < n; ++i)
       m_echoed.insert(reader.String());
   }
+  else
+  {
+    // Before version 4 the only refusal was "Not now", yet it was kept for good: those relays are asked
+    // about again.
+    m_settings.m_declined.clear();
+  }
   if (!reader.AtEnd())
     throw binary::FormatError("trailing data");
 }

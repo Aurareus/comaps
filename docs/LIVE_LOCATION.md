@@ -1551,6 +1551,7 @@ the contact's details show "Battery low".
 | Finding | Change |
 |---|---|
 | A share started at or below the stop level stopped at once, at the battery report that comes with the sharing service's start. With levels up to 30 %, starting to share at 25 % would have stopped at once | Such a share runs until the battery has been above the level; a level chosen while sharing applies at once (**review**) |
+| The phones' stores hold every earlier "Not now" as a refusal, the old app's only one: read by this version, they would have become "Don't allow" | Refusals in a store older than version 4 are dropped: those relays are asked about again |
 | The settings view of a core that is not running (an empty object) read as the user's settings | Without the flag, the settings count as unreadable |
 | The echo check never judges a share's first post: it leaves before the listening subscription is open. The second post does | Noted in §21; the test shares two posts |
 | §11.5 promised a test of whether each relay can be reached; none was built | Taken out of §11.5; listed under known gaps (§22) |
