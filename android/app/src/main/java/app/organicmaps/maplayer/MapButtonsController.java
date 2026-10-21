@@ -146,9 +146,6 @@ public class MapButtonsController extends Fragment
     // Live location (NLL): shown while sharing, below the track recording indicator or in its place.
     mLiveLocationStatusButton = mFrame.findViewById(R.id.live_location_status);
     mLiveLocationIcon = null;
-    if (mLiveLocationBlinking != null)
-      mLiveLocationBlinking.cancel();
-    mLiveLocationBlinking = null;
     if (mLiveLocationStatusButton != null)
     {
       mLiveLocationStatusButton.setOnClickListener(
@@ -550,6 +547,17 @@ public class MapButtonsController extends Fragment
     mMapButtonsViewModel.getButtonsHidden().removeObserver(mButtonHiddenObserver);
     mMapButtonsViewModel.getMyPositionMode().removeObserver(mMyPositionModeObserver);
     mMapButtonsViewModel.getSearchOption().removeObserver(mSearchOptionObserver);
+  }
+
+  // Live location (NLL): the indicator's blinking would run on without its view, e.g. when the buttons are
+  // made again for another layout mode.
+  @Override
+  public void onDestroyView()
+  {
+    if (mLiveLocationBlinking != null)
+      mLiveLocationBlinking.cancel();
+    mLiveLocationBlinking = null;
+    super.onDestroyView();
   }
 
   public void onSearchOptionChange(@Nullable SearchWheel.SearchOption searchOption)
