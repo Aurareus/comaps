@@ -19,9 +19,9 @@ should happen, and what to write down.
   Google Play services (check 9).
 - **Phones:** A (sharer) and B (viewer), Android 7 or later, on different networks: for example A on
   mobile data and B on Wi-Fi.
-- **Turn it on, on both:** Settings → Live location sharing → the switch "Live location sharing
-  (experimental)". The "How live location stays private" screen appears once. "Share My Location"
-  in the main menu then opens the feature's screen (below: "Share My Location").
+- **Turn it on, on both:** Settings → Live location sharing → the switch "Live location sharing".
+  The "How live location stays private" screen appears once. "Share My Location" in the main menu
+  then opens the feature's screen (below: "Share My Location").
 - **Logs:** `adb logcat | grep -iE "live ?location|LiveLocation|OkHttpTransport|KeystoreKeyWrapper"`.
   The core logs relay failures as "Relay connection failed: <url> <reason>".
 - **Test peer** (check 5), on a computer, from `tools/python/live_location` (see its README for
@@ -51,7 +51,7 @@ and whether the stock camera opened CoMaps.
    `comaps://` links tappable, copy it, then in CoMaps: Share My Location → Add contact → "Paste
    invite" (no question then: pasting is the choice).
 3. A: "Bob wants to connect. Compare this code with Bob, by phone or in person" → try "Connect
-   without comparing" once: the contact shows "Not verified" on A's side, and the share sheet warns
+   without comparing" once: the contact shows "Not verified" on A's side, and Manage sharing warns
    about it.
 4. Optional: close CoMaps on B before A decides, reopen it later: connecting finishes then.
 
@@ -59,17 +59,20 @@ Record: whether the link was tappable in the messenger used.
 
 ### 3. A's marker follows within about 5 s
 
-1. A: Share My Location → Share live location → pick B, "1 hour" → Start. Allow precise location,
-   and notifications on Android 13+. A's notification reads "Sharing your live location · With Bob ·
-   until …". A round indicator with a "1" badge appears at the top right of the map, beside track
-   recording's if a track is being recorded.
+1. A: Share My Location → Share live location → "For: 1 hour" → tick B. Allow precise location,
+   and notifications on Android 13+. B moves up to "Currently sharing with", "Starting…", and the
+   share starts about 2.5 s later, or at once on leaving the screen. A's notification reads "Sharing
+   your live location · With Bob · until …". A round indicator with a "1" in its pin appears at the
+   top right of the map, blinking between grey and blue, below track recording's if a track is being
+   recorded, and the compass sits below it.
 2. B: open the map. A's dot appears within a few seconds: a coloured circle, A's name under it.
    B's own position arrow is drawn above it: with the phones side by side, A's dot can hide under
    it. Move apart, or look for A's name.
-3. B: tap A's dot, then A's name. Each opens a sheet over the map: A's name and status, the last
-   update, the accuracy, "Center", "Hide" and "Contact details". "Center" centres the map on A;
-   "Contact details" opens A's screen. A long tap on the dot opens the usual place page, titled
-   "Alice". This crashed the app before.
+3. B: tap A's dot, then A's name. Each opens a sheet over the map: A's name and status ("Sharing
+   their location with you until …"), the last update, the accuracy, "Center" and "Contact
+   details". The lines update in place while A moves, without the sheet flickering. "Center" centres
+   the map on A; "Contact details" opens A's screen. A long tap on the dot opens the usual place
+   page, titled "Alice".
 4. A: walk or drive. B's dot follows, each move within about 5 s. A logs "location: Live" (B's
    watch signals arrived).
 5. B: close CoMaps. After about 2 minutes A goes back to the idle rate: a move beyond both fixes'
@@ -81,9 +84,10 @@ stop (after 2 minutes).
 
 ### 4. Stop
 
-1. A: tap "Stop" in the notification, or tap the map's indicator → Stop all (two taps).
+1. A: tap "Stop" in the notification, or tap the map's indicator → Stop all (two taps), or Share My
+   Location → "Stop sharing location".
 2. A's notification and the indicator go away. B's dot greys, then disappears; B's contact no
-   longer says "Sharing with you".
+   longer says "Sharing their location with you".
 
 Record: how long B took to show the end.
 
@@ -93,7 +97,8 @@ Record: how long B took to show the end.
    `peer.py --state peer.json --name Peer join 'comaps://live/pair#…'`, and compare codes.
 2. A shares with B and Peer. Run `peer.py --state peer.json follow --minutes 20`: it prints each
    position.
-3. A: Manage sharing → Peer → "Stop sharing with Peer". B keeps following A.
+3. A: Manage sharing → untick Peer (or Peer's Contact details → "Stop sharing with Peer"). B keeps
+   following A.
 4. The peer reports "removed", then keeps trying its old key on everything A publishes. When it
    ends it prints `summary A: N events after the removal, 0 decrypted with the old key`.
 
@@ -102,8 +107,11 @@ Expected: B follows A's new stream after at most about 2 minutes (the new stream
 
 ### 6. Time-limited shares end on time
 
-1. A shares with B for 15 min (Share live location → For: 15 min).
+1. A shares with B for 15 min (Manage sharing → For: 15 min → tick B).
 2. At the end time the share stops by itself: notification gone, B sees the end.
+3. Again with "For: Until…", a time a few minutes ahead on the clock; and once more, changing the
+   end from B's Contact details on A ("Change") to a minute from now: the share ends then, and B's
+   dot carries on until it does (no re-key, so no pause).
 
 Record: the difference between the end time shown and the actual end (expect under a minute).
 
@@ -111,7 +119,7 @@ Record: the difference between the end time shown and the actual end (expect und
 
 The core moves past failing relays (tests: `Manager_WorksWithTwoOfThreeRelaysDown`, relay pool
 tests). On phones, give both the same three relays, the dead ones first so that the listening relay
-has to move too: Settings → Live location sharing → Your relays: `wss://dead1.invalid`,
+has to move too: Settings → Live location sharing → Relays: `wss://dead1.invalid`,
 `wss://dead2.invalid`, `wss://nos.lol` (add the two, move them up, remove the other defaults).
 Identical lists keep relay consent out of the way. Alternatively, block two default relays for
 CoMaps with NetGuard or RethinkDNS.
@@ -162,49 +170,83 @@ Record: %/h and MB/h for each run; radio active time and GPS time if measured.
 
 ### 11. What relays can see, on one screen
 
-Share My Location → "What relays can see". It fits one screen on a phone, or nearly; it says what
-relays can and cannot see (§11.6).
+Settings → Live location sharing → "What relays can see", with the feature on and off. It fits one
+screen on a phone, or nearly; it says what relays can and cannot see (§11.6).
 
 ## New code paths to check
 
+- **Installing over the previous build.** Install this APK over the one from the second review
+  without uninstalling: contacts, names and relays are all there (the store is read as version 3
+  and written as version 4), and each contact's next state gets an answer.
+- **The map indicator.** While sharing: at the top right where track recording's would be, with the
+  number of people in its pin (1, then 2 or more); blinking between grey and blue. Start recording a
+  track: the indicator moves below track recording's, both blink in step, and the compass sits
+  below both, in the regular map, in route planning and in navigation, upright and sideways. Tapping
+  the map to hide the buttons hides it too.
+- **Contacts' dots** are a little larger than before (20 dp across).
+- **The dot colour.** A: Settings → Live location sharing → Dot color → Teal, while sharing with
+  B: B's dot for A turns teal within seconds, and stays teal after B restarts CoMaps. "Automatic":
+  B's app picks A's colour again.
+- **Manage sharing.** Tick two contacts within a second or two: one change, so B, already
+  following, sees a single pause (30 to 120 s). Untick one: it stops at once. Tick one and leave the
+  screen at once: the share includes it. "Until…" with a time that has already passed today means
+  tomorrow. "Stop all" stops everything; so does Share My Location → "Stop sharing location".
+- **Contact details.** Title "Contact details". While sharing with the contact: "Sharing your
+  location with them", "Until …", "Change" (earlier, later, until stopped), and "Stop sharing with
+  …". "Hide on the map" has its explanation below the switch. "Battery low" when the contact's
+  battery is low (below). Deleting the contact returns to Share My Location, with that title.
+- **Add contact.** Leave the screen while the QR code shows: "Leave the invite waiting?". "Leave it
+  waiting": Share My Location lists "Invite waiting", and B can still use the code. "Cancel invite"
+  (here or on the screen): back on Share My Location, titled "Share My Location".
+- **Relay consent, three answers.** On A: Settings → Live location sharing → Relays → Add relay → a
+  relay of your own, then "Move up" to make it first. Share with B: B is asked about that relay,
+  once, and the question says live updates need it. "Not now": B's contact shows "Live updates off"
+  and its details "Live updates from A need …"; close CoMaps on B (swipe it from the recent apps) and
+  open it again: B is asked again, once. "Don't allow": never asked again, and Settings → Relays for
+  contacts lists the relay under "Refused", with A's name; "Allow" there turns live updates on. A tap
+  on the label in A's details asks the question again.
+- **An unreachable contact.** On A: Relays → remove every relay but your own. On B, answer "Don't
+  allow" about it: B's contact list shows A as "Unreachable until you allow a relay", A's details say
+  "Messages to A need …", and in Manage sharing A carries that warning; ticking A asks about the
+  relay first, and "Allow" then shares with A. Restore A's relays afterwards.
+- **Settings.** The rows have icons, and values or explanations below their titles: Appear as (your
+  name), Dot color, Relays (a dialog: the list, moving up, removing, adding), Relays for contacts
+  (a dialog: allowed ones to revoke, refused ones to allow), the two live update switches, Stop
+  sharing at low battery, Delete. "Request live updates when viewing" off → A stays idle while B
+  watches. Turn the feature off: the rows stay, greyed, titles only; "What relays can see" and
+  "Delete all live location data" still work. On a phone with Android 5 or 6, if you have one, the
+  entry is not listed at all.
+- **Low battery.** While sharing, `adb shell dumpsys battery unplug; adb shell dumpsys battery set
+  level 14`: B's sheet and A's details on B show "Battery low"; `adb shell dumpsys battery set ac 1`
+  (charging): it goes. Then the stop: set "Stop sharing at low battery" to 15 %, `set level 20`,
+  `set level 15` → the share stops. Start a share at level 12: it runs (you chose to share); `set
+  level 20`, then `set level 12` → it stops. "Never": nothing stops it. `adb shell dumpsys battery
+  reset` afterwards.
 - **Changing home relays** (spec §11). With B's CoMaps closed, A: Settings → Live location sharing →
-  add a relay (for instance `wss://relay.damus.io`) and remove one default. A's contact list shows B
-  as "Hasn't picked up your new relays yet"; B's screen explains. B opens CoMaps: B is asked once
-  about the new relay only if no relay A kept is one B may use. With A's CoMaps open too, the label
-  on A's side goes within seconds. Then B shares with A: A sees B's share. While A shares with B, a
-  change moves the share: B's dot carries on after 30–120 s.
+  Relays → add a relay (for instance `wss://relay.damus.io`) and remove one default. A's contact list
+  shows B as "Hasn't picked up your new relays yet"; B's details explain. B opens CoMaps: B is asked
+  once about the new relay only if no relay A kept is one B may use. With A's CoMaps open too, the
+  label on A's side goes within seconds. Then B shares with A: A sees B's share. While A shares
+  with B, a change moves the share: B's dot carries on after 30–120 s.
 - **The daily ratchet** (D16). `adb shell dumpsys jobscheduler | grep -i -A3 comaps.fdroid.debug`
   lists WorkManager's job while the feature is on, and nothing once it is off.
-
 - **No silent sharing.** While sharing: turn off CoMaps' notifications in Android settings → the
   share stops at once on Android 9+ (the system announces the block), otherwise at the next fix
   (2–30 s); the next live location screen or the map says why.
   Swipe the notification away (Android 13+) → it comes back at once. On Android 13+, deny the
-  notification permission → sharing does not start, and the share sheet explains.
+  notification permission → sharing does not start, and Manage sharing explains.
 - **Resume after the process died.** While sharing: `adb shell am kill app.comaps.fdroid.debug`
   does not stop a foreground service, so use `adb shell am force-stop app.comaps.fdroid.debug`,
   then open CoMaps: the map offers "Resume sharing?" with the same people and end time.
-- **Relay consent.** On A: Settings → Live location sharing → Add relay → a relay of your own, then
-  "Move up" to make it first. Share with B: B is asked about that relay, once, and the question says
-  live updates need it ("Live updates from A need …"). "Not now" → B's contact shows "Live updates
-  off"; its screen offers "Allow …".
-- **Settings.** Settings → Live location sharing: rename yourself; rename and hide a contact (its
-  dot goes, and nothing connects for it); "Request live updates when viewing" off → A stays idle
-  while B watches. Turn the feature off: the rows stay, greyed, titles only; "Delete all live
-  location data" still works.
 - **Share My Location.** With the feature on, the menu's "Share My Location" opens the feature's
   screen; its "Send current location" opens the system share sheet with a link to the current
-  position, as the menu entry does with the feature off.
+  position, as the menu entry does with the feature off. While sharing, the row "Sharing with N
+  people" is below "Add contact".
 - **The echo check.** Over an hour of sharing, logcat should not show "Relay accepts events without
   delivering them" for a relay that works: each one would be a false alarm, costing a move to the
   next relay.
-- **Low battery.** `adb shell dumpsys battery unplug; adb shell dumpsys battery set level 4` while
-  sharing → the share stops. `adb shell dumpsys battery reset` afterwards.
 - **Deleting.** Settings → Live location sharing → "Delete all live location data" → contacts gone.
   Also with the feature off.
-- **The map indicator.** Its place at the top right, alone and beside track recording's; in route
-  planning and navigation; its badge with 1 and with several people. Tapping the map to hide the
-  buttons hides it too.
 - **Turning it off while sharing.** Settings → Live location sharing → turn the switch off → the
   share stops (B sees the end), the notification goes.
 
