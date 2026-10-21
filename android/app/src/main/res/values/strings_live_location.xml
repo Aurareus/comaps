@@ -119,6 +119,7 @@
   <string name="live_location_until_stopped">Until I stop</string>
   <string name="live_location_until_time">Until…</string>
   <string name="live_location_until_title">Share until</string>
+  <string name="live_location_time_passed">The time picked under "For" has passed. Pick another.</string>
   <string name="live_location_unverified_warning">You haven\'t compared codes with %s. If the link was intercepted, someone else could receive your location.</string>
   <string name="live_location_flagged_warning">Someone else also used the invite you connected with. Compare the code with %s before you share your location.</string>
   <string name="live_location_waiting_warning">%s may not have finished connecting, and may not receive this.</string>

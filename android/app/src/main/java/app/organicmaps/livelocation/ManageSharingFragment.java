@@ -242,7 +242,16 @@ public class ManageSharingFragment extends LiveLocationFragment
   {
     final Runnable add = () ->
     {
-      mPending.put(contactId, mDuration.until(System.currentTimeMillis() / 1000));
+      final long now = System.currentTimeMillis() / 1000;
+      final long until = mDuration.until(now);
+      if (until != 0 && until <= now)
+      {
+        // "Until…" a time that has passed since it was picked.
+        LiveLocationDialogs.showMessage(requireActivity(), null, getString(R.string.live_location_time_passed));
+        refreshLater();
+        return;
+      }
+      mPending.put(contactId, until);
       mHandler.removeCallbacks(mAdd);
       mHandler.postDelayed(mAdd, ADD_DELAY_MS);
       refreshLater();
