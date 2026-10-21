@@ -8,7 +8,7 @@
 
 namespace
 {
-float constexpr kRadius = 8.0f;
+float constexpr kRadius = 10.0f;  // in dp, the outline included: 20 dp across
 float constexpr kOutline = 2.0f;
 float constexpr kTextSize = 12.0f;
 dp::Color constexpr kText(0x21, 0x21, 0x21);

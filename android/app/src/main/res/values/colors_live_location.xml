@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Live location (NLL) -->
+<resources>
+  <!-- The sharing indicator blinks to it, as the track recording one blinks to red -->
+  <color name="live_location_active">#FF1E88E5</color>
+</resources>

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Live location (NLL): a location pin sending in both directions -->
+<!-- Live location (NLL): a location pin sending in both directions, as large as the track recording ring.
+     The pin has no hole: LiveLocationStatusIcon cuts the number of people out of its head. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
   android:width="24dp"
   android:height="24dp"
@@ -8,15 +9,21 @@
   <group
     android:pivotX="12"
     android:pivotY="12"
-    android:scaleX="0.62"
-    android:scaleY="0.62">
+    android:scaleX="1.23"
+    android:scaleY="1.23">
+    <group
+      android:pivotX="12"
+      android:pivotY="12"
+      android:scaleX="0.62"
+      android:scaleY="0.62">
+      <path
+        android:fillColor="#000000"
+        android:pathData="M12,2C8.13,2 5,5.13 5,9c0,5.25 7,13 7,13s7,-7.75 7,-13c0,-3.87 -3.13,-7 -7,-7z" />
+    </group>
     <path
-      android:fillColor="#000000"
-      android:pathData="M12,2C8.13,2 5,5.13 5,9c0,5.25 7,13 7,13s7,-7.75 7,-13c0,-3.87 -3.13,-7 -7,-7zM12,11.5c-1.38,0 -2.5,-1.12 -2.5,-2.5s1.12,-2.5 2.5,-2.5 2.5,1.12 2.5,2.5 -1.12,2.5 -2.5,2.5z" />
+      android:pathData="M6.27,7A7,7 0,0 0,6.27 15M17.73,7A7,7 0,0 1,17.73 15M3.81,5.26A10,10 0,0 0,3.81 16.74M20.19,5.26A10,10 0,0 1,20.19 16.74"
+      android:strokeWidth="1.6"
+      android:strokeColor="#000000"
+      android:strokeLineCap="round" />
   </group>
-  <path
-    android:pathData="M6.27,7A7,7 0,0 0,6.27 15M17.73,7A7,7 0,0 1,17.73 15M3.81,5.26A10,10 0,0 0,3.81 16.74M20.19,5.26A10,10 0,0 1,20.19 16.74"
-    android:strokeWidth="1.6"
-    android:strokeColor="#000000"
-    android:strokeLineCap="round" />
 </vector>
