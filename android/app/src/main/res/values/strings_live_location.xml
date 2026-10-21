@@ -92,6 +92,8 @@
   <string name="live_location_pairing_conflict">Someone else used this invite too, so it was cancelled. Make a new invite and share it only with the person you want to connect with.</string>
   <string name="live_location_pairing_expired">The invite expired. Make a new one.</string>
   <string name="live_location_invalid_invite">This isn\'t a valid invite, or it has expired.</string>
+  <string name="live_location_invite_relays_not_allowed">This invite only uses relays you haven\'t allowed: %s. To connect, allow one. Its operator would see your internet address while you connect.</string>
+  <string name="live_location_allow_relay">Allow %s</string>
   <string name="live_location_invite_failed">Could not make an invite.</string>
   <string name="live_location_invite_subject">Connect with me on CoMaps</string>
 

@@ -13,6 +13,7 @@ import androidx.annotation.Nullable;
 import app.organicmaps.R;
 import app.organicmaps.base.OnBackPressListener;
 import app.organicmaps.sdk.livelocation.LiveLocation;
+import app.organicmaps.sdk.livelocation.LiveLocationModels.Consent;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.ConsentRequest;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Pairing;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Settings;
@@ -20,6 +21,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import io.nayuki.qrcodegen.QrCode;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
+import java.util.List;
 
 /**
  * Live location (NLL): adding a contact (docs/LIVE_LOCATION.md §11.2). The inviter shows a QR code,
@@ -42,6 +44,11 @@ public class PairingFragment extends LiveLocationFragment implements OnBackPress
   private boolean mInvalid;
   private boolean mFailed;
   private boolean mDiffered;
+  // A link whose relays the user all refused or put off: those relays, and the link.
+  @NonNull
+  private List<String> mNotAllowed = List.of();
+  @Nullable
+  private String mNotAllowedLink;
   private final Handler mHandler = new Handler(Looper.getMainLooper());
   private final Runnable mTick = new Runnable() {
     @Override
@@ -149,6 +156,16 @@ public class PairingFragment extends LiveLocationFragment implements OnBackPress
       else if (mFailed)
       {
         views.text(getString(R.string.live_location_invite_failed));
+      }
+      else if (!mNotAllowed.isEmpty() && mNotAllowedLink != null)
+      {
+        final String link = mNotAllowedLink;
+        views.text(getString(R.string.live_location_invite_relays_not_allowed, String.join(", ", mNotAllowed)));
+        for (String url : mNotAllowed)
+          views.button(getString(R.string.live_location_allow_relay, url), v -> {
+            LiveLocation.setConsent(url, Consent.Allow, "");
+            join(link);
+          });
       }
       else if (mInvalid)
       {
@@ -333,6 +350,7 @@ public class PairingFragment extends LiveLocationFragment implements OnBackPress
     mFailed = false;
     mInvalid = false;
     mDiffered = false;
+    mNotAllowed = List.of();
     final Pairing pairing = LiveLocation.openInvite(link);
     if (pairing == null)
     {
@@ -344,6 +362,15 @@ public class PairingFragment extends LiveLocationFragment implements OnBackPress
     {
       // Relay consent for the invite's relays, one after the other; then open it again.
       askConsent(new ArrayDeque<>(pairing.needsConsent), () -> join(link));
+      return;
+    }
+    if (pairing.stage == Pairing.Stage.Cancelled && !pairing.needsConsent.isEmpty())
+    {
+      // Refused, or put off in this run: not an invalid invite.
+      mPairingId = null;
+      mNotAllowed = pairing.needsConsent;
+      mNotAllowedLink = link;
+      refresh();
       return;
     }
     mPairingId = pairing.id.isEmpty() ? null : pairing.id;

@@ -818,6 +818,8 @@ std::optional<PairingInfo> Manager::OpenInvite(std::string const & link)
   }
   if (Allowed(invite->m_relays).empty())
   {
+    // Each of its relays was refused, or put off in this run: the app says which, and may allow one.
+    info.m_needsConsent = invite->m_relays;
     info.m_stage = PairingInfo::Stage::Cancelled;
     return info;
   }

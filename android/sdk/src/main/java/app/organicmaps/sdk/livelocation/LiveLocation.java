@@ -235,7 +235,10 @@ public final class LiveLocation
     return sRunning ? pairing(nativeCreateInvite(byLink)) : null;
   }
 
-  /** Null for an invalid link. The result may ask for relays first (NeedsConsent): ask, then call again. */
+  /**
+   * Null for an invalid link. The result may ask for relays first (NeedsConsent): ask, then call again.
+   * Cancelled with relays: the user refused or put off each one the invite has.
+   */
   @Nullable
   public static Pairing openInvite(@NonNull String link)
   {

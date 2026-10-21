@@ -932,6 +932,34 @@ UNIT_TEST(Manager_LiveUpdatesNeedTheListeningRelay)
   TEST(bob.Contact("Alice")->m_liveRelay.empty(), ());
 }
 
+UNIT_TEST(Manager_AnInviteThroughRelaysNotAllowedNamesThem)
+{
+  World world;
+  std::string const kOwn = "wss://own.example";
+  world.m_transport.Add(kOwn);
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  TEST(alice.M().SetHomeRelays({kOwn}), ());
+  auto const invite = alice.M().CreateInvite(false);
+  auto const cancelledFor = [](std::optional<PairingInfo> const & opened, std::string const & url)
+  {
+    return opened && opened->m_stage == PairingInfo::Stage::Cancelled && opened->m_id.empty() &&
+           opened->m_needsConsent == std::vector<std::string>{url};
+  };
+
+  // Bob is asked about Alice's relay, and puts it off: the invite says which relay it would need, as it
+  // does after a refusal. Allowed, it works.
+  auto const asked = bob.M().OpenInvite(invite->m_link);
+  TEST(asked && asked->m_stage == PairingInfo::Stage::NeedsConsent, ());
+  bob.M().SetConsent(kOwn, Consent::NotNow, "");
+  TEST(cancelledFor(bob.M().OpenInvite(invite->m_link), kOwn), ());
+  bob.M().SetConsent(kOwn, Consent::Refuse, "");
+  TEST(cancelledFor(bob.M().OpenInvite(invite->m_link), kOwn), ());
+  bob.M().SetConsent(kOwn, Consent::Allow, "");
+  auto const opened = bob.M().OpenInvite(invite->m_link);
+  TEST(opened && opened->m_stage == PairingInfo::Stage::Waiting, ());
+}
+
 UNIT_TEST(Manager_NotNowAsksAgainInTheNextRunDontAllowNever)
 {
   World world;

@@ -132,7 +132,7 @@ public final class LiveLocationModels
     public final String peerName;
     @NonNull
     public final String contactId;
-    /** Relays the user must allow before joining. */
+    /** Relays the user must allow before joining: to ask about, or, Cancelled, refused or put off. */
     @NonNull
     public final List<String> needsConsent;
 

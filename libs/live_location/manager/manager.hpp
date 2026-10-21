@@ -68,7 +68,7 @@ public:
   std::optional<PairingInfo> CreateInvite(bool byLink);
   /// The joiner's side. Nothing for an invalid or expired link, or without a valid name. When the
   /// invite uses relays the user has not allowed, the result asks for them (NeedsConsent); call again
-  /// once they are answered.
+  /// once they are answered. When the user refused or put off all of them, it is Cancelled and names them.
   std::optional<PairingInfo> OpenInvite(std::string const & link);
   /// The joiner compared the codes: "Codes match" marks the contact verified, "They differ" stops.
   void ConfirmCode(std::string const & pairingId, bool match);

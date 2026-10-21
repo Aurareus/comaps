@@ -80,6 +80,8 @@ struct PairingInfo
   std::string m_sas;
   std::string m_peerName;
   std::string m_contactId;
+  // NeedsConsent: the relays to ask about. Cancelled when opened: the relays of an invite that has no
+  // other, which the user refused or put off.
   std::vector<std::string> m_needsConsent;
 };
 
