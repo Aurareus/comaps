@@ -5,6 +5,7 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
@@ -14,12 +15,15 @@ import app.organicmaps.sdk.Framework;
 import app.organicmaps.sdk.livelocation.LiveLocation;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Contact;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Position;
+import app.organicmaps.util.UiUtils;
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Live location (NLL): the sheet a tap on a contact's dot opens over the map (docs/LIVE_LOCATION.md
- * §11.4): name, status, last update and accuracy, "Center", "Hide", and the contact's screen.
+ * §11.4): name, status, last update, accuracy and a low battery, "Center", and the contact's details.
+ * Built once; positions arriving every few seconds update its lines in place.
  */
 public class ContactSheet extends BottomSheetDialogFragment implements LiveLocation.Listener
 {
@@ -29,6 +33,17 @@ public class ContactSheet extends BottomSheetDialogFragment implements LiveLocat
 
   @Nullable
   private LiveLocationViews mViews;
+  // The lines updated in place, once built.
+  @Nullable
+  private View mHeader;
+  @Nullable
+  private TextView mLastSeen;
+  @Nullable
+  private TextView mAccuracy;
+  @Nullable
+  private TextView mBattery;
+  @Nullable
+  private View mCenter;
 
   /** One sheet at a time: a tap on another dot replaces it. */
   public static void open(@NonNull FragmentManager manager, @NonNull String contactId)
@@ -74,6 +89,7 @@ public class ContactSheet extends BottomSheetDialogFragment implements LiveLocat
   public void onDestroyView()
   {
     mViews = null;
+    mHeader = null;
     super.onDestroyView();
   }
 
@@ -101,31 +117,45 @@ public class ContactSheet extends BottomSheetDialogFragment implements LiveLocat
       dismissAllowingStateLoss();
       return;
     }
-    mViews.clear();
-    render(mViews, contact);
+    if (mHeader == null)
+      build(mViews, contact);
+    update(contact);
   }
 
-  private void render(@NonNull LiveLocationViews views, @NonNull Contact contact)
+  private void build(@NonNull LiveLocationViews views, @NonNull Contact contact)
   {
     final Context context = requireContext();
-    views.row(contact.name, LiveLocationText.status(context, contact), LiveLocationText.badge(context, contact), null);
-    final Position position = positionOf(contact.id);
-    if (position != null)
-    {
-      views.text(getString(R.string.live_location_last_seen, LiveLocationText.ago(position.timeMs)));
-      views.text(getString(R.string.live_location_accuracy, Math.round(position.accuracy)));
-      views.button(getString(R.string.live_location_center), v -> {
+    views.clear();
+    mHeader = views.row(contact.name, null, null, null);
+    mLastSeen = views.text("");
+    mAccuracy = views.text("");
+    mBattery = views.text(getString(R.string.live_location_battery_low));
+    mCenter = views.button(getString(R.string.live_location_center), v -> {
+      final Position position = positionOf(contact.id);
+      if (position != null)
         Framework.nativeZoomToPoint(position.lat, position.lon, CENTER_ZOOM, true);
-        dismiss();
-      });
-    }
-    views.toggle(getString(R.string.live_location_hide), false,
-                 (button, checked) -> LiveLocation.setHidden(contact.id, checked));
-    views.text(getString(R.string.live_location_hide_summary));
+      dismiss();
+    });
     views.outlinedButton(getString(R.string.live_location_contact_details), v -> {
       startActivity(LiveLocationActivity.contactIntent(context, contact.id));
       dismiss();
     });
+  }
+
+  private void update(@NonNull Contact contact)
+  {
+    final Context context = requireContext();
+    LiveLocationViews.setRow(Objects.requireNonNull(mHeader), contact.name, LiveLocationText.status(context, contact),
+                             LiveLocationText.badge(context, contact));
+    final Position position = positionOf(contact.id);
+    UiUtils.showIf(position != null, mLastSeen, mAccuracy, mCenter);
+    UiUtils.showIf(position != null && position.low, mBattery);
+    if (position == null)
+      return;
+    Objects.requireNonNull(mLastSeen).setText(
+        getString(R.string.live_location_last_seen, LiveLocationText.ago(position.timeMs)));
+    Objects.requireNonNull(mAccuracy).setText(
+        getString(R.string.live_location_accuracy, Math.round(position.accuracy)));
   }
 
   @Nullable

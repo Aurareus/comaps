@@ -80,7 +80,7 @@ public final class LiveLocationMapUi implements LiveLocation.Listener, LiveLocat
   @Override
   public void presentConsent(@NonNull ConsentRequest request)
   {
-    show(LiveLocationDialogs.showConsent(mActivity, request, LiveLocationFeature::onConsentAnswered));
+    show(LiveLocationDialogs.showConsent(mActivity, request, consent -> LiveLocationFeature.onConsentAnswered()));
   }
 
   private void offerResume(@NonNull Sharing sharing)

@@ -11,10 +11,12 @@ import android.text.InputType;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import app.organicmaps.R;
+import app.organicmaps.base.OnBackPressListener;
 import app.organicmaps.sdk.livelocation.LiveLocation;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.ConsentRequest;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Pairing;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Settings;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import io.nayuki.qrcodegen.QrCode;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
@@ -23,10 +25,10 @@ import java.util.ArrayDeque;
  * Live location (NLL): adding a contact (docs/LIVE_LOCATION.md §11.2). The inviter shows a QR code,
  * or shares a link; the joiner opens one, or pastes it. A link opened from outside the app asks the
  * joiner first: opening it must not by itself send the joiner's name or add a contact. Both compare a
- * code, and the inviter decides. Leaving the screen does not stop the pairing: it goes on, and the
- * contacts screen lists it.
+ * code, and the inviter decides. Leaving the screen does not stop the pairing: it goes on, and Share My
+ * Location lists it. The inviter is asked first whether to cancel the invite or leave it waiting.
  */
-public class PairingFragment extends LiveLocationFragment
+public class PairingFragment extends LiveLocationFragment implements OnBackPressListener
 {
   static final String ARG_PAIRING_ID = "pairing_id";
   private static final int QR_SIZE_DP = 240;
@@ -194,7 +196,7 @@ public class PairingFragment extends LiveLocationFragment
         });
         views.outlinedButton(getString(R.string.live_location_paste_invite), v -> paste());
       }
-      views.outlinedButton(getString(R.string.live_location_cancel_invite), v -> {
+      views.redOutlinedButton(getString(R.string.live_location_cancel_invite), v -> {
         LiveLocation.cancelPairing(pairing.id);
         close();
       });
@@ -360,7 +362,7 @@ public class PairingFragment extends LiveLocationFragment
     }
     final String url = urls.removeFirst();
     LiveLocationDialogs.showConsent(requireActivity(), new ConsentRequest(url, "", ConsentRequest.Purpose.Pairing),
-                                    () -> askConsent(urls, then));
+                                    consent -> askConsent(urls, then));
   }
 
   private void paste()
@@ -390,10 +392,30 @@ public class PairingFragment extends LiveLocationFragment
 
   private void close()
   {
-    if (getParentFragmentManager().getBackStackEntryCount() > 0)
-      getParentFragmentManager().popBackStack();
-    else
-      requireActivity().finish();
+    host().close();
+  }
+
+  /** Leaving with an invite still open: cancel it, or leave it waiting. */
+  @Override
+  public boolean onBackPressed()
+  {
+    final Pairing pairing = mPairingId != null ? LiveLocation.getPairing(mPairingId) : null;
+    if (pairing == null || !pairing.inviter || !isOpen(pairing))
+      return false;
+    new MaterialAlertDialogBuilder(requireActivity())
+        .setTitle(R.string.live_location_leave_invite_title)
+        .setMessage(pairing.stage == Pairing.Stage.CompareCode
+                        ? getString(R.string.live_location_leave_invite_deciding, pairing.peerName)
+                        : getString(R.string.live_location_leave_invite_message,
+                                    LiveLocationText.duration(pairing.expiresAt - System.currentTimeMillis() / 1000)))
+        .setPositiveButton(R.string.live_location_leave_invite_waiting, (dialog, which) -> close())
+        .setNegativeButton(R.string.live_location_cancel_invite,
+                           (dialog, which) -> {
+                             LiveLocation.cancelPairing(pairing.id);
+                             close();
+                           })
+        .show();
+    return true;
   }
 
   /** Black on white, with the standard quiet zone, scaled by whole pixels to at most `sizePx`. */

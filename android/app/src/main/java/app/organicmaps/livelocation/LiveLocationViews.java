@@ -77,20 +77,41 @@ final class LiveLocationViews
     return addButton(R.layout.item_live_location_button_outlined, text, onClick);
   }
 
+  /** The main action, when it stops something. */
+  @NonNull
+  MaterialButton redButton(@NonNull CharSequence text, @NonNull View.OnClickListener onClick)
+  {
+    return addButton(R.layout.item_live_location_button_red, text, onClick);
+  }
+
+  /** Another action, when it stops or deletes something. */
+  @NonNull
+  MaterialButton redOutlinedButton(@NonNull CharSequence text, @NonNull View.OnClickListener onClick)
+  {
+    return addButton(R.layout.item_live_location_button_outlined_red, text, onClick);
+  }
+
   @NonNull
   View row(@NonNull CharSequence title, @Nullable CharSequence subtitle, @Nullable CharSequence badge,
            @Nullable View.OnClickListener onClick)
   {
     final View view = mInflater.inflate(R.layout.item_live_location_row, mContent, false);
-    ((TextView) view.findViewById(R.id.live_location_row_title)).setText(title);
-    setOptional(view.findViewById(R.id.live_location_row_subtitle), subtitle);
-    setOptional(view.findViewById(R.id.live_location_row_badge), badge);
+    setRow(view, title, subtitle, badge);
     if (onClick != null)
       view.setOnClickListener(onClick);
     else
       view.setBackground(null);
     mContent.addView(view);
     return view;
+  }
+
+  /** New texts for a row made by {@link #row}, in place. */
+  static void setRow(@NonNull View row, @NonNull CharSequence title, @Nullable CharSequence subtitle,
+                     @Nullable CharSequence badge)
+  {
+    ((TextView) row.findViewById(R.id.live_location_row_title)).setText(title);
+    setOptional(row.findViewById(R.id.live_location_row_subtitle), subtitle);
+    setOptional(row.findViewById(R.id.live_location_row_badge), badge);
   }
 
   @NonNull
@@ -112,16 +133,20 @@ final class LiveLocationViews
     return box;
   }
 
+  /** A setting that is on or off, with what it does below its title. */
   @NonNull
-  MaterialSwitch toggle(@NonNull CharSequence title, boolean checked,
+  MaterialSwitch toggle(@NonNull CharSequence title, @Nullable CharSequence subtitle, boolean checked,
                         @NonNull CompoundButton.OnCheckedChangeListener onChange)
   {
-    final MaterialSwitch view = (MaterialSwitch) mInflater.inflate(R.layout.item_live_location_switch, mContent, false);
-    view.setText(title);
-    view.setChecked(checked);
-    view.setOnCheckedChangeListener(onChange);
+    final View view = mInflater.inflate(R.layout.item_live_location_switch_row, mContent, false);
+    ((TextView) view.findViewById(R.id.live_location_switch_title)).setText(title);
+    setOptional(view.findViewById(R.id.live_location_switch_subtitle), subtitle);
+    final MaterialSwitch toggle = view.findViewById(R.id.live_location_switch_toggle);
+    toggle.setChecked(checked);
+    toggle.setOnCheckedChangeListener(onChange);
+    view.setOnClickListener(v -> toggle.toggle());
     mContent.addView(view);
-    return view;
+    return toggle;
   }
 
   @NonNull

@@ -4,7 +4,6 @@
   <string name="pref_live_location" translatable="false">LiveLocation</string>
 
   <!-- The feature -->
-  <string name="live_location">Live location</string>
   <string name="live_location_setting">Live location sharing</string>
   <!-- Settings: the entry's summary, a short list of what is in there -->
   <string name="live_location_setting_summary">Name, dot color, relays, live updates</string>
@@ -38,10 +37,12 @@
   <string name="live_location_share_my_location">Share live location</string>
   <string name="live_location_send_current_location">Send current location</string>
   <string name="live_location_no_contacts">No contacts yet. To add someone, show them a QR code or send them a link.</string>
-  <string name="live_location_sharing_with_you">Sharing with you</string>
-  <string name="live_location_sharing_with_you_until">Sharing with you until %s</string>
-  <string name="live_location_you_share">You share your location</string>
-  <string name="live_location_you_share_until">You share until %s</string>
+  <string name="live_location_sharing_with_you">Sharing their location with you</string>
+  <string name="live_location_sharing_with_you_until">Sharing their location with you until %s</string>
+  <string name="live_location_you_share">Sharing your location with them</string>
+  <string name="live_location_you_share_until">Sharing your location with them until %s</string>
+  <string name="live_location_unreachable">Unreachable until you allow a relay</string>
+  <string name="live_location_stop_sharing_location">Stop sharing location</string>
   <string name="live_location_waiting_for">Waiting for %s to finish connecting</string>
   <string name="live_location_offer_removal">Nothing has arrived from %1$s since you connected. %1$s may not have finished connecting, or may not have opened CoMaps since. You can remove the contact, or keep it.</string>
   <string name="live_location_verified">Verified</string>
@@ -101,17 +102,23 @@
   <string name="live_location_consent_live_updates">Live updates from %1$s need %2$s, which isn\'t one of yours. Without it, %1$s\'s position updates only after a move, or every 5 minutes. Its operator would see your internet address whenever you view %1$s.</string>
   <string name="live_location_consent_sending">Messages to %1$s go through %2$s, which isn\'t one of yours. Its operator would see your internet address when you send them, for example when you stop sharing with %1$s.</string>
   <string name="live_location_allow">Allow</string>
+  <!-- A contact's label while none of its relays may be used, and while live updates from it are off -->
+  <string name="live_location_blocked">Messages to %1$s need %2$s</string>
+  <string name="live_location_live_updates_need">Live updates from %1$s need %2$s</string>
+  <string name="live_location_tap_to_allow">Tap to allow it</string>
   <string name="live_location_not_now">Not now</string>
   <string name="live_location_dont_allow">Don\'t allow</string>
 
   <!-- Sharing -->
-  <string name="live_location_share_with">Share with</string>
   <string name="live_location_for">For</string>
-  <string name="live_location_15_min">15 min</string>
-  <string name="live_location_1_hour">1 hour</string>
-  <string name="live_location_8_hours">8 hours</string>
+  <string name="live_location_minutes">%d min</string>
+  <plurals name="live_location_hours">
+    <item quantity="one">%d hour</item>
+    <item quantity="other">%d hours</item>
+  </plurals>
   <string name="live_location_until_stopped">Until I stop</string>
-  <string name="live_location_start">Start</string>
+  <string name="live_location_until_time">Until…</string>
+  <string name="live_location_until_title">Share until</string>
   <string name="live_location_unverified_warning">You haven\'t compared codes with %s. If the link was intercepted, someone else could receive your location.</string>
   <string name="live_location_flagged_warning">Someone else also used the invite you connected with. Compare the code with %s before you share your location.</string>
   <string name="live_location_waiting_warning">%s may not have finished connecting, and may not receive this.</string>
@@ -127,8 +134,9 @@
 
   <!-- Managing a share -->
   <string name="live_location_manage_sharing">Manage sharing</string>
-  <string name="live_location_add_people">Add people</string>
-  <string name="live_location_extend">+1 hour</string>
+  <string name="live_location_currently_sharing_with">Currently sharing with</string>
+  <string name="live_location_start_sharing_with">Start sharing with</string>
+  <string name="live_location_starting">Starting…</string>
   <string name="live_location_stop_all">Stop all</string>
   <string name="live_location_until">Until %s</string>
   <string name="live_location_until_you_stop">Until you stop</string>
@@ -142,9 +150,9 @@
   <string name="live_location_hide_summary">Stops every connection made to see this contact.</string>
   <string name="live_location_delete_contact">Delete contact</string>
   <string name="live_location_delete_contact_confirm">Delete %s? Any share with them stops, and you will have to connect again.</string>
-  <string name="live_location_live_updates_off_message">Live updates from %1$s need %2$s, which isn\'t one of your relays. Without it, %1$s\'s position updates only after a move, or every 5 minutes. Its operator would see your internet address whenever you view %1$s.</string>
-  <string name="live_location_allow_relay">Allow %s</string>
   <string name="live_location_last_seen">Last update %s</string>
+  <string name="live_location_battery_low">Battery low</string>
+  <string name="live_location_change">Change</string>
   <string name="live_location_accuracy">Accuracy ±%d m</string>
   <string name="live_location_show_on_map">Show on the map</string>
   <string name="live_location_center">Center</string>
@@ -168,7 +176,7 @@
   <string name="live_location_remove">Remove</string>
   <string name="live_location_approved_relays">Relays for contacts</string>
   <string name="live_location_approved_relays_none">Relays your contacts use that aren\'t yours</string>
-  <string name="live_location_approved_relays_count">%1$d allowed, %2$d refused</string>
+  <string name="live_location_approved_relays_count">Allowed: %1$d · Refused: %2$d</string>
   <string name="live_location_approved_relays_empty">When a contact uses a relay that isn\'t one of yours, CoMaps asks you before it connects there. Your answers are listed here.</string>
   <string name="live_location_allowed">Allowed</string>
   <string name="live_location_refused">Refused</string>
@@ -201,7 +209,10 @@
   <string name="live_location_turn_on">Turn on live location</string>
   <string name="live_location_pending_invite">Invite waiting</string>
   <string name="live_location_cancel_invite">Cancel invite</string>
+  <string name="live_location_leave_invite_title">Leave the invite waiting?</string>
+  <string name="live_location_leave_invite_message">Whoever has it can still use it to connect with you, for %s. Share My Location lists it until then.</string>
+  <string name="live_location_leave_invite_deciding">%s wants to connect. You can decide later: Share My Location lists the invite.</string>
+  <string name="live_location_leave_invite_waiting">Leave it waiting</string>
   <string name="live_location_new_invite">Make a new invite</string>
-  <string name="live_location_not_sharing">You are not sharing your location.</string>
   <string name="live_location_stop_sharing_with">Stop sharing with %s</string>
 </resources>

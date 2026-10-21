@@ -59,23 +59,32 @@ final class LiveLocationText
   }
 
   /**
-   * A contact's state, one line each: who shares with whom, still connecting, live updates off, not yet
-   * moved to the user's new relays, hidden.
+   * A contact's state, one line each: who shares with whom, still connecting, unreachable, live updates
+   * off, not yet moved to the user's new relays, hidden.
    */
   @NonNull
   static String status(@NonNull Context context, @NonNull Contact contact)
+  {
+    return status(context, contact, true);
+  }
+
+  /** The same, without the user's own share with the contact when `myShare` is false. */
+  @NonNull
+  static String status(@NonNull Context context, @NonNull Contact contact, boolean myShare)
   {
     final List<String> lines = new ArrayList<>();
     if (contact.sharesWithMeUntil != null)
       lines.add(contact.sharesWithMeUntil == 0 ? context.getString(R.string.live_location_sharing_with_you)
                                                : context.getString(R.string.live_location_sharing_with_you_until,
                                                                    time(context, contact.sharesWithMeUntil)));
-    if (contact.iShareUntil != null)
+    if (myShare && contact.iShareUntil != null)
       lines.add(contact.iShareUntil == 0
                     ? context.getString(R.string.live_location_you_share)
                     : context.getString(R.string.live_location_you_share_until, time(context, contact.iShareUntil)));
     if (contact.waiting)
       lines.add(context.getString(R.string.live_location_waiting_for, contact.name));
+    if (!contact.blockedRelay.isEmpty())
+      lines.add(context.getString(R.string.live_location_unreachable));
     if (contact.liveUpdatesOff)
       lines.add(context.getString(R.string.live_location_live_updates_off));
     if (contact.notMoved)
@@ -118,6 +127,14 @@ final class LiveLocationText
     if (contact.flagged)
       return context.getString(R.string.live_location_flagged);
     return context.getString(contact.verified ? R.string.live_location_verified : R.string.live_location_unverified);
+  }
+
+  /** "Until 18:30", or "Until you stop" for 0. */
+  @NonNull
+  static String until(@NonNull Context context, long until)
+  {
+    return until == 0 ? context.getString(R.string.live_location_until_you_stop)
+                      : context.getString(R.string.live_location_until, time(context, until));
   }
 
   /** "18:30" today, otherwise with the date. */

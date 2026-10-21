@@ -10,12 +10,16 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.fragment.app.Fragment;
 import app.organicmaps.R;
 import app.organicmaps.base.BaseToolbarActivity;
+import app.organicmaps.base.OnBackPressListener;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.ConsentRequest;
+import com.google.android.material.appbar.MaterialToolbar;
+import java.util.ArrayList;
 
 /**
- * Live location (NLL): its screens (docs/LIVE_LOCATION.md §11): contacts, adding a contact, sharing
- * and managing a share, a contact's details, settings, and what relays can see. While it is in front,
- * it asks the relay consent questions.
+ * Live location (NLL): its screens (docs/LIVE_LOCATION.md §11): Share My Location, adding a contact,
+ * managing the share, a contact's details, and what relays can see. While it is in front, it asks the
+ * relay consent questions. A screen on top of another has its own title, back on the one below as soon
+ * as it goes, however it goes; and back asks the screen in front first (OnBackPressListener).
  */
 public class LiveLocationActivity extends BaseToolbarActivity implements LiveLocationFeature.ConsentPresenter
 {
@@ -28,8 +32,12 @@ public class LiveLocationActivity extends BaseToolbarActivity implements LiveLoc
   static final String SCREEN_WHAT_RELAYS_SEE = "what_relays_see";
   static final String SCREEN_CONTACT = "contact";
 
+  private static final String STATE_TITLES = "live_location_titles";
+
   @Nullable
   private AlertDialog mConsentDialog;
+  // The titles of the screens on top of the first, in order.
+  private ArrayList<CharSequence> mTitles = new ArrayList<>();
 
   @NonNull
   public static Intent contactsIntent(@NonNull Context context)
@@ -80,6 +88,50 @@ public class LiveLocationActivity extends BaseToolbarActivity implements LiveLoc
   }
 
   @Override
+  protected void onSafeCreate(@Nullable Bundle savedInstanceState)
+  {
+    super.onSafeCreate(savedInstanceState);
+    if (savedInstanceState != null)
+    {
+      final ArrayList<CharSequence> titles = savedInstanceState.getCharSequenceArrayList(STATE_TITLES);
+      if (titles != null)
+        mTitles = titles;
+    }
+    getSupportFragmentManager().addOnBackStackChangedListener(this::showTitle);
+    showTitle();
+  }
+
+  @Override
+  protected void onSaveInstanceState(@NonNull Bundle outState)
+  {
+    super.onSaveInstanceState(outState);
+    outState.putCharSequenceArrayList(STATE_TITLES, mTitles);
+  }
+
+  @Override
+  public void onBackPressed()
+  {
+    final Fragment front = getSupportFragmentManager().findFragmentById(getFragmentContentResId());
+    if (front instanceof OnBackPressListener && ((OnBackPressListener) front).onBackPressed())
+      return;
+    super.onBackPressed();
+  }
+
+  private void showTitle()
+  {
+    final int screens = getSupportFragmentManager().getBackStackEntryCount();
+    while (mTitles.size() > screens)
+      mTitles.remove(mTitles.size() - 1);
+    final MaterialToolbar toolbar = getToolbar();
+    if (toolbar == null)
+      return;
+    if (screens > 0 && screens == mTitles.size())
+      toolbar.setTitle(mTitles.get(screens - 1));
+    else
+      toolbar.setTitle(getToolbarTitle());
+  }
+
+  @Override
   protected Class<? extends Fragment> getFragmentClass()
   {
     final String screen = getIntent().getStringExtra(EXTRA_SCREEN);
@@ -90,7 +142,7 @@ public class LiveLocationActivity extends BaseToolbarActivity implements LiveLoc
     if (SCREEN_JOIN.equals(screen))
       return PairingFragment.class;
     if (SCREEN_RESUME.equals(screen))
-      return ShareFragment.class;
+      return ManageSharingFragment.class;
     if (SCREEN_CONTACT.equals(screen))
       return ContactFragment.class;
     return ContactsFragment.class;
@@ -109,7 +161,7 @@ public class LiveLocationActivity extends BaseToolbarActivity implements LiveLoc
     if (SCREEN_JOIN.equals(screen))
       return R.string.live_location_add_contact;
     if (SCREEN_RESUME.equals(screen))
-      return R.string.live_location_share_my_location;
+      return R.string.live_location_manage_sharing;
     if (SCREEN_CONTACT.equals(screen))
       return R.string.live_location_contact_details;
     // The main menu's "Share My Location" leads here while the feature is on.
@@ -136,13 +188,24 @@ public class LiveLocationActivity extends BaseToolbarActivity implements LiveLoc
   @Override
   public void presentConsent(@NonNull ConsentRequest request)
   {
-    mConsentDialog = LiveLocationDialogs.showConsent(this, request, LiveLocationFeature::onConsentAnswered);
+    mConsentDialog = LiveLocationDialogs.showConsent(this, request, consent -> LiveLocationFeature.onConsentAnswered());
   }
 
   /** A screen on top of this one; back returns. */
   void open(@NonNull Class<? extends Fragment> screen, @StringRes int title, @Nullable Bundle args)
   {
-    stackFragment(screen, getString(title), args);
+    mTitles.add(getString(title));
+    stackFragment(screen, null, args);
+    showTitle();
+  }
+
+  /** Leaves the screen in front, as back does, without asking it. */
+  void close()
+  {
+    if (getSupportFragmentManager().getBackStackEntryCount() > 0)
+      getSupportFragmentManager().popBackStack();
+    else
+      finish();
   }
 
   /** The explanation turned the feature on: the screen the user came for. */
@@ -154,5 +217,6 @@ public class LiveLocationActivity extends BaseToolbarActivity implements LiveLoc
       return;
     }
     replaceFragment(getFragmentClass(), getIntent().getExtras(), null);
+    showTitle();
   }
 }

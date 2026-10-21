@@ -15,7 +15,8 @@ import java.util.List;
 
 /**
  * Live location (NLL): "Share My Location" while the feature is on (§11.5): sending the current location
- * once, as the main menu did, sharing live, the contacts, and what relays can see.
+ * once, as the main menu did, sharing live or stopping, adding a contact, the share, open invites, and
+ * the contacts.
  */
 public class ContactsFragment extends LiveLocationFragment
 {
@@ -40,13 +41,23 @@ public class ContactsFragment extends LiveLocationFragment
     if (LiveLocationFeature.hasStoreError())
     {
       views.text(getString(R.string.live_location_store_error));
-      views.outlinedButton(getString(R.string.live_location_delete_all),
-                           v -> LiveLocationSettingsSwitch.confirmDeletion(requireActivity()));
+      views.redOutlinedButton(getString(R.string.live_location_delete_all),
+                              v -> LiveLocationSettingsSwitch.confirmDeletion(requireActivity()));
     }
 
-    views.outlinedButton(getString(R.string.live_location_send_current_location), v -> sendCurrentLocation());
-
     final Sharing sharing = LiveLocation.getSharing();
+    final List<Contact> contacts = LiveLocation.getContacts();
+    views.outlinedButton(getString(R.string.live_location_send_current_location), v -> sendCurrentLocation());
+    if (sharing.active)
+      views.redButton(getString(R.string.live_location_stop_sharing_location), v -> LiveLocation.stopSharing());
+    else
+      views
+          .button(getString(R.string.live_location_share_my_location),
+                  v -> host().open(ManageSharingFragment.class, R.string.live_location_manage_sharing, null))
+          .setEnabled(!contacts.isEmpty());
+    views.outlinedButton(getString(R.string.live_location_add_contact),
+                         v -> host().open(PairingFragment.class, R.string.live_location_add_contact, null));
+
     if (sharing.active)
     {
       final int count = sharing.recipients.size();
@@ -55,15 +66,6 @@ public class ContactsFragment extends LiveLocationFragment
                 getString(R.string.live_location_manage),
                 v -> host().open(ManageSharingFragment.class, R.string.live_location_manage_sharing, null));
     }
-
-    final List<Contact> contacts = LiveLocation.getContacts();
-    if (!sharing.active)
-      views
-          .button(getString(R.string.live_location_share_my_location),
-                  v -> host().open(ShareFragment.class, R.string.live_location_share_my_location, null))
-          .setEnabled(!contacts.isEmpty());
-    views.outlinedButton(getString(R.string.live_location_add_contact),
-                         v -> host().open(PairingFragment.class, R.string.live_location_add_contact, null));
 
     for (Pairing pairing : LiveLocation.getPairings())
     {
@@ -85,7 +87,7 @@ public class ContactsFragment extends LiveLocationFragment
                 v -> {
                   final Bundle args = new Bundle();
                   args.putString(ContactFragment.ARG_CONTACT_ID, contact.id);
-                  host().open(ContactFragment.class, R.string.live_location_contacts, args);
+                  host().open(ContactFragment.class, R.string.live_location_contact_details, args);
                 });
     }
   }

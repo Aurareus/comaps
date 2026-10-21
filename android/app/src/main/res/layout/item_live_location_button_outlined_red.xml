@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Live location (NLL): another action that stops or deletes something, red like the editor's Reset. -->
+<com.google.android.material.button.MaterialButton
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    style="@style/MwmWidget.M3.Button.Secondary"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginStart="@dimen/margin_base"
+    android:layout_marginEnd="@dimen/margin_base"
+    android:layout_marginTop="@dimen/margin_half"
+    android:textColor="@color/base_red"
+    app:strokeColor="@color/base_red" />

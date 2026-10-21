@@ -1,6 +1,7 @@
 package app.organicmaps.livelocation;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.DialogInterface;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -13,16 +14,21 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.StringRes;
 import androidx.appcompat.app.AlertDialog;
+import androidx.fragment.app.Fragment;
 import app.organicmaps.R;
 import app.organicmaps.sdk.livelocation.LiveLocation;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Consent;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.ConsentRequest;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.DotColor;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Sharing;
+import app.organicmaps.sdk.util.DateUtils;
 import app.organicmaps.util.Graphics;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
+import com.google.android.material.timepicker.MaterialTimePicker;
+import com.google.android.material.timepicker.TimeFormat;
+import java.util.Calendar;
 import java.util.List;
 import java.util.Objects;
 
@@ -41,6 +47,16 @@ final class LiveLocationDialogs
     void done(@NonNull String text);
   }
 
+  interface ConsentAnswered
+  {
+    void answered(@NonNull Consent consent);
+  }
+
+  interface DurationChosen
+  {
+    void chosen(@NonNull ShareDuration duration);
+  }
+
   interface Rows
   {
     /** Adds the dialog's rows; `refresh` builds them again, e.g. after a change. */
@@ -56,7 +72,7 @@ final class LiveLocationDialogs
    */
   @NonNull
   static AlertDialog showConsent(@NonNull Activity activity, @NonNull ConsentRequest request,
-                                 @Nullable Runnable onAnswered)
+                                 @Nullable ConsentAnswered onAnswered)
   {
     final String message = switch (request.purpose)
     {
@@ -76,7 +92,7 @@ final class LiveLocationDialogs
       };
       LiveLocation.setConsent(request.url, consent, request.contactName);
       if (onAnswered != null)
-        onAnswered.run();
+        onAnswered.answered(consent);
     };
     return new MaterialAlertDialogBuilder(activity)
         .setTitle(R.string.live_location_consent_title)
@@ -86,6 +102,60 @@ final class LiveLocationDialogs
         .setNegativeButton(R.string.live_location_not_now, answer)
         .setNeutralButton(R.string.live_location_dont_allow, answer)
         .show();
+  }
+
+  /** "For": 15 min, 1 hour, 8 hours, until stopped, or until a time picked on a clock (§11.3). */
+  static void pickDuration(@NonNull Fragment fragment, @NonNull ShareDuration current, @NonNull DurationChosen chosen)
+  {
+    final Context context = fragment.requireContext();
+    final ShareDuration[] choices = ShareDuration.CHOICES;
+    final CharSequence[] names = new CharSequence[choices.length + 1];
+    for (int i = 0; i < choices.length; ++i)
+      names[i] = choices[i].label(context);
+    names[choices.length] = context.getString(R.string.live_location_until_time);
+    final int checked = current.choice() >= 0 ? current.choice() : choices.length;
+    new MaterialAlertDialogBuilder(context)
+        .setTitle(R.string.live_location_for)
+        .setSingleChoiceItems(names, checked,
+                              (dialog, which) -> {
+                                dialog.dismiss();
+                                if (which < choices.length)
+                                  chosen.chosen(choices[which]);
+                                else
+                                  pickTime(fragment, current, chosen);
+                              })
+        .setNegativeButton(R.string.cancel, null)
+        .show();
+  }
+
+  /** A time of day: today if it is still to come, otherwise tomorrow. */
+  private static void pickTime(@NonNull Fragment fragment, @NonNull ShareDuration current,
+                               @NonNull DurationChosen chosen)
+  {
+    final Calendar suggested = Calendar.getInstance();
+    if (current.mUntil != 0)
+      suggested.setTimeInMillis(current.mUntil * 1000);
+    else
+      suggested.add(Calendar.HOUR_OF_DAY, 1);
+    final MaterialTimePicker picker =
+        new MaterialTimePicker.Builder()
+            .setTimeFormat(DateUtils.is24HourFormat(fragment.requireContext()) ? TimeFormat.CLOCK_24H
+                                                                               : TimeFormat.CLOCK_12H)
+            .setHour(suggested.get(Calendar.HOUR_OF_DAY))
+            .setMinute(suggested.get(Calendar.MINUTE))
+            .setTitleText(R.string.live_location_until_title)
+            .build();
+    picker.addOnPositiveButtonClickListener(v -> {
+      final Calendar until = Calendar.getInstance();
+      until.set(Calendar.HOUR_OF_DAY, picker.getHour());
+      until.set(Calendar.MINUTE, picker.getMinute());
+      until.set(Calendar.SECOND, 0);
+      until.set(Calendar.MILLISECOND, 0);
+      if (until.getTimeInMillis() <= System.currentTimeMillis())
+        until.add(Calendar.DAY_OF_YEAR, 1);
+      chosen.chosen(ShareDuration.endingAt(until.getTimeInMillis() / 1000));
+    });
+    picker.show(fragment.getChildFragmentManager(), "live_location_until");
   }
 
   /** After the process died while sharing (§8.5): resume, or forget the share. */
