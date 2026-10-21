@@ -14,6 +14,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.StringRes;
 import androidx.appcompat.app.AlertDialog;
+import androidx.fragment.app.DialogFragment;
 import androidx.fragment.app.Fragment;
 import app.organicmaps.R;
 import app.organicmaps.sdk.livelocation.LiveLocation;
@@ -35,6 +36,8 @@ import java.util.Objects;
 /** Live location (NLL): the dialogs shared by the map and the live location screens. */
 final class LiveLocationDialogs
 {
+  private static final String TIME_PICKER = "live_location_until";
+
   interface TextCheck
   {
     /** An error to show, or null when the text will do. */
@@ -128,6 +131,16 @@ final class LiveLocationDialogs
         .show();
   }
 
+  /**
+   * A time picker made again with its screen, e.g. after a rotation, without what to do with the time
+   * picked: it goes, and the user picks again.
+   */
+  static void dismissStaleTimePicker(@NonNull Fragment fragment)
+  {
+    if (fragment.getChildFragmentManager().findFragmentByTag(TIME_PICKER) instanceof DialogFragment picker)
+      picker.dismissAllowingStateLoss();
+  }
+
   /** A time of day: today if it is still to come, otherwise tomorrow. */
   private static void pickTime(@NonNull Fragment fragment, @NonNull ShareDuration current,
                                @NonNull DurationChosen chosen)
@@ -155,7 +168,7 @@ final class LiveLocationDialogs
         until.add(Calendar.DAY_OF_YEAR, 1);
       chosen.chosen(ShareDuration.endingAt(until.getTimeInMillis() / 1000));
     });
-    picker.show(fragment.getChildFragmentManager(), "live_location_until");
+    picker.show(fragment.getChildFragmentManager(), TIME_PICKER);
   }
 
   /** After the process died while sharing (§8.5): resume, or forget the share. */

@@ -45,8 +45,6 @@ import java.util.Set;
 public class ManageSharingFragment extends LiveLocationFragment
 {
   private static final long ADD_DELAY_MS = 2_500;
-  private static final String STATE_PENDING_IDS = "pending_ids";
-  private static final String STATE_PENDING_UNTILS = "pending_untils";
   private static final String STATE_SECONDS = "seconds";
   private static final String STATE_UNTIL = "until";
 
@@ -71,16 +69,11 @@ public class ManageSharingFragment extends LiveLocationFragment
     final Bundle args = getArguments();
     mResume = savedInstanceState == null && args != null
            && LiveLocationActivity.SCREEN_RESUME.equals(args.getString(LiveLocationActivity.EXTRA_SCREEN));
+    // Ticks are not kept with the state: the screen added them when it stopped, which before Android 9 comes
+    // after the state is saved.
     if (savedInstanceState != null)
-    {
-      final String[] ids = savedInstanceState.getStringArray(STATE_PENDING_IDS);
-      final long[] untils = savedInstanceState.getLongArray(STATE_PENDING_UNTILS);
-      if (ids != null && untils != null && ids.length == untils.length)
-        for (int i = 0; i < ids.length; ++i)
-          mPending.put(ids[i], untils[i]);
       mDuration = new ShareDuration(savedInstanceState.getLong(STATE_SECONDS, ShareDuration.DEFAULT.mSeconds),
                                     savedInstanceState.getLong(STATE_UNTIL, 0));
-    }
 
     mLocationPermission =
         registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), result -> {
@@ -101,12 +94,6 @@ public class ManageSharingFragment extends LiveLocationFragment
   public void onSaveInstanceState(@NonNull Bundle outState)
   {
     super.onSaveInstanceState(outState);
-    final String[] ids = mPending.keySet().toArray(new String[0]);
-    final long[] untils = new long[ids.length];
-    for (int i = 0; i < ids.length; ++i)
-      untils[i] = mPending.get(ids[i]);
-    outState.putStringArray(STATE_PENDING_IDS, ids);
-    outState.putLongArray(STATE_PENDING_UNTILS, untils);
     outState.putLong(STATE_SECONDS, mDuration.mSeconds);
     outState.putLong(STATE_UNTIL, mDuration.mUntil);
   }
@@ -292,29 +279,36 @@ public class ManageSharingFragment extends LiveLocationFragment
     final boolean started =
         sharing.active ? LiveLocation.changeSharing(recipients) : LiveLocation.startSharing(recipients);
     if (!started && isAdded())
-      LiveLocationDialogs.showMessage(requireActivity(), null, getString(R.string.live_location_share_failed));
+      LiveLocationDialogs.showMessage(
+          requireActivity(), null,
+          getString(sharing.active ? R.string.live_location_change_failed : R.string.live_location_share_failed));
     else if (started && !sharing.active)
       LiveLocationService.start(requireContext());
     refreshLater();
   }
 
-  /** Unticked: stops sharing with them at once, adding whoever is ticked in the same change. */
+  /**
+   * Unticked: stops sharing with them at once, adding whoever is ticked in the same change. Without anyone
+   * whose end has just passed: the core would refuse the change.
+   */
   private void remove(@NonNull String contactId)
   {
     final long now = System.currentTimeMillis() / 1000;
+    final Sharing sharing = LiveLocation.getSharing();
     final List<Recipient> rest = new ArrayList<>();
-    for (Recipient recipient : LiveLocation.getSharing().recipients)
-      if (!recipient.contactId.equals(contactId))
+    for (Recipient recipient : sharing.recipients)
+      if (!recipient.contactId.equals(contactId) && (recipient.until == 0 || recipient.until > now))
         rest.add(recipient);
     for (Map.Entry<String, Long> pending : mPending.entrySet())
-      if (pending.getValue() == 0 || pending.getValue() > now)
+      if (!pending.getKey().equals(contactId) && !isRecipient(sharing, pending.getKey())
+          && (pending.getValue() == 0 || pending.getValue() > now))
         rest.add(new Recipient(pending.getKey(), pending.getValue()));
     mPending.clear();
     mHandler.removeCallbacks(mAdd);
     if (rest.isEmpty())
       LiveLocation.stopSharing();
-    else
-      LiveLocation.changeSharing(rest);
+    else if (!LiveLocation.changeSharing(rest))
+      LiveLocationDialogs.showMessage(requireActivity(), null, getString(R.string.live_location_change_failed));
     refreshLater();
   }
 

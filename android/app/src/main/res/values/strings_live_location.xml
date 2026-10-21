@@ -129,6 +129,7 @@
   <string name="live_location_open_settings">Open settings</string>
   <string name="live_location_location_needed">Sharing needs access to your precise location.</string>
   <string name="live_location_share_failed">Sharing could not start.</string>
+  <string name="live_location_change_failed">The share could not be changed.</string>
   <string name="live_location_resume_title">Resume sharing?</string>
   <string name="live_location_resume">CoMaps was closed while you shared your location with %s. Share it again?</string>
   <string name="live_location_resume_until">CoMaps was closed while you shared your location with %1$s until %2$s. Share it again?</string>

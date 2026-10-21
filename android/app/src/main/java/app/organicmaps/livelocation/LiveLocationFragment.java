@@ -22,6 +22,13 @@ abstract class LiveLocationFragment extends Fragment implements LiveLocation.Lis
   @Nullable
   private LiveLocationViews mViews;
 
+  @Override
+  public void onCreate(@Nullable Bundle savedInstanceState)
+  {
+    super.onCreate(savedInstanceState);
+    LiveLocationDialogs.dismissStaleTimePicker(this);
+  }
+
   @Nullable
   @Override
   public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,

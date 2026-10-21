@@ -94,7 +94,7 @@ public class ContactFragment extends LiveLocationFragment
                 v -> LiveLocationDialogs.pickDuration(this, ShareDuration.of(until), duration -> {
                   if (!LiveLocation.extendSharing(contact.id, duration.until(System.currentTimeMillis() / 1000)))
                     LiveLocationDialogs.showMessage(requireActivity(), null,
-                                                    getString(R.string.live_location_share_failed));
+                                                    getString(R.string.live_location_change_failed));
                 }));
     }
 
