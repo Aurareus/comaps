@@ -715,11 +715,13 @@ bool Manager::SetLowBatteryStop(int percent)
 {
   if (!m_started || percent < 0 || percent > 50)
     return false;
+  if (percent == m_settings.m_lowBatteryStop)
+    return true;  // picked again: a share started at or below it runs on
   m_settings.m_lowBatteryStop = percent;
   Save();
   m_batteryArmed = true;  // a level chosen while sharing applies at once
   if (m_battery >= 0)
-    OnBatteryLevel(m_battery);
+    OnBatteryLevel(m_battery, m_charging);
   return true;
 }
 
@@ -1370,6 +1372,7 @@ bool Manager::StartSharing(Recipients const & recipients)
   m_resumable.clear();
   m_lastFix.reset();  // a fix from before the share could be hours old
   m_battery = -1;     // and so could the battery level
+  m_charging = false;
   m_batteryArmed = false;
   m_lastPublished.reset();
   m_liveUntil = 0;
@@ -1532,16 +1535,18 @@ void Manager::OnLocation(Location const & fix)
   MaybePublishLocation(false);
 }
 
-void Manager::OnBatteryLevel(int percent)
+void Manager::OnBatteryLevel(int percent, bool charging)
 {
   m_battery = percent;
+  m_charging = charging;
   int const stop = m_settings.m_lowBatteryStop;  // 0: never
   if (!m_sharer || !m_sharer->IsSharing() || stop == 0)
     return;
   // A share started at or below the level is the user's choice: it runs until the battery has been above.
+  // Charging does not count as above, and while the phone charges, the share does not stop for the battery.
   if (percent > stop)
     m_batteryArmed = true;
-  else if (m_batteryArmed)
+  else if (m_batteryArmed && !charging)
     StopSharing();
 }
 
@@ -1578,7 +1583,7 @@ void Manager::MaybePublishLocation(bool force)
     }
   }
   Location fix = *m_lastFix;
-  if (m_battery >= 0 && m_battery <= m_config.m_lowBattery)
+  if (m_battery >= 0 && m_battery <= m_config.m_lowBattery && !m_charging)
     fix.m_low = true;  // viewers say so (spec §9)
   auto const event = m_sharer->PublishLocation(fix, m_rng, Now());
   if (!event)

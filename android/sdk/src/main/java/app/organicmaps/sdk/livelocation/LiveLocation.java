@@ -375,10 +375,11 @@ public final class LiveLocation
                      location.hasAltitude(), location.getAltitude(), location.getTime());
   }
 
-  public static void onBatteryLevel(int percent)
+  /** The battery level, in percent, and whether the phone charges (plugged in). */
+  public static void onBatteryLevel(int percent, boolean charging)
   {
     if (sRunning)
-      nativeOnBatteryLevel(percent);
+      nativeOnBatteryLevel(percent, charging);
   }
 
   // --- Events -----------------------------------------------------------------------------------
@@ -541,5 +542,5 @@ public final class LiveLocation
   // -ffast-math).
   private static native void nativeOnLocation(double lat, double lon, double accuracy, double speed, double bearing,
                                               boolean hasAltitude, double altitude, long timeMs);
-  private static native void nativeOnBatteryLevel(int percent);
+  private static native void nativeOnBatteryLevel(int percent, boolean charging);
 }

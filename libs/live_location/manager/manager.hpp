@@ -94,9 +94,10 @@ public:
   void DismissResume();
   /// A fix from the location provider. Its m_ts is the fix time in milliseconds.
   void OnLocation(Location const & fix);
-  /// While unplugged; 100 while charging. At or below m_lowBattery positions say so. At or below the
-  /// user's stop level the share stops, unless it started there and the battery has not been above since.
-  void OnBatteryLevel(int percent);
+  /// The battery level, in percent, and whether the phone charges. At or below m_lowBattery positions say
+  /// so, and at or below the user's stop level the share stops, both only while the phone does not charge;
+  /// and the share does not stop when it started at or below the level and the battery has not been above.
+  void OnBatteryLevel(int percent, bool charging);
 
   std::vector<ContactInfo> Contacts() const;
   std::vector<PairingInfo> Pairings() const;
@@ -204,6 +205,7 @@ private:
   std::set<std::string> m_asked;  // relays asked about in this run
   std::set<std::string> m_echoed;  // relays that have sent an event back (the echo check), kept while in use
   int m_battery = -1;              // the last level reported during the share, -1: none
+  bool m_charging = false;         // and whether the phone charged then
   bool m_batteryArmed = false;     // the battery has been above the stop level during the share
 
   // Sharing

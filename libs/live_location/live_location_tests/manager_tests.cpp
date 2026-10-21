@@ -1169,43 +1169,54 @@ UNIT_TEST(Manager_LowBattery)
     return seen->m_location.m_low.value_or(false);
   };
 
-  // At 15 % and below, Bob's app shows that Alice's battery is low; not once it charges (100).
+  // At 15 % and below, Bob's app shows that Alice's battery is low; not while it charges.
   TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
-  alice.M().OnBatteryLevel(16);
+  alice.M().OnBatteryLevel(16, false);
   TEST(!low(), ());
-  alice.M().OnBatteryLevel(15);
+  alice.M().OnBatteryLevel(15, false);
   TEST(low(), ());
-  alice.M().OnBatteryLevel(100);
+  alice.M().OnBatteryLevel(15, true);
   TEST(!low(), ());
 
-  // The share stops when the battery runs down to 5 %, ...
+  // The share stops when the battery runs down to 5 %, not while the phone charges, ...
   TEST_EQUAL(alice.M().GetSettings().m_lowBatteryStop, 5, ());
-  alice.M().OnBatteryLevel(6);
+  alice.M().OnBatteryLevel(6, false);
+  alice.M().OnBatteryLevel(4, true);
   TEST(sharing(), ());
-  alice.M().OnBatteryLevel(5);
+  alice.M().OnBatteryLevel(5, false);
   TEST(!sharing(), ());
   world.Run(15'000);
   TEST(!bob.Contact("Alice")->m_sharesWithMeUntil, ());
 
-  // ... but one started there runs: the user chose to share. Once the battery has been above, it stops.
+  // ... but one started there runs: the user chose to share. Once the battery has been above, it stops;
+  // charging up to the level is not above.
   TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
-  alice.M().OnBatteryLevel(4);
-  alice.M().OnBatteryLevel(3);
+  alice.M().OnBatteryLevel(4, false);
+  alice.M().OnBatteryLevel(5, true);
+  alice.M().OnBatteryLevel(3, false);
   TEST(sharing(), ());
-  alice.M().OnBatteryLevel(100);
-  alice.M().OnBatteryLevel(5);
+  alice.M().OnBatteryLevel(6, true);
+  alice.M().OnBatteryLevel(5, false);
   TEST(!sharing(), ());
 
-  // "Never" stops nothing; a level chosen while sharing applies at once.
+  // "Never" stops nothing; a level chosen while sharing applies at once, but not the same one again, and
+  // not while the phone charges.
   TEST(!alice.M().SetLowBatteryStop(51) && !alice.M().SetLowBatteryStop(-1), ());
   TEST(alice.M().SetLowBatteryStop(0), ());
   TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
-  alice.M().OnBatteryLevel(30);
-  alice.M().OnBatteryLevel(1);
+  alice.M().OnBatteryLevel(30, false);
+  alice.M().OnBatteryLevel(1, false);
   TEST(sharing(), ());
   TEST(alice.M().SetLowBatteryStop(15), ());
   TEST(!sharing(), ());
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+  alice.M().OnBatteryLevel(1, false);
+  TEST(alice.M().SetLowBatteryStop(15), ());
+  TEST(sharing(), ());
+  alice.M().OnBatteryLevel(1, true);
+  TEST(alice.M().SetLowBatteryStop(20), ());
+  TEST(sharing(), ());
   alice.Restart();
-  TEST_EQUAL(alice.M().GetSettings().m_lowBatteryStop, 15, ());
+  TEST_EQUAL(alice.M().GetSettings().m_lowBatteryStop, 20, ());
 }
 }  // namespace manager_tests

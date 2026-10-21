@@ -164,9 +164,9 @@ bool Execute(Manager & manager, Executor const & executor, std::vector<std::stri
     manager.OnLocation(fix);
     return true;
   }
-  if (command == "battery")
+  if (command == "battery")  // battery <percent> [charging]
   {
-    manager.OnBatteryLevel(std::stoi(arg(0)));
+    manager.OnBatteryLevel(std::stoi(arg(0)), args.size() > 1 && arg(1) == "charging");
     return true;
   }
   if (command == "verify")

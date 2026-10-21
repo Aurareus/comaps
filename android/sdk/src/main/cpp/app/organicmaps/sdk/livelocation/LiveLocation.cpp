@@ -749,9 +749,10 @@ JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_native
 }
 
 JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeOnBatteryLevel(JNIEnv *, jclass,
-                                                                                               jint percent)
+                                                                                               jint percent,
+                                                                                               jboolean charging)
 {
-  Post([percent](Manager & manager) { manager.OnBatteryLevel(percent); });
+  Post([percent, charging](Manager & manager) { manager.OnBatteryLevel(percent, charging); });
 }
 
 // --- app.organicmaps.sdk.livelocation.OkHttpTransport, on OkHttp's threads --------------------------
