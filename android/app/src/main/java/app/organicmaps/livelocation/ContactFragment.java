@@ -2,6 +2,8 @@ package app.organicmaps.livelocation;
 
 import android.content.Context;
 import android.text.InputType;
+import android.view.View;
+import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import app.organicmaps.R;
@@ -10,15 +12,16 @@ import app.organicmaps.sdk.livelocation.LiveLocation;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.ConsentRequest;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Contact;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Position;
-import app.organicmaps.sdk.livelocation.LiveLocationModels.Recipient;
+import app.organicmaps.util.UiUtils;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Live location (NLL): one contact's details (§11.4, §11.5): their state and position, the relay a
  * message to them or live updates from them need, how long the user shares with them, comparing codes,
- * hiding, renaming and deleting.
+ * hiding, renaming and deleting. Positions, arriving every few seconds, update their lines in place: a
+ * rebuild would lose taps and move TalkBack's focus.
  */
 public class ContactFragment extends LiveLocationFragment
 {
@@ -26,18 +29,44 @@ public class ContactFragment extends LiveLocationFragment
   private static final int SHOW_ZOOM = 16;
 
   private boolean mClosing;
+  // The lines a position updates.
+  @Nullable
+  private TextView mLastSeen;
+  @Nullable
+  private TextView mAccuracy;
+  @Nullable
+  private TextView mBattery;
+  @Nullable
+  private View mShowOnMap;
 
   @Override
   public void onPositions(@NonNull List<Position> positions)
   {
-    refresh();
+    if (mLastSeen == null)
+      refresh();
+    else
+      showPosition();
+  }
+
+  @Override
+  public void onDestroyView()
+  {
+    forgetPositionLines();
+    super.onDestroyView();
+  }
+
+  @Nullable
+  private String contactId()
+  {
+    return getArguments() != null ? getArguments().getString(ARG_CONTACT_ID) : null;
   }
 
   @Override
   protected void render(@NonNull LiveLocationViews views)
   {
+    forgetPositionLines();
     final Context context = requireContext();
-    final String id = getArguments() != null ? getArguments().getString(ARG_CONTACT_ID) : null;
+    final String id = contactId();
     final Contact contact = id != null ? LiveLocation.getContact(id) : null;
     if (contact == null)
     {
@@ -73,19 +102,6 @@ public class ContactFragment extends LiveLocationFragment
                 getString(R.string.live_location_tap_to_allow), null,
                 v -> allow(contact, contact.liveRelay, ConsentRequest.Purpose.LiveUpdates));
 
-    final Position position = positionOf(contact.id);
-    if (position != null)
-    {
-      views.text(getString(R.string.live_location_last_seen, LiveLocationText.ago(position.timeMs)));
-      views.text(getString(R.string.live_location_accuracy, Math.round(position.accuracy)));
-      if (position.low)
-        views.text(getString(R.string.live_location_battery_low));
-      views.button(getString(R.string.live_location_show_on_map), v -> {
-        Framework.nativeZoomToPoint(position.lat, position.lon, SHOW_ZOOM, true);
-        requireActivity().finish();
-      });
-    }
-
     if (contact.iShareUntil != null)
     {
       final long until = contact.iShareUntil;
@@ -98,14 +114,48 @@ public class ContactFragment extends LiveLocationFragment
                 }));
     }
 
-    if (!contact.verified || contact.flagged)
-      views.outlinedButton(getString(R.string.live_location_compare_code), v -> compare(contact));
+    mLastSeen = views.text("");
+    mAccuracy = views.text("");
+    mBattery = views.text(getString(R.string.live_location_battery_low));
     views.toggle(getString(R.string.live_location_hide), getString(R.string.live_location_hide_summary), contact.hidden,
                  (button, checked) -> LiveLocation.setHidden(contact.id, checked));
+    mShowOnMap = views.button(getString(R.string.live_location_show_on_map), v -> {
+      final Position position = positionOf(contact.id);
+      if (position == null)
+        return;
+      Framework.nativeZoomToPoint(position.lat, position.lon, SHOW_ZOOM, true);
+      requireActivity().finish();
+    });
+    showPosition();
+
+    if (!contact.verified || contact.flagged)
+      views.outlinedButton(getString(R.string.live_location_compare_code), v -> compare(contact));
     if (contact.iShareUntil != null)
       views.redOutlinedButton(getString(R.string.live_location_stop_sharing_with, contact.name),
                               v -> stopSharingWith(contact));
     views.redOutlinedButton(getString(R.string.live_location_delete_contact), v -> delete(contact));
+  }
+
+  private void forgetPositionLines()
+  {
+    mLastSeen = null;
+    mAccuracy = null;
+    mBattery = null;
+    mShowOnMap = null;
+  }
+
+  private void showPosition()
+  {
+    if (mLastSeen == null || mAccuracy == null || mBattery == null || mShowOnMap == null)
+      return;
+    final String id = contactId();
+    final Position position = id != null ? positionOf(id) : null;
+    UiUtils.showIf(position != null, mLastSeen, mAccuracy, mShowOnMap);
+    UiUtils.showIf(position != null && position.low, mBattery);
+    if (position == null)
+      return;
+    mLastSeen.setText(getString(R.string.live_location_last_seen, LiveLocationText.ago(position.timeMs)));
+    mAccuracy.setText(getString(R.string.live_location_accuracy, Math.round(position.accuracy)));
   }
 
   /** The relay consent question, asked again: allowing it, or refusing it for good. */
@@ -114,16 +164,10 @@ public class ContactFragment extends LiveLocationFragment
     LiveLocationDialogs.showConsent(requireActivity(), new ConsentRequest(url, contact.name, purpose), null);
   }
 
-  private static void stopSharingWith(@NonNull Contact contact)
+  private void stopSharingWith(@NonNull Contact contact)
   {
-    final List<Recipient> rest = new ArrayList<>();
-    for (Recipient recipient : LiveLocation.getSharing().recipients)
-      if (!recipient.contactId.equals(contact.id))
-        rest.add(recipient);
-    if (rest.isEmpty())
-      LiveLocation.stopSharing();
-    else
-      LiveLocation.changeSharing(rest);
+    if (!LiveLocationShares.stopSharingWith(contact.id, Map.of()))
+      LiveLocationDialogs.showMessage(requireActivity(), null, getString(R.string.live_location_change_failed));
   }
 
   @Nullable

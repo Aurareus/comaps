@@ -149,7 +149,7 @@ public class ManageSharingFragment extends LiveLocationFragment
     for (Map.Entry<String, Long> pending : mPending.entrySet())
     {
       final Contact contact = LiveLocation.getContact(pending.getKey());
-      if (contact == null || isRecipient(sharing, contact.id))
+      if (contact == null || LiveLocationShares.isRecipient(sharing, contact.id))
         continue;
       views.check(contact.name, getString(R.string.live_location_starting), true, true, (box, checked) -> {
         if (!checked)
@@ -204,14 +204,6 @@ public class ManageSharingFragment extends LiveLocationFragment
     if (!contact.blockedRelay.isEmpty())
       warnings.add(getString(R.string.live_location_blocked, contact.name, contact.blockedRelay));
     return String.join("\n", warnings);
-  }
-
-  private static boolean isRecipient(@NonNull Sharing sharing, @NonNull String contactId)
-  {
-    for (Recipient recipient : sharing.recipients)
-      if (recipient.contactId.equals(contactId))
-        return true;
-    return false;
   }
 
   /** A contact ticked. Nothing would reach one whose relays are all refused: that relay first. */
@@ -270,7 +262,7 @@ public class ManageSharingFragment extends LiveLocationFragment
     for (Map.Entry<String, Long> pending : mPending.entrySet())
     {
       final long until = pending.getValue();
-      if ((until == 0 || until > now) && !isRecipient(sharing, pending.getKey()))
+      if ((until == 0 || until > now) && !LiveLocationShares.isRecipient(sharing, pending.getKey()))
         recipients.add(new Recipient(pending.getKey(), until));
     }
     mPending.clear();
@@ -287,27 +279,13 @@ public class ManageSharingFragment extends LiveLocationFragment
     refreshLater();
   }
 
-  /**
-   * Unticked: stops sharing with them at once, adding whoever is ticked in the same change. Without anyone
-   * whose end has just passed: the core would refuse the change.
-   */
+  /** Unticked: stops sharing with them at once, adding whoever is ticked in the same change. */
   private void remove(@NonNull String contactId)
   {
-    final long now = System.currentTimeMillis() / 1000;
-    final Sharing sharing = LiveLocation.getSharing();
-    final List<Recipient> rest = new ArrayList<>();
-    for (Recipient recipient : sharing.recipients)
-      if (!recipient.contactId.equals(contactId) && (recipient.until == 0 || recipient.until > now))
-        rest.add(recipient);
-    for (Map.Entry<String, Long> pending : mPending.entrySet())
-      if (!pending.getKey().equals(contactId) && !isRecipient(sharing, pending.getKey())
-          && (pending.getValue() == 0 || pending.getValue() > now))
-        rest.add(new Recipient(pending.getKey(), pending.getValue()));
+    final Map<String, Long> adding = new LinkedHashMap<>(mPending);
     mPending.clear();
     mHandler.removeCallbacks(mAdd);
-    if (rest.isEmpty())
-      LiveLocation.stopSharing();
-    else if (!LiveLocation.changeSharing(rest))
+    if (!LiveLocationShares.stopSharingWith(contactId, adding))
       LiveLocationDialogs.showMessage(requireActivity(), null, getString(R.string.live_location_change_failed));
     refreshLater();
   }
