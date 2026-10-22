@@ -6,6 +6,7 @@ import androidx.annotation.AnyThread;
 import androidx.annotation.MainThread;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.StringRes;
 import androidx.preference.PreferenceManager;
 import app.organicmaps.MwmApplication;
 import app.organicmaps.R;
@@ -18,8 +19,8 @@ import java.util.ArrayDeque;
 /**
  * Live location (NLL): the feature's switch and lifecycle (docs/LIVE_LOCATION.md §8.4). While it is
  * off, nothing of it runs: no native thread, no file, no network. It also holds what any screen may
- * have to show: relay consent questions, which the screen in front presents (§11.4), and whether the
- * store could not be read.
+ * have to show: relay consent questions and what the user must be told, which the screen in front
+ * presents one at a time (§11.4), and whether the store could not be read.
  */
 @MainThread
 public final class LiveLocationFeature
@@ -27,28 +28,31 @@ public final class LiveLocationFeature
   private static final String TAG = LiveLocationFeature.class.getSimpleName();
   private static final String PREF_EXPLAINED = "LiveLocationExplained";
 
-  /** A screen that can ask the user about a relay. */
-  public interface ConsentPresenter
+  /** A screen that can ask the user about a relay, and tell the user what they must know. */
+  public interface Presenter
   {
-    /** Call {@link #onConsentAnswered()} once the user has answered. */
+    /** Call {@link #onPresented()} once the user has answered. */
     void presentConsent(@NonNull ConsentRequest request);
+    /** Call {@link #onPresented()} once the user has read it. */
+    void presentMessage(@StringRes int message);
   }
 
-  private static final ArrayDeque<ConsentRequest> sConsents = new ArrayDeque<>();
+  // Consent requests, and messages (string resources), to present in order.
+  private static final ArrayDeque<Object> sPending = new ArrayDeque<>();
   @Nullable
-  private static ConsentPresenter sPresenter;
+  private static Presenter sPresenter;
   private static boolean sPresenting;
   private static boolean sStoreError;
-  private static boolean sStoppedUnseen;
+  private static boolean sToldWriteFailed; // once per run
 
   private static final LiveLocation.Listener sListener = new LiveLocation.Listener() {
     @Override
     public void onConsentNeeded(@NonNull ConsentRequest request)
     {
-      for (ConsentRequest queued : sConsents)
-        if (queued.url.equals(request.url))
+      for (Object pending : sPending)
+        if (pending instanceof ConsentRequest queued && queued.url.equals(request.url))
           return;
-      sConsents.add(request);
+      sPending.add(request);
       presentNext();
     }
 
@@ -56,6 +60,15 @@ public final class LiveLocationFeature
     public void onStoreError()
     {
       sStoreError = true;
+    }
+
+    @Override
+    public void onWriteFailed()
+    {
+      if (sToldWriteFailed)
+        return;
+      sToldWriteFailed = true;
+      tell(R.string.live_location_not_saved);
     }
   };
 
@@ -121,27 +134,20 @@ public final class LiveLocationFeature
     sStoreError = false;
   }
 
-  /** The share stopped because its notification could not be seen; the next screen says so, once. */
+  /** The share stopped because its notification could not be seen: the screen in front, or the next one, says so. */
   static void onStoppedUnseen()
   {
-    sStoppedUnseen = true;
+    tell(R.string.live_location_stopped_unseen);
   }
 
-  public static boolean takeStoppedUnseen()
-  {
-    final boolean stopped = sStoppedUnseen;
-    sStoppedUnseen = false;
-    return stopped;
-  }
-
-  public static void attachConsentPresenter(@NonNull ConsentPresenter presenter)
+  public static void attachPresenter(@NonNull Presenter presenter)
   {
     sPresenter = presenter;
     sPresenting = false;
     presentNext();
   }
 
-  public static void detachConsentPresenter(@NonNull ConsentPresenter presenter)
+  public static void detachPresenter(@NonNull Presenter presenter)
   {
     if (sPresenter != presenter)
       return;
@@ -149,20 +155,30 @@ public final class LiveLocationFeature
     sPresenting = false;
   }
 
-  public static void onConsentAnswered()
+  public static void onPresented()
   {
-    if (!sConsents.isEmpty())
-      sConsents.removeFirst();
+    if (!sPending.isEmpty())
+      sPending.removeFirst();
     sPresenting = false;
+    presentNext();
+  }
+
+  private static void tell(@StringRes int message)
+  {
+    if (!sPending.contains(message))
+      sPending.add(message);
     presentNext();
   }
 
   private static void presentNext()
   {
-    if (sPresenter == null || sPresenting || sConsents.isEmpty())
+    if (sPresenter == null || sPresenting || sPending.isEmpty())
       return;
     sPresenting = true;
-    sPresenter.presentConsent(sConsents.getFirst());
+    if (sPending.getFirst() instanceof ConsentRequest request)
+      sPresenter.presentConsent(request);
+    else
+      sPresenter.presentMessage((Integer) sPending.getFirst());
   }
 
   private static void start(@NonNull Context context)
@@ -181,7 +197,7 @@ public final class LiveLocationFeature
     LiveLocationService.stop(context);
     LiveLocation.stop();
     LiveLocation.removeListener(sListener);
-    sConsents.clear();
+    sPending.clear();
     sPresenting = false;
     sStoreError = false;
   }

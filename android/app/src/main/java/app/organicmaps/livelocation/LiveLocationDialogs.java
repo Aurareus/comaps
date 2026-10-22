@@ -265,6 +265,17 @@ final class LiveLocationDialogs
         .show();
   }
 
+  /** What the user must know; `onRead` runs once they have read it, not when it goes with its activity. */
+  @NonNull
+  static AlertDialog showNotice(@NonNull Activity activity, @StringRes int message, @NonNull Runnable onRead)
+  {
+    return new MaterialAlertDialogBuilder(activity)
+        .setMessage(message)
+        .setCancelable(false)
+        .setPositiveButton(R.string.ok, (dialog, which) -> onRead.run())
+        .show();
+  }
+
   /** One line of text; the dialog stays open while `check` finds an error. */
   @NonNull
   static AlertDialog showText(@NonNull Activity activity, @StringRes int title, @Nullable String message,

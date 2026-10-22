@@ -2,10 +2,10 @@ package app.organicmaps.livelocation;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.StringRes;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.lifecycle.ViewModelProvider;
-import app.organicmaps.R;
 import app.organicmaps.maplayer.MapButtonsViewModel;
 import app.organicmaps.sdk.livelocation.LiveLocation;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.ConsentRequest;
@@ -18,7 +18,7 @@ import app.organicmaps.sdk.util.LocationUtils;
  * sharing"; the sheet of a contact's dot; the offer to resume a share after the process died; and
  * relay consent questions.
  */
-public final class LiveLocationMapUi implements LiveLocation.Listener, LiveLocationFeature.ConsentPresenter
+public final class LiveLocationMapUi implements LiveLocation.Listener, LiveLocationFeature.Presenter
 {
   @NonNull
   private final AppCompatActivity mActivity;
@@ -43,13 +43,9 @@ public final class LiveLocationMapUi implements LiveLocation.Listener, LiveLocat
     }
     mStarted = true;
     LiveLocation.addListener(this);
-    LiveLocationFeature.attachConsentPresenter(this);
+    LiveLocationFeature.attachPresenter(this);
     updateIndicator();
-    if (LiveLocationFeature.takeStoppedUnseen())
-      show(
-          LiveLocationDialogs.showMessage(mActivity, null, mActivity.getString(R.string.live_location_stopped_unseen)));
-    else
-      offerResume(LiveLocation.getSharing());
+    offerResume(LiveLocation.getSharing());
   }
 
   public void onStop()
@@ -58,7 +54,7 @@ public final class LiveLocationMapUi implements LiveLocation.Listener, LiveLocat
       return;
     mStarted = false;
     LiveLocation.removeListener(this);
-    LiveLocationFeature.detachConsentPresenter(this);
+    LiveLocationFeature.detachPresenter(this);
     if (mDialog != null)
       mDialog.dismiss();
     mDialog = null;
@@ -80,7 +76,13 @@ public final class LiveLocationMapUi implements LiveLocation.Listener, LiveLocat
   @Override
   public void presentConsent(@NonNull ConsentRequest request)
   {
-    show(LiveLocationDialogs.showConsent(mActivity, request, consent -> LiveLocationFeature.onConsentAnswered()));
+    show(LiveLocationDialogs.showConsent(mActivity, request, consent -> LiveLocationFeature.onPresented()));
+  }
+
+  @Override
+  public void presentMessage(@StringRes int message)
+  {
+    show(LiveLocationDialogs.showNotice(mActivity, message, LiveLocationFeature::onPresented));
   }
 
   private void offerResume(@NonNull Sharing sharing)

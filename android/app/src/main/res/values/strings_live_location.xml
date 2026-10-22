@@ -16,6 +16,7 @@
   <string name="live_location_keep">Keep</string>
   <string name="live_location_delete">Delete</string>
   <string name="live_location_store_error">The live location data on this phone cannot be read right now. Close CoMaps and open it again. If that does not help, for example because the app\'s data was restored on another phone, delete it to start afresh.</string>
+  <string name="live_location_not_saved">CoMaps couldn\'t save your live location data. Until it can, recent changes, such as a new contact or new relays, are lost if CoMaps closes, and keys that should have been erased stay on this phone. CoMaps keeps trying; freeing up storage space may help.</string>
   <string name="live_location_stopped_unseen">Sharing stopped because its notification was turned off. Sharing needs the notification, so that nobody can share your location without you seeing it.</string>
 
   <!-- Notification -->

@@ -18,10 +18,11 @@ import java.util.ArrayList;
 /**
  * Live location (NLL): its screens (docs/LIVE_LOCATION.md §11): Share My Location, adding a contact,
  * managing the share, a contact's details, and what relays can see. While it is in front, it asks the
- * relay consent questions. A screen on top of another has its own title, back on the one below as soon
- * as it goes, however it goes; and back asks the screen in front first (OnBackPressListener).
+ * relay consent questions and tells what the user must know. A screen on top of another has its own
+ * title, back on the one below as soon as it goes, however it goes; and back asks the screen in front
+ * first (OnBackPressListener).
  */
-public class LiveLocationActivity extends BaseToolbarActivity implements LiveLocationFeature.ConsentPresenter
+public class LiveLocationActivity extends BaseToolbarActivity implements LiveLocationFeature.Presenter
 {
   static final String EXTRA_SCREEN = "live_location_screen";
   static final String EXTRA_LINK = "live_location_link";
@@ -35,7 +36,7 @@ public class LiveLocationActivity extends BaseToolbarActivity implements LiveLoc
   private static final String STATE_TITLES = "live_location_titles";
 
   @Nullable
-  private AlertDialog mConsentDialog;
+  private AlertDialog mPresented; // a consent question or a message
   // The titles of the screens on top of the first, in order.
   private ArrayList<CharSequence> mTitles = new ArrayList<>();
 
@@ -172,23 +173,29 @@ public class LiveLocationActivity extends BaseToolbarActivity implements LiveLoc
   protected void onStart()
   {
     super.onStart();
-    LiveLocationFeature.attachConsentPresenter(this);
+    LiveLocationFeature.attachPresenter(this);
   }
 
   @Override
   protected void onStop()
   {
-    LiveLocationFeature.detachConsentPresenter(this);
-    if (mConsentDialog != null)
-      mConsentDialog.dismiss();
-    mConsentDialog = null;
+    LiveLocationFeature.detachPresenter(this);
+    if (mPresented != null)
+      mPresented.dismiss();
+    mPresented = null;
     super.onStop();
   }
 
   @Override
   public void presentConsent(@NonNull ConsentRequest request)
   {
-    mConsentDialog = LiveLocationDialogs.showConsent(this, request, consent -> LiveLocationFeature.onConsentAnswered());
+    mPresented = LiveLocationDialogs.showConsent(this, request, consent -> LiveLocationFeature.onPresented());
+  }
+
+  @Override
+  public void presentMessage(@StringRes int message)
+  {
+    mPresented = LiveLocationDialogs.showNotice(this, message, LiveLocationFeature::onPresented);
   }
 
   /** A screen on top of this one; back returns. */

@@ -21,14 +21,6 @@ import java.util.List;
 public class ContactsFragment extends LiveLocationFragment
 {
   @Override
-  public void onStart()
-  {
-    super.onStart();
-    if (LiveLocationFeature.takeStoppedUnseen())
-      LiveLocationDialogs.showMessage(requireActivity(), null, getString(R.string.live_location_stopped_unseen));
-  }
-
-  @Override
   public void onPairing(@NonNull Pairing pairing)
   {
     refresh();
