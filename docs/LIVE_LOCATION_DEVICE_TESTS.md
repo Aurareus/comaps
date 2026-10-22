@@ -20,7 +20,7 @@ should happen, and what to write down.
 - **Phones:** A (sharer) and B (viewer), Android 7 or later, on different networks: for example A on
   mobile data and B on Wi-Fi.
 - **Turn it on, on both:** Settings → Live location sharing → the switch "Live location sharing".
-  The "How live location stays private" screen appears once. "Share My Location" in the main menu
+  The "What relays can see" screen appears once. "Share My Location" in the main menu
   then opens the feature's screen (below: "Share My Location").
 - **Logs:** `adb logcat | grep -iE "live ?location|LiveLocation|OkHttpTransport|KeystoreKeyWrapper"`.
   The core logs relay failures as "Relay connection failed: <url> <reason>".
@@ -175,27 +175,53 @@ screen on a phone, or nearly; it says what relays can and cannot see (§11.6).
 
 ## New code paths to check
 
-- **Installing over the previous build.** Install this APK over the one from the second review
-  without uninstalling: contacts, names and relays are all there (the store is read as version 3
-  and written as version 4), and each contact's next state gets an answer.
+- **Installing over the previous build.** This build reads no store of an earlier one (LIVE_LOCATION.md
+  §26). Installed over the previous build, Share My Location says the data cannot be read and offers
+  "Delete all live location data": delete it on every phone, then connect the phones again.
+- **The dot's sheet.** Tap a contact's dot: the sheet rises without dimming the map, and the zoom and
+  my-position buttons rise above it. With the sheet open, move and zoom the map; "Center" puts the
+  contact in the part of the map above the sheet. Drag the sheet down: it closes, and the buttons
+  come back down. Open it again, then each of these closes it: back; the main menu; search; planning
+  a route; a long tap with "full screen on long tap" on (Settings → Interface). A place tapped on
+  the map opens its place page in the sheet's stead, and another contact's dot shows that contact.
+  "Contact details", then back: the sheet is still there. Rotate the phone: it is still there.
+  Sideways, the sheet is no wider than a place page, and centred like one.
+- **The left button.** Settings → Interface → Left button setup lists "Share Live Location". Pick it:
+  the map's left button shows the feature's icon, and a tap opens Manage sharing. With no contacts,
+  it opens Share My Location; with the feature off, the explanation. The main menu still has "Share
+  My Location".
+- **Saving fails.** On A, with CoMaps open: `adb shell run-as app.comaps.fdroid.debug chmod 500
+  no_backup`, then rename a contact: CoMaps says once that it couldn't save the live location data,
+  with only OK, and Settings stays usable. Rename again: nothing more is said. `adb shell run-as
+  app.comaps.fdroid.debug chmod 700 no_backup` afterwards, then rename once more so that the store
+  is written.
+- **Route planning.** With a track being recorded and a share running, plan a route: both indicators
+  sit below the header, clear of it, upright and sideways.
+- **Icons.** The indicator's icon and the Settings icons of the feature are not cut off at the sides.
+  "Allow viewers to request live updates" has two arrows turning in a circle.
+- **Names and relays.** "Appear as" or renaming a contact with a tab or a line break pasted in: "A
+  name can't contain tabs or line breaks." Adding the relay `wss://a"b.example`: refused.
 - **The map indicator.** While sharing: at the top right where track recording's would be, with the
   number of people in its pin (1, then 2 or more); blinking between grey and blue. Start recording a
   track: the indicator moves below track recording's, both blink in step, and the compass sits
   below both, in the regular map, in route planning and in navigation, upright and sideways. Tapping
   the map to hide the buttons hides it too.
 - **Contacts' dots** are a little larger than before (20 dp across).
-- **The dot colour.** A: Settings → Live location sharing → Dot color → Teal, while sharing with
+- **The dot colour.** A: Settings → Live location sharing → Color you appear as → Teal, while sharing with
   B: B's dot for A turns teal within seconds, and stays teal after B restarts CoMaps. "Automatic":
   B's app picks A's colour again.
-- **Manage sharing.** Tick two contacts within a second or two: one change, so B, already
+- **Manage sharing.** The second heading reads "Start sharing". Tick two contacts within a second or two: one change, so B, already
   following, sees a single pause (30 to 120 s). Untick one: it stops at once. Tick one and leave the
   screen at once: the share includes it. "Until…" with a time that has already passed today means
   tomorrow; rotating the phone while its clock shows closes the clock, as it does the "For" list.
   "Stop all" stops everything; so does Share My Location → "Stop sharing location".
 - **Contact details.** Title "Contact details". While sharing with the contact: "Sharing your
-  location with them", "Until …", "Change" (earlier, later, until stopped), and "Stop sharing with
-  …". "Hide on the map" has its explanation below the switch. "Battery low" when the contact's
-  battery is low (below). Deleting the contact returns to Share My Location, with that title.
+  location with them", "Until …", "Change" (earlier, later, until stopped), above the last update,
+  and "Stop sharing with …". "Hide on the map" has its explanation below the switch, above "Show on
+  the map". "Battery low" when the contact's battery is low (below). While the contact's position
+  updates, the screen does not jump, a tap on a button is not lost, and TalkBack keeps its place.
+  "Stop sharing with …" just after the share with that contact ended: no error, the others go on.
+  Deleting the contact returns to Share My Location, with that title.
 - **Add contact.** Leave the screen while the QR code shows: "Leave the invite waiting?". "Leave it
   waiting": Share My Location lists "Invite waiting", and B can still use the code. "Cancel invite"
   (here or on the screen): back on Share My Location, titled "Share My Location".
@@ -214,7 +240,7 @@ screen on a phone, or nearly; it says what relays can and cannot see (§11.6).
   relay; B opens the link, answering "Not now" if asked: B's screen names the relay with "Allow …",
   rather than calling the invite invalid, and "Allow …" connects. Restore A's relays afterwards.
 - **Settings.** The rows have icons, and values or explanations below their titles: Appear as (your
-  name), Dot color, Relays (a dialog: the list, moving up, removing, adding), Relays for contacts
+  name), Color you appear as, Relays (a dialog: the list, moving up, removing, adding), Relays for contacts
   (a dialog: allowed ones to revoke, refused ones to allow), the two live update switches, Stop
   sharing at low battery, Delete. "Request live updates when viewing" off → A stays idle while B
   watches. Turn the feature off: the rows stay, greyed, titles only; "What relays can see" and
