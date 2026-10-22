@@ -48,8 +48,10 @@ public final class LiveLocation
     default void onSharing(@NonNull Sharing sharing) {}
     default void onConsentNeeded(@NonNull ConsentRequest request) {}
     default void onLocationMode(@NonNull LocationMode mode) {}
-    /** The store could not be read or written: offer to delete the live location data. */
+    /** The store could not be read: offer to delete the live location data. */
     default void onStoreError() {}
+    /** Writing the store started to fail: what changed is lost if the process ends, until a write works. */
+    default void onWriteFailed() {}
     /** The user tapped a contact's dot on the map (docs/LIVE_LOCATION.md §11.4). */
     default void onDotTapped(@NonNull String contactId) {}
   }
@@ -463,6 +465,10 @@ public final class LiveLocation
       case "store_error":
         for (Listener listener : sListeners)
           listener.onStoreError();
+        break;
+      case "write_failed":
+        for (Listener listener : sListeners)
+          listener.onWriteFailed();
         break;
       default: Logger.w(TAG, "Unknown event " + event.optString("event"));
       }

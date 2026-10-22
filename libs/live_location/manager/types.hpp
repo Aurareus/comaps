@@ -139,6 +139,9 @@ public:
   virtual void OnLocationRequest(LocationRequest) {}
   /// The store exists but could not be read; the app may offer to delete the live location data.
   virtual void OnStoreError() {}
+  /// Writing the store fails, after it last worked: until a write works, what changed since the last one is
+  /// lost if the process ends, and erased keys stay in the file. Each change tries again.
+  virtual void OnWriteFailed() {}
 };
 
 /// The cadence of design doc §10.3.

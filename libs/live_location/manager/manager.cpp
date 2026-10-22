@@ -332,9 +332,16 @@ void Manager::Save()
     return;
   std::set<ByteArray<32>> digests;
   SecretBytes const contents = Encode(digests);
-  // A failed write is no store error: the data is still the user's, and the next change writes it all.
-  if (!m_store.Save(contents, digests))
-    LOG(LWARNING, ("Live location: could not write the store"));
+  // A failed write is no store error: the data is still the user's, and the next change writes it all. The
+  // app is told when writing starts to fail.
+  if (m_store.Save(contents, digests))
+  {
+    m_writeFailing = false;
+    return;
+  }
+  LOG(LWARNING, ("Live location: could not write the store"));
+  if (!std::exchange(m_writeFailing, true))
+    m_listener.OnWriteFailed();
 }
 
 bool Manager::Start()

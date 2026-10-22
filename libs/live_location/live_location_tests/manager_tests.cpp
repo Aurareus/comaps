@@ -42,6 +42,7 @@ struct Recorder : public ManagerListener
   void OnConsentNeeded(ConsentRequest const & request) override { m_consents.push_back(request); }
   void OnLocationRequest(LocationRequest request) override { m_location = request; }
   void OnStoreError() override { ++m_storeErrors; }
+  void OnWriteFailed() override { ++m_writeFailures; }
 
   std::vector<ContactInfo> m_contacts;
   std::map<std::string, PairingInfo> m_pairings;
@@ -51,6 +52,7 @@ struct Recorder : public ManagerListener
   std::vector<ConsentRequest> m_consents;
   LocationRequest m_location = LocationRequest::Off;
   int m_storeErrors = 0;
+  int m_writeFailures = 0;
 };
 
 class World;
@@ -1132,20 +1134,36 @@ UNIT_TEST(Manager_AFailedWriteIsNoStoreError)
   World world;
   Phone alice(world, "Alice");
   Phone bob(world, "Bob");
+  Phone carol(world, "Carol");
   Pair(world, alice, bob);
+  Pair(world, alice, carol);
 
   // The key store fails while a deleted contact's keys need a new wrapping key: the write fails, but the
-  // data was read and is the user's, and the next change writes it all.
+  // data was read and is the user's, and each change tries again. The app is told when writing starts to
+  // fail, not at each failure.
   alice.Keys().m_failing = true;
   alice.M().DeleteContact(alice.Id("Bob"));
   world.Run(15'000);
+  TEST(alice.M().SetName("Ally"), ());  // the erased keys still need a new wrapping key
   TEST_EQUAL(alice.Events().m_storeErrors, 0, ());
+  TEST_EQUAL(alice.Events().m_writeFailures, 1, ());
   TEST(alice.M().IsStarted() && !alice.Contact("Bob"), ());
+
+  // A write that works, then a failure again: told again.
   alice.Keys().m_failing = false;
   TEST(alice.M().SetName("Alicia"), ());
+  alice.Keys().m_failing = true;
+  alice.M().DeleteContact(alice.Id("Carol"));
+  world.Run(15'000);
+  TEST_EQUAL(alice.Events().m_writeFailures, 2, ());
+
+  // The next change that works writes it all.
+  alice.Keys().m_failing = false;
+  TEST(alice.M().SetName("Alice"), ());
   alice.Restart();
-  TEST(!alice.Contact("Bob"), ());
-  TEST_EQUAL(alice.M().GetSettings().m_name, "Alicia", ());
+  TEST(!alice.Contact("Bob") && !alice.Contact("Carol"), ());
+  TEST_EQUAL(alice.M().GetSettings().m_name, "Alice", ());
+  TEST_EQUAL(alice.Events().m_storeErrors, 0, ());
 }
 
 UNIT_TEST(Manager_StopWaitsForTheRelaysBeforeItIsFreed)

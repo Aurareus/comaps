@@ -46,6 +46,12 @@ public:
     out.Set("event", json::Value::String("store_error"));
     Print(out);
   }
+  void OnWriteFailed() override
+  {
+    auto out = json::Value::Object();
+    out.Set("event", json::Value::String("write_failed"));
+    Print(out);
+  }
 };
 
 void Result(std::string const & command, bool ok)

@@ -427,6 +427,12 @@ public:
     event.Set("event", json::Value::String("store_error"));
     Send(event);
   }
+  void OnWriteFailed() override
+  {
+    auto event = json::Value::Object();
+    event.Set("event", json::Value::String("write_failed"));
+    Send(event);
+  }
 
 private:
   void Send(json::Value const & event)

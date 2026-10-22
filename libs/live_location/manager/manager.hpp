@@ -197,6 +197,7 @@ private:
   std::shared_ptr<int> m_alive = std::make_shared<int>(0);
 
   bool m_started = false;
+  bool m_writeFailing = false;  // the last write of the store failed
   bool m_foreground = false;
   Settings m_settings;
   Key m_decoySeed;
