@@ -15,12 +15,12 @@ namespace live_location
 {
 using Relays = std::vector<std::string>;
 
-/// wss:// with printable ASCII, or ws:// to a loopback host; at most 64 bytes (spec §5). Patterns
-/// rather than a URL parser, so that implementations agree byte for byte.
+/// wss:// with printable ASCII but quotes and backslashes, or ws:// to a loopback host; at most 64 bytes
+/// (spec §5). Patterns rather than a URL parser, so that implementations agree byte for byte.
 bool IsValidRelayUrl(std::string_view url);
 /// 1 to 4 valid URLs.
 bool IsValidRelayList(Relays const & relays);
-/// 1 to 64 bytes.
+/// 1 to 64 bytes without control characters.
 bool IsValidName(std::string_view name);
 /// 64 lowercase hex characters that encode a valid x-only key.
 bool IsValidPubkeyHex(std::string_view pk);

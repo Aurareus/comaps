@@ -364,6 +364,33 @@ UNIT_TEST(Manager_ChangedHomeRelaysReachContacts)
     TEST_EQUAL(connection.first, kOwn, ());
 }
 
+UNIT_TEST(Manager_RelaysAndNamesFitTheMessagesTheyGoIn)
+{
+  World world;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+  world.Run(3'000);
+
+  // A URL of the longest length that ends in n times c. Quotes and backslashes take two bytes each in
+  // JSON: four URLs of them would not fit a state.
+  auto const url = [](char c, size_t n)
+  { return "wss://" + std::string(kMaxRelayUrl - 6 - n, 'a') + std::string(n, c); };
+  TEST(!alice.M().SetHomeRelays({url('"', 1)}) && !alice.M().SetHomeRelays({url('\\', 1)}), ());
+  TEST(!alice.M().SetHomeRelays({url('"', 58), url('\\', 58), url('"', 57), url('\\', 57)}), ());
+
+  // The longest relay lists that are valid do, with the longest dot colour.
+  TEST(alice.M().SetColor("deeppurple"), ());
+  TEST(alice.M().SetHomeRelays({url('1', 1), url('2', 1), url('3', 1), url('4', 1)}), ());
+  world.Run(3'000);
+  TEST_EQUAL(alice.M().GetSettings().m_homeRelays.size(), 4, ());
+
+  // Names: control characters take six bytes each in JSON, and have no place in a name.
+  TEST(!alice.M().SetName(std::string(kMaxName, '\x01')) && !alice.M().SetName("Al\tice"), ());
+  TEST(alice.M().SetName(std::string(kMaxName, '"')), ());
+}
+
 UNIT_TEST(Manager_ChangingHomeRelaysMovesARunningShare)
 {
   World world;

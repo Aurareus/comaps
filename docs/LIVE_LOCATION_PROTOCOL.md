@@ -111,14 +111,19 @@ stream class, 772 for the control class) whatever their contents.
 Common field limits:
 
 - Relay lists contain 1–4 URLs of at most 64 bytes each.
-- Every URL is `wss://` followed by one or more printable ASCII characters (0x21–0x7E). The only
-  exception is `ws://` to a loopback host, for local test relays: `ws://` then `localhost`,
-  `127.0.0.1` or `[::1]`, an optional `:` with 1–5 digits, and an optional path of printable ASCII
-  starting with `/`. Senders MUST NOT send, and receivers MUST reject, any other URL: without TLS,
-  an on-path observer would see the event keys and contents that TLS hides (design doc, threat
-  T3). The rule is stated as a pattern rather than by reference to a URL parser, because parsers
-  differ.
-- Names are at most 64 bytes.
+- Every URL is `wss://` followed by one or more printable ASCII characters (0x21–0x7E) other than
+  `"` and `\`. The only exception is `ws://` to a loopback host, for local test relays: `ws://`
+  then `localhost`, `127.0.0.1` or `[::1]`, an optional `:` with 1–5 digits, and an optional path of
+  those characters starting with `/`. Senders MUST NOT send, and receivers MUST reject, any other
+  URL: without TLS, an on-path observer would see the event keys and contents that TLS hides
+  (design doc, threat T3). The rule is stated as a pattern rather than by reference to a URL
+  parser, because parsers differ.
+- Names are 1–64 bytes without control characters (U+0000–U+001F, U+007F).
+- JSON writes `"` and `\` as two bytes and control characters as six, which no URL or name may
+  hold for that reason: the largest messages a sender can then make fit their size. With four
+  URLs of 64 bytes, a sequence number at the largest JSON integer and times of ten digits, a state
+  with a grant and the colour `deeppurple` is 506 bytes, a `pair3` with a name of 64 quotes 465,
+  and a location with six numbers of 24 characters 253 (of 256).
 
 ## 6. Pairing
 
@@ -626,7 +631,7 @@ defined in §5.
 | `end` | `seq` integer ≥ 1; `ts` integer ≥ 0 | — |
 | `watch` | `ts` integer ≥ 0; `until` integer ≥ 0 | — |
 | `pair1` | — | — |
-| `pair2` | `name` string of 1–64 bytes; `relays` per §5 | — |
+| `pair2` | `name` per §5; `relays` per §5 | — |
 | `pair3` | `ok` boolean; when true: `name`, `relays` as in `pair2`, and `epoch` integer (§6.3) | — |
 
 **Stream keys and positions.**
@@ -699,7 +704,8 @@ Further obligations:
 | invite | 70 bytes plus the relay list (122 bytes with the three default relays) |
 | invite lifetime | at most 86400 s; joiners refuse `expires_at` more than 86400 + 300 s ahead |
 | JSON integers | within ±(2⁵³ − 1) |
-| relay lists | 1–4 `wss://` URLs of ≤ 64 bytes (`ws://` only to loopback) |
+| relay lists | 1–4 `wss://` URLs of ≤ 64 bytes, without `"` or `\` (`ws://` only to loopback) |
+| names | 1–64 bytes without control characters |
 | dot colour (`color`) | a name of 1–32 bytes, from 14 in this version (§8) |
 | authors per REQ filter | ≤ 50 |
 | inbox subscription | padded with decoys to a multiple of 8 |

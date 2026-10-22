@@ -161,12 +161,15 @@ def is_number(x, lo: float = -math.inf, hi: float = math.inf) -> bool:
 
 _HEX64 = re.compile(r'[0-9a-f]{64}')
 _HEX128 = re.compile(r'[0-9a-f]{128}')
-_RELAY_WSS = re.compile(r'wss://[\x21-\x7e]+')
-_RELAY_WS_LOOPBACK = re.compile(r'ws://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]{1,5})?(/[\x21-\x7e]*)?')
+# Printable ASCII but the quote and the backslash, which JSON writes as two bytes each: a relay URL then
+# takes as many bytes in a message as it has, and the largest messages fit their size (spec §5).
+_URL_TEXT = r'[\x21\x23-\x5b\x5d-\x7e]'
+_RELAY_WSS = re.compile(r'wss://' + _URL_TEXT + '+')
+_RELAY_WS_LOOPBACK = re.compile(r'ws://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]{1,5})?(/' + _URL_TEXT + '*)?')
 
 
 def check_relay_url(url) -> str:
-    """wss:// only, printable ASCII; ws:// only to a loopback host (a local test relay). Regular expressions
+    """wss:// only, URL text as above; ws:// only to a loopback host (a local test relay). Regular expressions
     rather than a URL parser, so that implementations agree byte for byte."""
     if not isinstance(url, str) or len(url.encode('utf-8')) > MAX_RELAY_URL:
         raise ValueError('bad relay url')
@@ -184,7 +187,9 @@ def check_relays(relays) -> list:
 
 
 def check_name(name) -> str:
-    if not isinstance(name, str) or not 1 <= len(name.encode('utf-8')) <= MAX_NAME:
+    # No control characters: JSON writes them as six bytes each, and they have no place in a name.
+    if (not isinstance(name, str) or not 1 <= len(name.encode('utf-8')) <= MAX_NAME
+            or any(ord(c) < 0x20 or ord(c) == 0x7f for c in name)):
         raise ValueError('bad name')
     return name
 

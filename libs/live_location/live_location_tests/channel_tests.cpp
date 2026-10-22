@@ -340,6 +340,29 @@ UNIT_TEST(Pairing_WaitingDoesNotBlockSharing)
   }
 }
 
+// The largest messages this version sends fit their padded size, so that none can fail to encode (spec §5).
+UNIT_TEST(Messages_TheLargestFitTheirSize)
+{
+  Relays relays;  // the longest valid list: four URLs of 64 bytes
+  for (char const c : {'1', '2', '3', '4'})
+    relays.push_back("wss://" + std::string(kMaxRelayUrl - 7, 'a') + c);
+  TEST(IsValidRelayList(relays), ());
+  int64_t const kTime = 9'999'999'999;  // times in seconds have ten digits until the year 2286
+
+  State state{kMaxJsonInt, kTime, relays, Share{kTime, std::string(64, 'f'), Key{}}, std::string("deeppurple")};
+  Pair3 pair3{true, std::string(kMaxName, '"'), relays, kMaxJsonInt};
+  Pair2 pair2{pair3.m_name, relays};
+  double const kLong = -1.2345678901234567e-300;  // 24 characters in JSON
+  Location fix{kMaxJsonInt, kMaxJsonInt, kLong, kLong, kLong, kLong, kLong, kLong, true, std::nullopt};
+  size_t const sizes[] = {ToJson(state).Dump().size(), ToJson(pair3).Dump().size(), ToJson(pair2).Dump().size(),
+                          ToJson(fix).Dump().size()};
+  LOG(LINFO, ("largest state, pair3, pair2 and location:", sizes));
+  TEST_LESS_OR_EQUAL(sizes[0], kSizeControl, ());
+  TEST_LESS_OR_EQUAL(sizes[1], kSizeControl, ());
+  TEST_LESS_OR_EQUAL(sizes[2], kSizeControl, ());
+  TEST_LESS_OR_EQUAL(sizes[3], kSizeStream, ());
+}
+
 UNIT_TEST(Invites_RelaysAndEncoding)
 {
   // Relays: wss:// only; ws:// only to a loopback host.
@@ -353,9 +376,18 @@ UNIT_TEST(Invites_RelaysAndEncoding)
                                             "wss://" + std::string(60, 'x'),
                                             "wss://",
                                             "wss://nos .lol",
-                                            "wss://n\xc3\xb6s.lol"};
+                                            "wss://n\xc3\xb6s.lol",
+                                            "wss://nos.lol/\"",
+                                            "wss://nos.lol\\",
+                                            "ws://localhost/\""};
   for (auto const & url : refused)
     TEST(!IsValidRelayList({url}), ("relay URL refused:", url));
+
+  // Names: no control characters.
+  TEST(IsValidName(std::string(kMaxName, '"')) && IsValidName("Zo\xc3\xab"), ());
+  for (std::string const & name :
+       std::vector<std::string>{"", "Al\tice", "Alice\n", "\x7f", std::string(kMaxName + 1, 'a')})
+    TEST(!IsValidName(name), ("name refused:", name));
 
   auto & rng = ScenarioRng();
   ByteArray<32> const ipk = Inviter(kRelaysA, rng, kT0).GetInvite().m_ipk;

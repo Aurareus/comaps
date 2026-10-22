@@ -519,8 +519,25 @@ check(P.read_control(a_b, wire(last), week_over - 1) is not None and not P.offer
 for url in ('wss://nos.lol', 'ws://127.0.0.1:7777', 'ws://localhost', 'ws://[::1]:7777/'):
     check(P.check_relays([url]) == [url], 'relay url accepted: ' + url)
 for url in ('ws://nos.lol', 'ws://192.168.1.2:7777', 'ws://127.0.0.1.example.com', 'ws://localhost@evil.example',
-            'http://nos.lol', 'wss://' + 'x' * 60, 'wss://', 'wss://nos .lol', 'wss://nös.lol'):
+            'http://nos.lol', 'wss://' + 'x' * 60, 'wss://', 'wss://nos .lol', 'wss://nös.lol', 'wss://nos.lol/"',
+            'wss://nos.lol\\', 'ws://localhost/"'):
     check(raises(lambda: P.check_relays([url])), 'relay url refused: ' + url)
+check(P.check_name('"' * P.MAX_NAME) and P.check_name('Zoë'), 'names: quotes and letters')
+for name in ('', 'Al\tice', 'Alice\n', '\x7f', 'a' * (P.MAX_NAME + 1)):
+    check(raises(lambda: P.check_name(name)), 'name refused: %r' % name)
+
+# The largest messages this version sends fit their padded size (spec §5).
+longest = ['wss://' + 'a' * (P.MAX_RELAY_URL - 7) + c for c in '1234']
+time10, big = 9_999_999_999, 2 ** 53 - 1
+long_float = -1.2345678901234567e-300
+largest = [(P.state_body(big, time10, longest, {'until': time10, 'pk': 'f' * 64, 'key': 'A' * 43 + '='}, 'deeppurple'),
+            P.SIZE_CONTROL),
+           ({'t': 'pair3', 'ok': True, 'name': '"' * P.MAX_NAME, 'relays': longest, 'epoch': big}, P.SIZE_CONTROL),
+           ({'t': 'pair2', 'name': '"' * P.MAX_NAME, 'relays': longest}, P.SIZE_CONTROL),
+           ({'t': 'loc', 'seq': big, 'ts': big, 'lat': long_float, 'lon': long_float, 'acc': long_float,
+             'spd': long_float, 'brg': long_float, 'alt': long_float, 'low': True}, P.SIZE_STREAM)]
+check(all(len(P.encode_plaintext(body, size)) == size for body, size in largest),
+      'the largest state, pair3, pair2 and location fit their size')
 plain = P.Invite(os.urandom(32), alice.invite.ipk, T0 + 600, ['wss://nos.lol'])
 plain.relays = ['ws://nos.lol']
 check(raises(lambda: P.Invite.from_link(plain.link())), 'invite with a ws:// relay refused')

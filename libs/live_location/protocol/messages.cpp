@@ -4,21 +4,24 @@
 #include "live_location/encoding/base64.hpp"
 #include "live_location/protocol/constants.hpp"
 
+#include <algorithm>
 #include <stdexcept>
 
 namespace live_location
 {
 namespace
 {
-bool IsPrintableAscii(std::string_view s)
+// Printable ASCII but for the quote and the backslash, which JSON writes as two bytes each: a relay URL
+// then takes as many bytes in a message as it has, and the largest messages fit their size (spec §5).
+bool IsUrlText(std::string_view s)
 {
   for (char const c : s)
-    if (c < 0x21 || c > 0x7e)
+    if (c < 0x21 || c > 0x7e || c == '"' || c == '\\')
       return false;
   return true;
 }
 
-// ws://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]{1,5})?(/[\x21-\x7e]*)?
+// ws://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]{1,5})?(/[\x21\x23-\x5b\x5d-\x7e]*)?
 bool IsLoopbackWsUrl(std::string_view url)
 {
   std::string_view constexpr kPrefix = "ws://";
@@ -39,7 +42,7 @@ bool IsLoopbackWsUrl(std::string_view url)
         return false;
       rest.remove_prefix(1 + digits);
     }
-    return rest.empty() || (rest.front() == '/' && IsPrintableAscii(rest.substr(1)));
+    return rest.empty() || (rest.front() == '/' && IsUrlText(rest.substr(1)));
   }
   return false;
 }
@@ -125,7 +128,7 @@ bool IsValidRelayUrl(std::string_view url)
     return false;
   std::string_view constexpr kWss = "wss://";
   if (url.starts_with(kWss))
-    return url.size() > kWss.size() && IsPrintableAscii(url.substr(kWss.size()));
+    return url.size() > kWss.size() && IsUrlText(url.substr(kWss.size()));
   return IsLoopbackWsUrl(url);
 }
 
@@ -141,7 +144,10 @@ bool IsValidRelayList(Relays const & relays)
 
 bool IsValidName(std::string_view name)
 {
-  return !name.empty() && name.size() <= kMaxName;
+  // No control characters: JSON writes them as six bytes each, and they have no place in a name.
+  return !name.empty() && name.size() <= kMaxName &&
+         std::none_of(name.begin(), name.end(),
+                      [](char c) { return static_cast<unsigned char>(c) < 0x20 || c == 0x7f; });
 }
 
 bool IsValidPubkeyHex(std::string_view pk)
