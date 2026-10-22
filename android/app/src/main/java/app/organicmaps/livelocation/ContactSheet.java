@@ -3,11 +3,16 @@ package app.organicmaps.livelocation;
 import android.content.Context;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.coordinatorlayout.widget.CoordinatorLayout;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.lifecycle.ViewModel;
 import androidx.lifecycle.ViewModelProvider;
 import app.organicmaps.MwmApplication;
@@ -58,6 +63,12 @@ final class ContactSheet implements LiveLocation.Listener
   private boolean mListening;
   // Whether the sheet moves the map buttons and sets the map's visible part: not once a place page replaces it.
   private boolean mMovesButtons;
+  // What the map buttons were told last: the sheet's width, and its top while it rests open.
+  private int mToldWidth;
+  private int mToldTop;
+  // After each layout pass: the sheet where the behaviour put it. A layout listener sees it earlier, at the
+  // top of the map, before the behaviour moves it down; told so, the map buttons would hide.
+  private final ViewTreeObserver.OnGlobalLayoutListener mLaidOut = this::onLaidOut;
   // The lines updated in place.
   @Nullable
   private View mHeader;
@@ -164,10 +175,22 @@ final class ContactSheet implements LiveLocation.Listener
 
   private void create()
   {
-    // The style gives it the place page's width, and its padding below for the navigation bar.
+    // The style gives it the place page's width. The navigation bar's room comes before its first layout,
+    // so that it opens to where it rests: the behaviour would give it only after that layout. Read here once
+    // the map screen is shown; until then, as after its recreation, the window gives it to every view first.
     final View sheet = LayoutInflater.from(mActivity).inflate(R.layout.live_location_contact_sheet, mParent, false);
+    final WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(mParent);
+    if (insets != null)
+      fitBars(sheet, insets);
+    ViewCompat.setOnApplyWindowInsetsListener(sheet, (v, windowInsets) -> {
+      fitBars(v, windowInsets);
+      return windowInsets;
+    });
     mSheet = sheet;
+    mToldWidth = 0;
+    mToldTop = -1;
     mParent.addView(sheet);
+    sheet.getViewTreeObserver().addOnGlobalLayoutListener(mLaidOut);
     final BottomSheetBehavior<View> behavior = BottomSheetBehavior.from(sheet);
     mBehavior = behavior;
     behavior.setHideable(true);
@@ -181,9 +204,17 @@ final class ContactSheet implements LiveLocation.Listener
         if (bottomSheet != mSheet)
           return;
         if (newState == BottomSheetBehavior.STATE_HIDDEN)
+        {
           remove();
-        else if (newState == BottomSheetBehavior.STATE_EXPANDED && mMovesButtons)
-          setVisibleMap(bottomSheet.getTop());
+        }
+        else if (newState == BottomSheetBehavior.STATE_EXPANDED)
+        {
+          // Its height changed while it moved, e.g. a first position added its lines: the behaviour puts it
+          // where it rests at its next layout.
+          if (bottomSheet.getTop() != Math.max(0, mParent.getHeight() - bottomSheet.getHeight()))
+            bottomSheet.requestLayout();
+          onLaidOut();
+        }
       }
 
       @Override
@@ -193,19 +224,40 @@ final class ContactSheet implements LiveLocation.Listener
           mPlacePage.setPlacePageDistanceToTop(bottomSheet.getTop());
       }
     });
-    // Laid out again: another contact's lines, a rotation, or open at once after the map screen's recreation.
-    sheet.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
-      if (v != mSheet || !mMovesButtons)
-        return;
-      // Which map buttons are behind it, as for the place page's width.
-      if (right - left != oldRight - oldLeft)
-        mPlacePage.setPlacePageWidth(right - left);
-      if (top == oldTop || !isUp())
-        return;
-      mPlacePage.setPlacePageDistanceToTop(top);
-      if (behavior.getState() == BottomSheetBehavior.STATE_EXPANDED)
-        setVisibleMap(top);
-    });
+  }
+
+  /** The navigation bar's room below the sheet's content, and the side bars' beside it, as for the place page. */
+  private static void fitBars(@NonNull View sheet, @NonNull WindowInsetsCompat windowInsets)
+  {
+    final Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+    sheet.setPadding(sheet.getPaddingLeft(), sheet.getPaddingTop(), sheet.getPaddingRight(), bars.bottom);
+    final ViewGroup.MarginLayoutParams params = (ViewGroup.MarginLayoutParams) sheet.getLayoutParams();
+    if (params.leftMargin == bars.left && params.rightMargin == bars.right)
+      return;
+    params.leftMargin = bars.left;
+    params.rightMargin = bars.right;
+    sheet.setLayoutParams(params);
+  }
+
+  /**
+   * After a layout pass, and once it rests open: which map buttons are behind it (as by the place page's
+   * width), where they go above it, and the map's visible part. It moves between, while opening, closing or
+   * dragged: onSlide tells that.
+   */
+  private void onLaidOut()
+  {
+    if (mSheet == null || mBehavior == null || !mMovesButtons)
+      return;
+    if (mSheet.getWidth() != mToldWidth)
+    {
+      mToldWidth = mSheet.getWidth();
+      mPlacePage.setPlacePageWidth(mToldWidth);
+    }
+    if (mBehavior.getState() != BottomSheetBehavior.STATE_EXPANDED || mSheet.getTop() == mToldTop)
+      return;
+    mToldTop = mSheet.getTop();
+    mPlacePage.setPlacePageDistanceToTop(mToldTop);
+    setVisibleMap(mToldTop);
   }
 
   private boolean isUp()
@@ -217,7 +269,10 @@ final class ContactSheet implements LiveLocation.Listener
   {
     listen(false);
     if (mSheet != null)
+    {
+      mSheet.getViewTreeObserver().removeOnGlobalLayoutListener(mLaidOut);
       mParent.removeView(mSheet);
+    }
     mSheet = null;
     mBehavior = null;
     mHeader = null;
