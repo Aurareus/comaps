@@ -15,7 +15,6 @@ public class ExplanationFragment extends LiveLocationFragment
   @Override
   protected void render(@NonNull LiveLocationViews views)
   {
-    views.header(getString(R.string.live_location_explain_title));
     views.text(getString(R.string.live_location_explain_1));
     views.text(getString(R.string.live_location_explain_2));
     views.text(getString(R.string.live_location_explain_3));

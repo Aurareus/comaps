@@ -22,7 +22,6 @@ import app.organicmaps.sdk.livelocation.LiveLocationModels.Settings;
 import app.organicmaps.util.Utils;
 import app.organicmaps.util.WindowInsetUtils.ScrollableContentInsetsListener;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -114,7 +113,7 @@ public class LiveLocationSettingsFragment extends PreferenceFragmentCompat
                           {R.drawable.ic_live_location_relays, R.string.live_location_relays},
                           {R.drawable.ic_live_location_contacts, R.string.live_location_approved_relays},
                           {R.drawable.ic_live_location_view, R.string.live_location_request_live},
-                          {R.drawable.ic_speed, R.string.live_location_allow_live},
+                          {R.drawable.ic_live_location_live_updates, R.string.live_location_allow_live},
                           {R.drawable.ic_live_location_battery, R.string.live_location_low_battery_title}};
     for (int[] row : rows)
     {
@@ -147,7 +146,7 @@ public class LiveLocationSettingsFragment extends PreferenceFragmentCompat
     screen.addPreference(toggle(R.drawable.ic_live_location_view, R.string.live_location_request_live,
                                 R.string.live_location_request_live_summary, settings.requestLive,
                                 LiveLocation::setRequestLive));
-    screen.addPreference(toggle(R.drawable.ic_speed, R.string.live_location_allow_live,
+    screen.addPreference(toggle(R.drawable.ic_live_location_live_updates, R.string.live_location_allow_live,
                                 R.string.live_location_allow_live_summary, settings.allowLive,
                                 LiveLocation::setAllowLive));
     screen.addPreference(row(R.drawable.ic_live_location_battery, getString(R.string.live_location_low_battery_title),
@@ -214,13 +213,8 @@ public class LiveLocationSettingsFragment extends PreferenceFragmentCompat
   {
     LiveLocationDialogs.showText(requireActivity(), R.string.live_location_appear_as,
                                  getString(R.string.live_location_your_name_message), current, null,
-                                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS, text -> {
-                                   if (text.isEmpty())
-                                     return getString(R.string.live_location_name_empty);
-                                   if (text.getBytes(StandardCharsets.UTF_8).length > 64)
-                                     return getString(R.string.live_location_name_too_long);
-                                   return null;
-                                 }, name -> {
+                                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS,
+                                 text -> LiveLocationText.nameError(requireContext(), text), name -> {
                                    LiveLocation.setName(name);
                                    build();
                                  });

@@ -4,10 +4,12 @@ import android.content.Context;
 import android.text.format.DateFormat;
 import android.text.format.DateUtils;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import app.organicmaps.R;
 import app.organicmaps.sdk.livelocation.LiveLocation;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Contact;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Recipient;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
@@ -17,6 +19,20 @@ import java.util.List;
 final class LiveLocationText
 {
   private LiveLocationText() {}
+
+  /** Why a name will not do, or null: 1 to 64 bytes without control characters, as the core requires. */
+  @Nullable
+  static String nameError(@NonNull Context context, @NonNull String name)
+  {
+    if (name.isEmpty())
+      return context.getString(R.string.live_location_name_empty);
+    if (name.getBytes(StandardCharsets.UTF_8).length > 64)
+      return context.getString(R.string.live_location_name_too_long);
+    for (int i = 0; i < name.length(); ++i)
+      if (name.charAt(i) < 0x20 || name.charAt(i) == 0x7f)
+        return context.getString(R.string.live_location_name_control);
+    return null;
+  }
 
   /** "Bob", "Bob and Carol", "Bob, Carol and 2 others". */
   @NonNull

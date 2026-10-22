@@ -20,10 +20,18 @@
         android:fillColor="@android:color/white"
         android:pathData="M12,2C8.13,2 5,5.13 5,9c0,5.25 7,13 7,13s7,-7.75 7,-13c0,-3.87 -3.13,-7 -7,-7zM12,11.5c-1.38,0 -2.5,-1.12 -2.5,-2.5s1.12,-2.5 2.5,-2.5 2.5,1.12 2.5,2.5 -1.12,2.5 -2.5,2.5z" />
     </group>
-    <path
-      android:pathData="M6.27,7A7,7 0,0 0,6.27 15M17.73,7A7,7 0,0 1,17.73 15M3.81,5.26A10,10 0,0 0,3.81 16.74M20.19,5.26A10,10 0,0 1,20.19 16.74"
-      android:strokeWidth="1.6"
-      android:strokeColor="@android:color/white"
-      android:strokeLineCap="round" />
+    <!-- The arcs drawn nearer the pin: at the pin's scale the outer ones would leave the viewport, and be
+         cut off at the sides. -->
+    <group
+      android:pivotX="12"
+      android:pivotY="11"
+      android:scaleX="0.88"
+      android:scaleY="0.88">
+      <path
+        android:pathData="M6.27,7A7,7 0,0 0,6.27 15M17.73,7A7,7 0,0 1,17.73 15M3.81,5.26A10,10 0,0 0,3.81 16.74M20.19,5.26A10,10 0,0 1,20.19 16.74"
+        android:strokeWidth="1.6"
+        android:strokeColor="@android:color/white"
+        android:strokeLineCap="round" />
+    </group>
   </group>
 </vector>

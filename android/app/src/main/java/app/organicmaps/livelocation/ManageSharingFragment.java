@@ -168,7 +168,7 @@ public class ManageSharingFragment extends LiveLocationFragment
       views.text(getString(R.string.live_location_no_contacts));
     if (!others.isEmpty())
     {
-      views.header(getString(R.string.live_location_start_sharing_with));
+      views.header(getString(R.string.live_location_start_sharing));
       views.row(getString(R.string.live_location_for), mDuration.label(context), null,
                 v -> LiveLocationDialogs.pickDuration(this, mDuration, duration -> {
                   mDuration = duration;

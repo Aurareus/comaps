@@ -66,6 +66,7 @@
   <string name="live_location_your_name_message">Contacts see this name when you connect.</string>
   <string name="live_location_name_empty">Enter a name.</string>
   <string name="live_location_name_too_long">This name is too long.</string>
+  <string name="live_location_name_control">A name can\'t contain tabs or line breaks.</string>
   <string name="live_location_invite_hint">Let the other person scan this code with their camera.</string>
   <string name="live_location_share_link">Share a link instead</string>
   <string name="live_location_paste_invite">Paste invite</string>
@@ -93,17 +94,17 @@
   <string name="live_location_pairing_conflict">Someone else used this invite too, so it was cancelled. Make a new invite and share it only with the person you want to connect with.</string>
   <string name="live_location_pairing_expired">The invite expired. Make a new one.</string>
   <string name="live_location_invalid_invite">This isn\'t a valid invite, or it has expired.</string>
-  <string name="live_location_invite_relays_not_allowed">This invite only uses relays you haven\'t allowed: %s. To connect, allow one. Its operator would see your internet address while you connect.</string>
+  <string name="live_location_invite_relays_not_allowed">This invite only uses relays you haven\'t allowed: %s. To connect, allow one. Its operator would see your IP address while you connect.</string>
   <string name="live_location_allow_relay">Allow %s</string>
   <string name="live_location_invite_failed">Could not make an invite.</string>
   <string name="live_location_invite_subject">Connect with me on CoMaps</string>
 
   <!-- Relay consent -->
   <string name="live_location_consent_title">Use another relay?</string>
-  <string name="live_location_consent_pairing">This invite uses %s, which isn\'t one of yours. Its operator would see your internet address while you connect.</string>
-  <string name="live_location_consent_viewing">%1$s\'s location comes through %2$s, which isn\'t one of yours. Its operator would see your internet address whenever you view %1$s.</string>
-  <string name="live_location_consent_live_updates">Live updates from %1$s need %2$s, which isn\'t one of yours. Without it, %1$s\'s position updates only after a move, or every 5 minutes. Its operator would see your internet address whenever you view %1$s.</string>
-  <string name="live_location_consent_sending">Messages to %1$s go through %2$s, which isn\'t one of yours. Its operator would see your internet address when you send them, for example when you stop sharing with %1$s.</string>
+  <string name="live_location_consent_pairing">This invite uses %s, which isn\'t one of yours. Its operator would see your IP address while you connect.</string>
+  <string name="live_location_consent_viewing">%1$s\'s location comes through %2$s, which isn\'t one of yours. Its operator would see your IP address whenever you view %1$s.</string>
+  <string name="live_location_consent_live_updates">Live updates from %1$s need %2$s, which isn\'t one of yours. Without it, %1$s\'s position updates only after a move, or every 5 minutes. Its operator would see your IP address whenever you view %1$s.</string>
+  <string name="live_location_consent_sending">Messages to %1$s go through %2$s, which isn\'t one of yours. Its operator would see your IP address when you send them, for example when you stop sharing with %1$s.</string>
   <string name="live_location_allow">Allow</string>
   <!-- A contact's label while none of its relays may be used, and while live updates from it are off -->
   <string name="live_location_blocked">Messages to %1$s need %2$s</string>
@@ -141,7 +142,7 @@
   <!-- Managing a share -->
   <string name="live_location_manage_sharing">Manage sharing</string>
   <string name="live_location_currently_sharing_with">Currently sharing with</string>
-  <string name="live_location_start_sharing_with">Start sharing with</string>
+  <string name="live_location_start_sharing">Start sharing</string>
   <string name="live_location_starting">Starting…</string>
   <string name="live_location_stop_all">Stop all</string>
   <string name="live_location_until">Until %s</string>
@@ -168,7 +169,7 @@
   <string name="live_location_what_relays_see_summary">How your location stays private</string>
   <string name="live_location_appear_as">Appear as</string>
   <string name="live_location_not_set">Not set</string>
-  <string name="live_location_dot_color">Dot color</string>
+  <string name="live_location_dot_color">Color you appear as</string>
   <string name="live_location_dot_color_automatic">Automatic</string>
   <string name="live_location_dot_color_message">The color of your dot on your contacts\' maps. Automatic: each of them sees a color of their own app\'s choosing.</string>
   <string name="live_location_relays">Relays</string>
@@ -188,8 +189,8 @@
   <string name="live_location_refused">Refused</string>
   <string name="live_location_approved_for">Allowed for %s</string>
   <string name="live_location_refused_for">Refused for %s</string>
-  <string name="live_location_allow_refused">Allow %1$s? Its operator would see your internet address whenever your phone uses it for %2$s.</string>
-  <string name="live_location_allow_refused_any">Allow %s? Its operator would see your internet address whenever your phone uses it.</string>
+  <string name="live_location_allow_refused">Allow %1$s? Its operator would see your IP address whenever your phone uses it for %2$s.</string>
+  <string name="live_location_allow_refused_any">Allow %s? Its operator would see your IP address whenever your phone uses it.</string>
   <string name="live_location_when_connecting">While connecting with a new contact</string>
   <string name="live_location_revoke">Revoke</string>
   <string name="live_location_request_live">Request live updates when viewing</string>
@@ -203,12 +204,11 @@
 
   <!-- What relays can see: docs/LIVE_LOCATION.md §11.6 -->
   <string name="live_location_what_relays_see">What relays can see</string>
-  <string name="live_location_explain_title">How live location stays private</string>
-  <string name="live_location_explain_1">Your location is encrypted on your phone. Only the people you choose can decrypt it.</string>
-  <string name="live_location_explain_2">It travels through relays: independent servers run by volunteers or companies (you can pick your own). Relays cannot see your location, your name or your contacts\' names.</string>
+  <string name="live_location_explain_1">Your live location is always sent encrypted. Only the people you choose can decrypt it.</string>
+  <string name="live_location_explain_2">It travels through relays: independent servers run by volunteers or companies (you can pick and run your own). Relays cannot see your location, your name or your contacts\' names.</string>
   <string name="live_location_explain_3">Relays can see:</string>
-  <string name="live_location_explain_4">• your phone\'s internet address, which reveals your rough region and your provider;\n• the internet addresses of the phones that follow your location, so a relay could tell which phones you share with, though not whose they are;\n• when you send updates and how often (moving phones send more often, and so do phones that someone is watching);\n• that the app uses this live location feature, and roughly how many contacts you have.</string>
-  <string name="live_location_explain_5">Your contacts may use relays other than yours. Before your phone connects to one of those, the app asks you, because whoever runs it would see your internet address.</string>
+  <string name="live_location_explain_4">• Your phone\'s IP address, which reveals your rough region and your network provider.\n• The IP addresses of the phones that follow your location, so a relay could tell which phones you share with, but not who they belong to.\n• When you send updates and how often (phones send more often when moving, or when someone is watching).\n• That the app uses this live location feature, and roughly how many contacts you have.</string>
+  <string name="live_location_explain_5">Your contacts may use relays other than yours. Before your phone connects to one of those, the app asks you, because whoever runs it would see your IP address.</string>
   <string name="live_location_explain_6">Relays that follow the rules keep only your latest encrypted position, and delete it 15 minutes after it was sent. A relay that breaks the rules, or anyone else, could keep copies. They stay encrypted, and the phones delete the keys that could open them within about a day.</string>
   <string name="live_location_explain_7">Your location is never sent while you are not sharing. While the app is open and you have contacts, it asks the relays whether anyone is sharing with you. People you stop sharing with cannot read anything you send afterwards.</string>
   <string name="live_location_got_it">Got it</string>

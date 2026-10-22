@@ -184,7 +184,7 @@ public class ContactFragment extends LiveLocationFragment
     LiveLocationDialogs.showText(requireActivity(), R.string.live_location_rename, null, contact.name, null,
                                  InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS,
                                  text
-                                 -> text.isEmpty() ? getString(R.string.live_location_name_empty) : null,
+                                 -> LiveLocationText.nameError(requireContext(), text),
                                  name -> LiveLocation.renameContact(contact.id, name));
   }
 

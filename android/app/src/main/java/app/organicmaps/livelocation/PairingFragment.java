@@ -19,7 +19,6 @@ import app.organicmaps.sdk.livelocation.LiveLocationModels.Pairing;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Settings;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import io.nayuki.qrcodegen.QrCode;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.List;
 
@@ -312,25 +311,16 @@ public class PairingFragment extends LiveLocationFragment implements OnBackPress
     }
     mNeedsName = true;
     refresh();
-    LiveLocationDialogs.showText(
-        requireActivity(), R.string.live_location_your_name_title, getString(R.string.live_location_your_name_message),
-        "", null, InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS, this::checkName, name -> {
-          if (isAdded() && LiveLocation.setName(name))
-          {
-            mNeedsName = false;
-            then.run();
-          }
-        });
-  }
-
-  @Nullable
-  private String checkName(@NonNull String name)
-  {
-    if (name.isEmpty())
-      return getString(R.string.live_location_name_empty);
-    if (name.getBytes(StandardCharsets.UTF_8).length > 64)
-      return getString(R.string.live_location_name_too_long);
-    return null;
+    LiveLocationDialogs.showText(requireActivity(), R.string.live_location_your_name_title,
+                                 getString(R.string.live_location_your_name_message), "", null,
+                                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS,
+                                 text -> LiveLocationText.nameError(requireContext(), text), name -> {
+                                   if (isAdded() && LiveLocation.setName(name))
+                                   {
+                                     mNeedsName = false;
+                                     then.run();
+                                   }
+                                 });
   }
 
   private void invite(boolean byLink)
