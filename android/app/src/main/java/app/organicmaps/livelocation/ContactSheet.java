@@ -1,39 +1,64 @@
 package app.organicmaps.livelocation;
 
 import android.content.Context;
-import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.fragment.app.Fragment;
-import androidx.fragment.app.FragmentManager;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.coordinatorlayout.widget.CoordinatorLayout;
+import androidx.lifecycle.ViewModel;
+import androidx.lifecycle.ViewModelProvider;
+import app.organicmaps.MwmApplication;
 import app.organicmaps.R;
 import app.organicmaps.sdk.Framework;
 import app.organicmaps.sdk.livelocation.LiveLocation;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Contact;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Position;
 import app.organicmaps.util.UiUtils;
-import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
+import app.organicmaps.widget.placepage.PlacePageViewModel;
+import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import java.util.List;
 import java.util.Objects;
 
 /**
- * Live location (NLL): the sheet a tap on a contact's dot opens over the map (docs/LIVE_LOCATION.md
- * §11.4): name, status, last update, accuracy and a low battery, "Center", and the contact's details.
- * Built once; positions arriving every few seconds update its lines in place.
+ * Live location (NLL): the sheet a tap on a contact's dot opens over the map (docs/LIVE_LOCATION.md §11.4):
+ * name, status, last update, accuracy and a low battery, "Center", and the contact's details. It is handled
+ * as the place page is: the map stays bright and usable around it, the map buttons rise above it, "Center"
+ * puts the contact in the part of the map above it, a drag down closes it, and so does whatever closes the
+ * place page; a place opened on the map takes its place, and it survives the map screen's recreation. Built
+ * once per contact; positions arriving every few seconds update its lines in place.
  */
-public class ContactSheet extends BottomSheetDialogFragment implements LiveLocation.Listener
+final class ContactSheet implements LiveLocation.Listener
 {
-  private static final String TAG = "live_location_contact_sheet";
-  private static final String ARG_CONTACT_ID = "contact_id";
   private static final int CENTER_ZOOM = 16;
 
+  /** Whose sheet is open, kept across the map screen's recreation as the place page's object is. */
+  static final class Model extends ViewModel
+  {
+    @Nullable
+    String mContactId;
+  }
+
+  @NonNull
+  private final AppCompatActivity mActivity;
+  @NonNull
+  private final CoordinatorLayout mParent;
+  @NonNull
+  private final Model mModel;
+  // The place page's: what the map buttons follow, and the place opened.
+  @NonNull
+  private final PlacePageViewModel mPlacePage;
+  private final int mViewportMinHeight;
   @Nullable
-  private LiveLocationViews mViews;
-  // The lines updated in place, once built.
+  private View mSheet;
+  @Nullable
+  private BottomSheetBehavior<View> mBehavior;
+  private boolean mListening;
+  // Whether the sheet moves the map buttons and sets the map's visible part: not once a place page replaces it.
+  private boolean mMovesButtons;
+  // The lines updated in place.
   @Nullable
   private View mHeader;
   @Nullable
@@ -45,52 +70,84 @@ public class ContactSheet extends BottomSheetDialogFragment implements LiveLocat
   @Nullable
   private View mCenter;
 
-  /** One sheet at a time: a tap on another dot replaces it. */
-  public static void open(@NonNull FragmentManager manager, @NonNull String contactId)
+  ContactSheet(@NonNull AppCompatActivity activity)
   {
-    if (manager.isStateSaved())
+    mActivity = activity;
+    mParent = activity.findViewById(R.id.coordinator);
+    mModel = new ViewModelProvider(activity, new ViewModelProvider.Factory() {
+               @NonNull
+               @Override
+               public <T extends ViewModel> T create(@NonNull Class<T> modelClass)
+               {
+                 return modelClass.cast(new Model());
+               }
+             }).get(Model.class);
+    mPlacePage = new ViewModelProvider(activity).get(PlacePageViewModel.class);
+    mViewportMinHeight = activity.getResources().getDimensionPixelSize(R.dimen.viewport_min_height);
+    mPlacePage.getMapObject().observe(activity, object -> {
+      if (object != null)
+        close(false);
+    });
+    // While the sheet is up, the buttons stay above it, whatever a place page closing under it reports.
+    mPlacePage.getPlacePageDistanceToTop().observe(activity, top -> {
+      if (mSheet != null && mMovesButtons && isUp() && top != null && top > mSheet.getTop())
+        mPlacePage.setPlacePageDistanceToTop(mSheet.getTop());
+    });
+  }
+
+  /** Shows `contactId`'s sheet, in the place of a place page or of another contact's sheet. */
+  void open(@NonNull String contactId)
+  {
+    if (mPlacePage.getMapObject().getValue() != null)
+      mPlacePage.setMapObject(null);
+    mModel.mContactId = contactId;
+    mMovesButtons = true;
+    final boolean created = mSheet == null;
+    if (created)
+      create();
+    listen(true);
+    build(contactId);
+    if (mSheet == null || mModel.mContactId == null)
+      return; // Closed already: the contact has gone.
+    if (created)
+      mSheet.post(() -> {
+        if (mBehavior != null)
+          mBehavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+      });
+    else if (mBehavior != null)
+      mBehavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+  }
+
+  /** False if it was not open. `lowerButtons`: nothing takes its place, so the map buttons go back down. */
+  boolean close(boolean lowerButtons)
+  {
+    mModel.mContactId = null;
+    if (mBehavior == null)
+      return false;
+    mMovesButtons &= lowerButtons;
+    if (mBehavior.getState() == BottomSheetBehavior.STATE_HIDDEN)
+      remove(); // Not shown yet.
+    else
+      mBehavior.setState(BottomSheetBehavior.STATE_HIDDEN);
+    return true;
+  }
+
+  void onStart()
+  {
+    if (mSheet == null)
+    {
+      // The map screen was recreated with the sheet open.
+      if (mModel.mContactId != null)
+        open(mModel.mContactId);
       return;
-    final Fragment open = manager.findFragmentByTag(TAG);
-    if (open instanceof ContactSheet)
-      ((ContactSheet) open).dismiss();
-    final ContactSheet sheet = new ContactSheet();
-    final Bundle args = new Bundle();
-    args.putString(ARG_CONTACT_ID, contactId);
-    sheet.setArguments(args);
-    sheet.show(manager, TAG);
-  }
-
-  @Nullable
-  @Override
-  public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
-                           @Nullable Bundle savedInstanceState)
-  {
-    final View root = inflater.inflate(R.layout.fragment_live_location, container, false);
-    mViews = new LiveLocationViews(inflater, root.findViewById(R.id.live_location_content));
-    return root;
-  }
-
-  @Override
-  public void onStart()
-  {
-    super.onStart();
-    LiveLocation.addListener(this);
+    }
+    listen(true);
     refresh();
   }
 
-  @Override
-  public void onStop()
+  void onStop()
   {
-    LiveLocation.removeListener(this);
-    super.onStop();
-  }
-
-  @Override
-  public void onDestroyView()
-  {
-    mViews = null;
-    mHeader = null;
-    super.onDestroyView();
+    listen(false);
   }
 
   @Override
@@ -105,57 +162,142 @@ public class ContactSheet extends BottomSheetDialogFragment implements LiveLocat
     refresh();
   }
 
+  private void create()
+  {
+    // The style gives it the place page's width, and its padding below for the navigation bar.
+    final View sheet = LayoutInflater.from(mActivity).inflate(R.layout.live_location_contact_sheet, mParent, false);
+    mSheet = sheet;
+    mParent.addView(sheet);
+    final BottomSheetBehavior<View> behavior = BottomSheetBehavior.from(sheet);
+    mBehavior = behavior;
+    behavior.setHideable(true);
+    behavior.setSkipCollapsed(true);
+    behavior.setFitToContents(true);
+    behavior.setState(BottomSheetBehavior.STATE_HIDDEN);
+    behavior.addBottomSheetCallback(new BottomSheetBehavior.BottomSheetCallback() {
+      @Override
+      public void onStateChanged(@NonNull View bottomSheet, int newState)
+      {
+        if (bottomSheet != mSheet)
+          return;
+        if (newState == BottomSheetBehavior.STATE_HIDDEN)
+          remove();
+        else if (newState == BottomSheetBehavior.STATE_EXPANDED && mMovesButtons)
+          setVisibleMap(bottomSheet.getTop());
+      }
+
+      @Override
+      public void onSlide(@NonNull View bottomSheet, float slideOffset)
+      {
+        if (bottomSheet == mSheet && mMovesButtons && isUp())
+          mPlacePage.setPlacePageDistanceToTop(bottomSheet.getTop());
+      }
+    });
+    // Laid out again: another contact's lines, a rotation, or open at once after the map screen's recreation.
+    sheet.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+      if (v != mSheet || !mMovesButtons)
+        return;
+      // Which map buttons are behind it, as for the place page's width.
+      if (right - left != oldRight - oldLeft)
+        mPlacePage.setPlacePageWidth(right - left);
+      if (top == oldTop || !isUp())
+        return;
+      mPlacePage.setPlacePageDistanceToTop(top);
+      if (behavior.getState() == BottomSheetBehavior.STATE_EXPANDED)
+        setVisibleMap(top);
+    });
+  }
+
+  private boolean isUp()
+  {
+    return mBehavior != null && mBehavior.getState() != BottomSheetBehavior.STATE_HIDDEN;
+  }
+
+  private void remove()
+  {
+    listen(false);
+    if (mSheet != null)
+      mParent.removeView(mSheet);
+    mSheet = null;
+    mBehavior = null;
+    mHeader = null;
+    mLastSeen = null;
+    mAccuracy = null;
+    mBattery = null;
+    mCenter = null;
+    // Before the map screen's first layout, nothing has moved.
+    if (mMovesButtons && mParent.getHeight() > 0)
+    {
+      mPlacePage.setPlacePageDistanceToTop(mParent.getHeight());
+      setVisibleMap(mParent.getHeight());
+    }
+    mMovesButtons = false;
+  }
+
+  /** The part of the map above the sheet, which centering uses, as the place page sets it. */
+  private void setVisibleMap(int bottom)
+  {
+    // Android Auto sets it for its own screen.
+    if (bottom < mViewportMinHeight || MwmApplication.from(mActivity).getDisplayManager().isCarDisplayUsed())
+      return;
+    Framework.nativeSetVisibleRect(0, 0, mParent.getWidth(), bottom);
+  }
+
+  private void listen(boolean listen)
+  {
+    if (listen == mListening)
+      return;
+    mListening = listen;
+    if (listen)
+      LiveLocation.addListener(this);
+    else
+      LiveLocation.removeListener(this);
+  }
+
+  private void build(@NonNull String id)
+  {
+    final Context context = mActivity;
+    final LiveLocationViews views = new LiveLocationViews(
+        LayoutInflater.from(context), Objects.requireNonNull(mSheet).findViewById(R.id.live_location_content));
+    views.clear();
+    mHeader = views.row("", null, null, null);
+    mLastSeen = views.text("");
+    mAccuracy = views.text("");
+    mBattery = views.text(context.getString(R.string.live_location_battery_low));
+    mCenter = views.button(context.getString(R.string.live_location_center), v -> {
+      final Position position = positionOf(id);
+      if (position == null || mSheet == null)
+        return;
+      setVisibleMap(mSheet.getTop());
+      Framework.nativeZoomToPoint(position.lat, position.lon, CENTER_ZOOM, true);
+    });
+    views.outlinedButton(context.getString(R.string.live_location_contact_details),
+                         v -> mActivity.startActivity(LiveLocationActivity.contactIntent(context, id)));
+    refresh();
+  }
+
   private void refresh()
   {
-    if (mViews == null || !isAdded())
+    final String id = mModel.mContactId;
+    if (mSheet == null || id == null || mHeader == null || mLastSeen == null || mAccuracy == null || mBattery == null
+        || mCenter == null)
       return;
-    final String id = requireArguments().getString(ARG_CONTACT_ID, "");
     final Contact contact = LiveLocation.getContact(id);
     if (contact == null || contact.hidden)
     {
       // Deleted, hidden, or the feature turned off meanwhile.
-      dismissAllowingStateLoss();
+      close(true);
       return;
     }
-    if (mHeader == null)
-      build(mViews, contact);
-    update(contact);
-  }
-
-  private void build(@NonNull LiveLocationViews views, @NonNull Contact contact)
-  {
-    final Context context = requireContext();
-    views.clear();
-    mHeader = views.row(contact.name, null, null, null);
-    mLastSeen = views.text("");
-    mAccuracy = views.text("");
-    mBattery = views.text(getString(R.string.live_location_battery_low));
-    mCenter = views.button(getString(R.string.live_location_center), v -> {
-      final Position position = positionOf(contact.id);
-      if (position != null)
-        Framework.nativeZoomToPoint(position.lat, position.lon, CENTER_ZOOM, true);
-      dismiss();
-    });
-    views.outlinedButton(getString(R.string.live_location_contact_details), v -> {
-      startActivity(LiveLocationActivity.contactIntent(context, contact.id));
-      dismiss();
-    });
-  }
-
-  private void update(@NonNull Contact contact)
-  {
-    final Context context = requireContext();
-    LiveLocationViews.setRow(Objects.requireNonNull(mHeader), contact.name, LiveLocationText.status(context, contact),
-                             LiveLocationText.badge(context, contact));
+    LiveLocationViews.setRow(mHeader, contact.name, LiveLocationText.status(mActivity, contact),
+                             LiveLocationText.badge(mActivity, contact));
     final Position position = positionOf(contact.id);
     UiUtils.showIf(position != null, mLastSeen, mAccuracy, mCenter);
     UiUtils.showIf(position != null && position.low, mBattery);
     if (position == null)
       return;
-    Objects.requireNonNull(mLastSeen).setText(
-        getString(R.string.live_location_last_seen, LiveLocationText.ago(position.timeMs)));
-    Objects.requireNonNull(mAccuracy).setText(
-        getString(R.string.live_location_accuracy, Math.round(position.accuracy)));
+    mLastSeen.setText(mActivity.getString(R.string.live_location_last_seen, LiveLocationText.ago(position.timeMs)));
+    mAccuracy.setText(mActivity.getString(R.string.live_location_accuracy, Math.round(position.accuracy)));
   }
 
   @Nullable

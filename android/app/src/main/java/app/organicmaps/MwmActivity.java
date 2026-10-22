@@ -964,6 +964,12 @@ public class MwmActivity extends BaseMwmFragmentActivity
     return true;
   }
 
+  // Live location (NLL): the sheet of a contact's dot, closed where the place page is. False if it was not open.
+  private boolean closeLiveLocationSheet()
+  {
+    return mLiveLocationMapUi != null && mLiveLocationMapUi.closeSheet();
+  }
+
   /**
    * @return False if the navigation menu was already collapsed or hidden, true otherwise
    */
@@ -1046,6 +1052,7 @@ public class MwmActivity extends BaseMwmFragmentActivity
     closeBottomSheet(LAYERS_MENU_ID);
     closeBottomSheet(MAIN_MENU_ID);
     closePlacePage();
+    closeLiveLocationSheet(); // Live location (NLL)
   }
 
   private void closeFloatingToolbars(boolean clearSearchText, boolean stopSearch)
@@ -1299,6 +1306,7 @@ public class MwmActivity extends BaseMwmFragmentActivity
   {
     final RoutingController routingController = RoutingController.get();
     if (!closeBottomSheet(MAIN_MENU_ID) && !closeBottomSheet(LAYERS_MENU_ID) && !collapseNavMenu() && !closePlacePage()
+        && !closeLiveLocationSheet() // Live location (NLL)
         && !closeSearchToolbar(true, true) && !closeSidePanel() && !closePositionChooser()
         && !routingController.resetToPlanningStateIfNavigating() && !routingController.cancel())
     {
@@ -1396,6 +1404,7 @@ public class MwmActivity extends BaseMwmFragmentActivity
       }
       setFullscreen(true);
       closePlacePage();
+      closeLiveLocationSheet(); // Live location (NLL)
     }
   }
 

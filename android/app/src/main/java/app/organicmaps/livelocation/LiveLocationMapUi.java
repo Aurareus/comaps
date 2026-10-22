@@ -24,6 +24,8 @@ public final class LiveLocationMapUi implements LiveLocation.Listener, LiveLocat
   private final AppCompatActivity mActivity;
   @NonNull
   private final MapButtonsViewModel mMapButtons;
+  @NonNull
+  private final ContactSheet mContactSheet;
   @Nullable
   private AlertDialog mDialog;
   private boolean mStarted;
@@ -32,18 +34,21 @@ public final class LiveLocationMapUi implements LiveLocation.Listener, LiveLocat
   {
     mActivity = activity;
     mMapButtons = new ViewModelProvider(activity).get(MapButtonsViewModel.class);
+    mContactSheet = new ContactSheet(activity);
   }
 
   public void onStart()
   {
     if (!LiveLocationFeature.isEnabled(mActivity))
     {
+      mContactSheet.close(true);
       updateIndicator();
       return;
     }
     mStarted = true;
     LiveLocation.addListener(this);
     LiveLocationFeature.attachPresenter(this);
+    mContactSheet.onStart();
     updateIndicator();
     offerResume(LiveLocation.getSharing());
   }
@@ -55,6 +60,7 @@ public final class LiveLocationMapUi implements LiveLocation.Listener, LiveLocat
     mStarted = false;
     LiveLocation.removeListener(this);
     LiveLocationFeature.detachPresenter(this);
+    mContactSheet.onStop();
     if (mDialog != null)
       mDialog.dismiss();
     mDialog = null;
@@ -70,7 +76,13 @@ public final class LiveLocationMapUi implements LiveLocation.Listener, LiveLocat
   @Override
   public void onDotTapped(@NonNull String contactId)
   {
-    ContactSheet.open(mActivity.getSupportFragmentManager(), contactId);
+    mContactSheet.open(contactId);
+  }
+
+  /** Closes the sheet of a contact's dot, where the place page is closed. False if it was not open. */
+  public boolean closeSheet()
+  {
+    return mContactSheet.close(true);
   }
 
   @Override
