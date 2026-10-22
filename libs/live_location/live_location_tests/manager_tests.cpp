@@ -397,58 +397,35 @@ UNIT_TEST(Manager_ChangingHomeRelaysMovesARunningShare)
   TEST(alice.Events().m_location == LocationRequest::Live, ("Bob's signals reach the new listening relay"));
 }
 
-UNIT_TEST(Manager_ReadsStoresOfEarlierVersions)
+UNIT_TEST(Manager_AStoreOfAnotherVersionCannotBeRead)
 {
   World world;
   Phone alice(world, "Alice");
   Phone bob(world, "Bob");
   Pair(world, alice, bob);
-  // A refusal, as the old "Not now" stored it: for no one.
-  alice.M().SetConsent("wss://refused.example", Consent::Refuse, "");
-  alice.Restart();
-  TEST_EQUAL(alice.M().GetSettings().m_declined.size(), 1, ("version 4 keeps a refusal"));
+  TEST(alice.M().SetColor("teal"), ());
 
-  // Version 3 is version 4 without its last fields: no dot colour (a length, 4 bytes), whom the refusal
-  // was for (no one, 4), Bob's colour (4) and no echo record (4). Version 2 is version 3 without, per
-  // contact, whether it moved (1 byte) and where states went (Bob's relays: a count, then each with its
-  // length). Version 1 is version 2 without its last fields: no previous relays (4 bytes), no change (8).
+  // Neither an earlier version's store, of a development build, nor a later one's is read: like any store
+  // that cannot be read, the app offers to delete it. Nor is one with a dot colour the app does not know.
   store::Store store(alice.Path(), alice.Keys(), ScenarioRng());
   SecretBytes contents;
   TEST(store.Load(contents) == store::Store::Result::Loaded, ());
-  TEST_EQUAL(contents[0], 4, ());
-  auto const zeros = [](SecretBytes const & bytes, size_t n)
-  { return std::all_of(bytes.end() - n, bytes.end(), [](uint8_t b) { return b == 0; }); };
-  TEST(zeros(contents, 16), ());
-  SecretBytes third(ByteSpan(contents.data(), contents.size() - 16));
-  third[0] = 3;
-  size_t tail = 1 + 4;
-  for (auto const & url : kDefaultRelays)
-    tail += 4 + url.size();
-  SecretBytes second(ByteSpan(third.data(), third.size() - tail));
-  second[0] = 2;
-  TEST(zeros(second, 12), ());
-  SecretBytes first(ByteSpan(second.data(), second.size() - 12));
-  first[0] = 1;
-
-  for (auto const * earlier : {&third, &second, &first})
+  std::string_view const teal = "teal";
+  auto const colour = std::search(contents.begin(), contents.end(), teal.begin(), teal.end());
+  TEST(colour != contents.end(), ());
+  for (int const change : {-1, 1, 0})
   {
-    TEST(store.Save(*earlier, {}), ());
-    alice.Restart();
-    TEST(alice.Contact("Bob") && !alice.Contact("Bob")->m_notMoved, ("the contacts of an earlier store"));
-    TEST_EQUAL(alice.M().GetSettings().m_name, "Alice", ());
-    // Its refusals were all "Not now": asked about again.
-    TEST(alice.M().GetSettings().m_declined.empty(), ());
+    SecretBytes other(ByteSpan(contents.data(), contents.size()));
+    if (change == 0)
+      other[colour - contents.begin() + 3] = 'k';  // "teak"
+    else
+      other[0] = static_cast<uint8_t>(contents[0] + change);
+    TEST(store.Save(other, {}), ());
+    TEST(!alice.Restart(false /* expectReadable */), ());
   }
-
-  // Where Alice's last state to Bob went is unknown after an upgrade from version 1 or 2: she answers his
-  // next state once. Had he learned new relays of hers before, she would not have, ever (spec §11).
-  alice.M().SetForeground(true);
-  bob.M().SetForeground(true);
-  size_t const before = EventsReceived(world, "wss://nos.lol");
-  TEST(bob.M().StartSharing({{bob.Id("Alice"), 0}}), ());
-  world.Run(5'000);
-  TEST(alice.Contact("Bob")->m_sharesWithMeUntil, ());
-  TEST_EQUAL(EventsReceived(world, "wss://nos.lol"), before + 3, ("Bob's grant, his first position, Alice's answer"));
+  TEST_EQUAL(alice.Events().m_storeErrors, 3, ());
+  alice.M().DeleteAllData();
+  TEST(alice.M().SetName("Alice") && alice.M().CreateInvite(false), ("a fresh start"));
 }
 
 UNIT_TEST(Manager_OldRelaysAreReadUntilEveryContactMovedForAtMost30Days)

@@ -17,9 +17,10 @@ namespace live_location
 {
 namespace
 {
-// 4: dot colours, whom refusals were for, the echo record; 3: who has moved; 2: the previous home relays
-// (spec §11). All are read.
-uint8_t constexpr kStateVersion = 4;
+// Stores of other versions are not read, like stores that cannot be read: the app offers to delete them.
+// While the feature is in development each change of the format takes the next number; it goes back to 1
+// for the first release.
+uint8_t constexpr kStateVersion = 5;
 int64_t constexpr kQrLifetime = 600;      // design doc §11.2
 int64_t constexpr kLinkLifetime = 86400;  // spec §6.1: at most a day
 int64_t constexpr kCatchUpMs = 30'000;    // how long the previous epoch's states are read for
@@ -146,8 +147,14 @@ SecretBytes Manager::Encode(std::set<ByteArray<32>> & digests) const
   binary::Writer writer;
   writer.U8(kStateVersion);
   writer.Secret(m_decoySeed);
+
   writer.String(m_settings.m_name);
+  writer.String(m_settings.m_color);
   persist::WriteRelays(writer, m_settings.m_homeRelays);
+  writer.U32(static_cast<uint32_t>(m_settings.m_previousRelays.size()));
+  for (auto const & url : m_settings.m_previousRelays)
+    writer.String(url);
+  writer.I64(m_settings.m_relaysChanged);
   writer.U32(static_cast<uint32_t>(m_settings.m_approved.size()));
   for (auto const & [url, contact] : m_settings.m_approved)
   {
@@ -155,11 +162,22 @@ SecretBytes Manager::Encode(std::set<ByteArray<32>> & digests) const
     writer.String(contact);
   }
   writer.U32(static_cast<uint32_t>(m_settings.m_declined.size()));
-  for (auto const & declined : m_settings.m_declined)
-    writer.String(declined.first);
+  for (auto const & [url, contact] : m_settings.m_declined)
+  {
+    writer.String(url);
+    writer.String(contact);
+  }
   writer.Bool(m_settings.m_requestLive);
   writer.Bool(m_settings.m_allowLive);
   writer.U8(static_cast<uint8_t>(std::clamp(m_settings.m_lowBatteryStop, 0, 100)));
+  // The echo record, of the relays still in use.
+  std::vector<std::string> echoed;
+  for (auto const & url : m_echoed)
+    if (Contains(m_settings.m_homeRelays, url) || Contains(m_settings.m_previousRelays, url))
+      echoed.push_back(url);
+  writer.U32(static_cast<uint32_t>(echoed.size()));
+  for (auto const & url : echoed)
+    writer.String(url);
 
   writer.U32(static_cast<uint32_t>(m_peers.size()));
   for (auto const & peer : m_peers)
@@ -167,6 +185,9 @@ SecretBytes Manager::Encode(std::set<ByteArray<32>> & digests) const
     writer.String(peer->m_id);
     persist::WriteContact(writer, *peer->m_contact);
     writer.Bool(peer->m_hidden);
+    writer.Bool(peer->m_notMoved);
+    persist::WriteRelays(writer, peer->m_deliveredTo);
+    writer.String(peer->m_color);
   }
 
   auto const idOf = [this](ContactPtr const & contact)
@@ -208,34 +229,6 @@ SecretBytes Manager::Encode(std::set<ByteArray<32>> & digests) const
     writer.I64(until);
   }
 
-  // Version 2.
-  writer.U32(static_cast<uint32_t>(m_settings.m_previousRelays.size()));
-  for (auto const & url : m_settings.m_previousRelays)
-    writer.String(url);
-  writer.I64(m_settings.m_relaysChanged);
-
-  // Version 3, in the order of the contacts above.
-  for (auto const & peer : m_peers)
-  {
-    writer.Bool(peer->m_notMoved);
-    persist::WriteRelays(writer, peer->m_deliveredTo);
-  }
-
-  // Version 4: the dot colour, then whom each refusal was for, in the order of the refused relays above,
-  // the contacts' colours, in the order of the contacts, and the echo record of the relays still in use.
-  writer.String(m_settings.m_color);
-  for (auto const & declined : m_settings.m_declined)
-    writer.String(declined.second);
-  for (auto const & peer : m_peers)
-    writer.String(peer->m_color);
-  std::vector<std::string> echoed;
-  for (auto const & url : m_echoed)
-    if (Contains(m_settings.m_homeRelays, url) || Contains(m_settings.m_previousRelays, url))
-      echoed.push_back(url);
-  writer.U32(static_cast<uint32_t>(echoed.size()));
-  for (auto const & url : echoed)
-    writer.String(url);
-
   SecretBytes out = writer.Finish();
   digests = writer.SecretDigests();
   return out;
@@ -244,23 +237,40 @@ SecretBytes Manager::Encode(std::set<ByteArray<32>> & digests) const
 void Manager::Decode(ByteSpan data)
 {
   binary::Reader reader(data);
-  uint8_t const version = reader.U8();
-  if (version < 1 || version > kStateVersion)
+  if (reader.U8() != kStateVersion)
     throw binary::FormatError("store version");
   m_decoySeed = reader.Secret();
+
   m_settings = Settings();
   m_settings.m_name = reader.String();
+  m_settings.m_color = reader.String();
+  if (!m_settings.m_color.empty() && !DotColorRgba(m_settings.m_color))
+    throw binary::FormatError("colour");
   m_settings.m_homeRelays = persist::ReadRelays(reader);
+  for (uint32_t i = 0, n = reader.Count(4); i < n; ++i)
+  {
+    std::string url = reader.String();
+    if (!IsValidRelayUrl(url))
+      throw binary::FormatError("relay");
+    m_settings.m_previousRelays.push_back(std::move(url));
+  }
+  m_settings.m_relaysChanged = reader.I64();
   for (uint32_t i = 0, n = reader.Count(8); i < n; ++i)
   {
     std::string url = reader.String();
     m_settings.m_approved[url] = reader.String();
   }
-  for (uint32_t i = 0, n = reader.Count(4); i < n; ++i)
-    m_settings.m_declined.emplace(reader.String(), std::string());
+  for (uint32_t i = 0, n = reader.Count(8); i < n; ++i)
+  {
+    std::string url = reader.String();
+    m_settings.m_declined[url] = reader.String();
+  }
   m_settings.m_requestLive = reader.Bool();
   m_settings.m_allowLive = reader.Bool();
   m_settings.m_lowBatteryStop = reader.U8();
+  m_echoed.clear();
+  for (uint32_t i = 0, n = reader.Count(4); i < n; ++i)
+    m_echoed.insert(reader.String());
 
   m_peers.clear();
   for (uint32_t i = 0, n = reader.Count(8); i < n; ++i)
@@ -269,6 +279,9 @@ void Manager::Decode(ByteSpan data)
     peer->m_id = reader.String();
     peer->m_contact = persist::ReadContact(reader);
     peer->m_hidden = reader.Bool();
+    peer->m_notMoved = reader.Bool();
+    peer->m_deliveredTo = persist::ReadRelays(reader);
+    peer->m_color = reader.String();
     m_peers.push_back(std::move(peer));
   }
 
@@ -306,57 +319,6 @@ void Manager::Decode(ByteSpan data)
     int64_t const until = reader.I64();
     if (FindPeer(id) != nullptr)
       m_resumable.emplace_back(std::move(id), until);
-  }
-  if (version >= 2)
-  {
-    for (uint32_t i = 0, n = reader.Count(kMaxPreviousRelays); i < n; ++i)
-    {
-      std::string url = reader.String();
-      if (!IsValidRelayUrl(url))
-        throw binary::FormatError("relay");
-      m_settings.m_previousRelays.push_back(std::move(url));
-    }
-    m_settings.m_relaysChanged = reader.I64();
-  }
-  if (version >= 3)
-  {
-    for (auto & peer : m_peers)
-    {
-      peer->m_notMoved = reader.Bool();
-      peer->m_deliveredTo = persist::ReadRelays(reader);
-    }
-  }
-  else
-  {
-    // Before version 3 nobody's move was followed: a change in its week counts as one nobody has made.
-    // Nor is it known where this user's last state to each contact went: each answers its next state
-    // once. A contact that learned new relays before the upgrade answers too, instead of never.
-    bool const changing =
-        m_settings.m_relaysChanged != 0 && EpochOf(Now()) <= m_settings.m_relaysChanged + kConfirmEpochs;
-    for (auto & peer : m_peers)
-    {
-      peer->m_notMoved = changing;
-      peer->m_deliveredTo.clear();
-    }
-  }
-  m_echoed.clear();
-  if (version >= 4)
-  {
-    m_settings.m_color = reader.String();
-    if (!m_settings.m_color.empty() && !DotColorRgba(m_settings.m_color))
-      m_settings.m_color.clear();
-    for (auto & declined : m_settings.m_declined)
-      declined.second = reader.String();
-    for (auto & peer : m_peers)
-      peer->m_color = reader.String();
-    for (uint32_t i = 0, n = reader.Count(4); i < n; ++i)
-      m_echoed.insert(reader.String());
-  }
-  else
-  {
-    // Before version 4 the only refusal was "Not now", yet it was kept for good: those relays are asked
-    // about again.
-    m_settings.m_declined.clear();
   }
   if (!reader.AtEnd())
     throw binary::FormatError("trailing data");
