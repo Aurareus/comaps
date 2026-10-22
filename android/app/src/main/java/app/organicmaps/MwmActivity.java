@@ -883,7 +883,7 @@ public class MwmActivity extends BaseMwmFragmentActivity
         drawIcon(left);
       }
     });
-    buttonsHolder.registerButton(new LiveLocationLeftButton(this)); // Live location (NLL)
+    LiveLocationLeftButton.register(buttonsHolder, this); // Live location (NLL)
   }
 
   private void initNavigationButtons(MapButtonsController.LayoutMode layoutMode)

@@ -82,7 +82,8 @@ public final class LiveLocationFeature
 
   public static void setEnabled(@NonNull Context context, boolean enabled)
   {
-    if (enabled == isEnabled(context))
+    // Below Android 7 the feature does not exist: nothing offers it, and nothing turns it on.
+    if (enabled == isEnabled(context) || (enabled && !LiveLocation.isSupported()))
       return;
     prefs(context).edit().putBoolean(key(context), enabled).apply();
     if (enabled)

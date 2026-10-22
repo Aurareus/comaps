@@ -4,6 +4,7 @@ import android.content.Context;
 import androidx.annotation.NonNull;
 import app.organicmaps.R;
 import app.organicmaps.leftbutton.LeftButton;
+import app.organicmaps.leftbutton.LeftButtonsHolder;
 import app.organicmaps.sdk.livelocation.LiveLocation;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 
@@ -20,7 +21,14 @@ public final class LiveLocationLeftButton implements LeftButton
   @NonNull
   private final String mName;
 
-  public LiveLocationLeftButton(@NonNull Context context)
+  /** Offered only where the feature exists: Android 7 and later. */
+  public static void register(@NonNull LeftButtonsHolder holder, @NonNull Context context)
+  {
+    if (LiveLocation.isSupported())
+      holder.registerButton(new LiveLocationLeftButton(context));
+  }
+
+  private LiveLocationLeftButton(@NonNull Context context)
   {
     mName = context.getString(R.string.live_location_left_button);
   }

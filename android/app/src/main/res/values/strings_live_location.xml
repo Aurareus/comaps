@@ -166,6 +166,8 @@
   <string name="live_location_contact_details">Contact details</string>
   <!-- An action for the map's left button, in Settings, Interface, Left button setup: named as the others are -->
   <string name="live_location_left_button">Share Live Location</string>
+  <!-- An invite link opened on Android 5 or 6 -->
+  <string name="live_location_needs_android_7">This invite is for live location sharing, which needs Android 7 or later.</string>
 
   <!-- Settings -->
   <string name="live_location_what_relays_see_summary">How your location stays private</string>
