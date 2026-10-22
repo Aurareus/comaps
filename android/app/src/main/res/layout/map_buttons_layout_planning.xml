@@ -35,10 +35,12 @@
       app:layout_constraintBottom_toTopOf="@+id/btn_bookmarks"
       app:layout_constraintStart_toStartOf="parent" />
   </androidx.constraintlayout.widget.ConstraintLayout>
+  <!-- Live location (NLL): below the planning header, as in the layout for taller screens, rather than 40dp
+       from the top, under the header -->
   <include
     layout="@layout/map_status_track_recording"
     android:layout_marginHorizontal="@dimen/nav_frame_padding"
-    android:layout_marginTop="@dimen/elevation_profile_half_height"
+    android:layout_marginTop="@dimen/track_recorder_status_top_margin"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
     app:layout_constraintRight_toRightOf="parent"
@@ -48,7 +50,7 @@
   <include
     layout="@layout/map_status_live_location"
     android:layout_marginHorizontal="@dimen/nav_frame_padding"
-    android:layout_marginTop="@dimen/elevation_profile_half_height"
+    android:layout_marginTop="@dimen/track_recorder_status_top_margin"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
     app:layout_constraintRight_toRightOf="parent"
