@@ -432,29 +432,44 @@ UNIT_TEST(Manager_AStoreOfAnotherVersionCannotBeRead)
   Phone alice(world, "Alice");
   Phone bob(world, "Bob");
   Pair(world, alice, bob);
-  TEST(alice.M().SetColor("teal"), ());
 
   // Neither an earlier version's store, of a development build, nor a later one's is read: like any store
-  // that cannot be read, the app offers to delete it. Nor is one with a dot colour the app does not know.
+  // that cannot be read, the app offers to delete it.
+  store::Store store(alice.Path(), alice.Keys(), ScenarioRng());
+  SecretBytes contents;
+  TEST(store.Load(contents) == store::Store::Result::Loaded, ());
+  for (int const step : {-1, 1})
+  {
+    SecretBytes other(ByteSpan(contents.data(), contents.size()));
+    other[0] = static_cast<uint8_t>(contents[0] + step);
+    TEST(store.Save(other, {}), ());
+    TEST(!alice.Restart(false /* expectReadable */), ());
+  }
+  TEST_EQUAL(alice.Events().m_storeErrors, 2, ());
+  alice.M().DeleteAllData();
+  TEST(alice.M().SetName("Alice") && alice.M().CreateInvite(false), ("a fresh start"));
+}
+
+UNIT_TEST(Manager_AnOwnColourThisBuildDoesNotKnowIsAutomatic)
+{
+  // A palette changed during development leaves a colour name this build does not know. It reads as
+  // automatic, as a contact's colour would, and costs nothing else: the contacts stay.
+  World world;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+  TEST(alice.M().SetColor("teal"), ());
   store::Store store(alice.Path(), alice.Keys(), ScenarioRng());
   SecretBytes contents;
   TEST(store.Load(contents) == store::Store::Result::Loaded, ());
   std::string_view const teal = "teal";
   auto const colour = std::search(contents.begin(), contents.end(), teal.begin(), teal.end());
   TEST(colour != contents.end(), ());
-  for (int const change : {-1, 1, 0})
-  {
-    SecretBytes other(ByteSpan(contents.data(), contents.size()));
-    if (change == 0)
-      other[colour - contents.begin() + 3] = 'k';  // "teak"
-    else
-      other[0] = static_cast<uint8_t>(contents[0] + change);
-    TEST(store.Save(other, {}), ());
-    TEST(!alice.Restart(false /* expectReadable */), ());
-  }
-  TEST_EQUAL(alice.Events().m_storeErrors, 3, ());
-  alice.M().DeleteAllData();
-  TEST(alice.M().SetName("Alice") && alice.M().CreateInvite(false), ("a fresh start"));
+  contents[colour - contents.begin() + 3] = 'k';  // "teak"
+  TEST(store.Save(contents, {}), ());
+  TEST(alice.Restart(), ());
+  TEST(alice.M().GetSettings().m_color.empty() && alice.Contact("Bob"), ());
+  TEST_EQUAL(alice.Events().m_storeErrors, 0, ());
 }
 
 UNIT_TEST(Manager_OldRelaysAreReadUntilEveryContactMovedForAtMost30Days)

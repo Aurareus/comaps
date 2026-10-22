@@ -246,9 +246,11 @@ void Manager::Decode(ByteSpan data)
 
   m_settings = Settings();
   m_settings.m_name = reader.String();
+  // A colour this build does not know, e.g. after the palette changed: automatic, as a contact's colour would
+  // be. It changes nothing else in the store, which its authenticated encryption guards against damage.
   m_settings.m_color = reader.String();
   if (!m_settings.m_color.empty() && !DotColorRgba(m_settings.m_color))
-    throw binary::FormatError("colour");
+    m_settings.m_color.clear();
   m_settings.m_homeRelays = persist::ReadRelays(reader);
   for (uint32_t i = 0, n = reader.Count(4); i < n; ++i)
   {
