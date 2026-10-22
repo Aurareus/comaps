@@ -115,6 +115,9 @@ Manager::Manager(Executor & executor, relay::Transport & transport, store::Store
   m_pool = std::make_unique<relay::RelayPool>(transport, executor, rng,
                                               [this](std::string const & url) { return IsAllowed(url); });
   m_pool->OnEchoed([this](std::string const & url) { OnEchoed(url); });
+  // The default relays were measured to send every event back (design doc §24): the echo check judges them
+  // from the start, also on a fresh install whose listening relay is deaf already.
+  m_pool->SetEchoing({kDefaultRelays.begin(), kDefaultRelays.end()});
   Fresh();
 }
 

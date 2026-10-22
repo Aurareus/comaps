@@ -838,12 +838,44 @@ UNIT_TEST(Manager_AListeningRelayThatStopsDeliveringIsLeft)
   TEST(alice.Events().m_location == LocationRequest::Live, ("Bob's signal arrives through nostr.mom"));
 }
 
-UNIT_TEST(Manager_ARelayThatEverSentAnEventBackIsJudgedInEveryRun)
+UNIT_TEST(Manager_TheDefaultRelaysAreJudgedFromTheStart)
 {
+  // A fresh install whose listening relay, nos.lol, is deaf already: it has never sent anything back, but
+  // as a default relay it is judged, and the second post moves the inbox (the first leaves before the
+  // listening subscription is open).
   World world;
+  world.Relay("wss://nos.lol").m_deaf = true;
   Phone alice(world, "Alice");
   Phone bob(world, "Bob");
   Pair(world, alice, bob);
+  bob.M().SetForeground(false);
+  alice.M().SetForeground(false);
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+  for (int i = 0; i < 2; ++i)
+  {
+    alice.M().OnLocation(FixAt(world, 35.68 + i * 0.001, 139.69));
+    world.Run(100'000);
+  }
+  auto const connections = alice.M().Pool().Connections();
+  TEST(connections.size() == 1 && connections[0].first == "wss://nostr.mom", (connections));
+}
+
+UNIT_TEST(Manager_ARelayThatEverSentAnEventBackIsJudgedInEveryRun)
+{
+  // Alice listens on a relay of her own, which unlike the default relays is judged only once it has sent
+  // something back.
+  World world;
+  std::string const kOwn = "wss://own.example";
+  world.m_transport.Add(kOwn);
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+  bob.M().SetConsent(kOwn, Consent::Allow, "Alice");
+  Relays const withOwn = {kOwn, "wss://nostr.mom", "wss://relay.nostr.net"};
+  Relays const withoutOwn = {"wss://nostr.mom", "wss://relay.nostr.net"};
+  TEST(alice.M().SetHomeRelays(withOwn), ());
+  world.Run(10'000);
+  TEST(!alice.Contact("Bob")->m_notMoved, ());
   bob.M().SetForeground(false);
   alice.M().SetForeground(false);
   double lat = 35.68;
@@ -868,12 +900,12 @@ UNIT_TEST(Manager_ARelayThatEverSentAnEventBackIsJudgedInEveryRun)
     world.Run(20'000);
   };
 
-  // nos.lol, the listening relay, sends Alice's events back. Then her CoMaps is killed, and nos.lol stops
-  // delivering.
-  TEST_EQUAL(share(), "wss://nos.lol", ());
+  // Her relay, the listening relay, sends Alice's events back. Then her CoMaps is killed, and the relay
+  // stops delivering.
+  TEST_EQUAL(share(), kOwn, ());
   alice.Restart();
   alice.M().DismissResume();
-  world.Relay("wss://nos.lol").m_deaf = true;
+  world.Relay(kOwn).m_deaf = true;
 
   // In the next run, the first event that should come back does not, and Alice listens on the next relay;
   // still so weeks later.
@@ -884,23 +916,22 @@ UNIT_TEST(Manager_ARelayThatEverSentAnEventBackIsJudgedInEveryRun)
   TEST_EQUAL(share(), "wss://nostr.mom", ());
   stop();
 
-  // Only relays in use are remembered: once Alice has left nos.lol, and nobody sends there any more, it is
+  // Only relays in use are remembered: once Alice has left hers, and nobody sends there any more, it is
   // forgotten. Coming back to it, she relies on it as on any relay that never sent anything back.
   alice.M().SetForeground(true);
   bob.M().SetForeground(true);
-  std::vector<std::string> const others(kDefaultRelays.begin() + 1, kDefaultRelays.end());
-  TEST(alice.M().SetHomeRelays(others), ());
+  TEST(alice.M().SetHomeRelays(withoutOwn), ());
   world.Run(10'000);
   TEST(!alice.Contact("Bob")->m_notMoved, ());
-  TEST(alice.M().SetHomeRelays({others.rbegin(), others.rend()}), ());
+  TEST(alice.M().SetHomeRelays({withoutOwn.rbegin(), withoutOwn.rend()}), ());
   world.Run(10'000);
   TEST(alice.M().GetSettings().m_previousRelays.empty(), ());
   alice.Restart();
-  TEST(alice.M().SetHomeRelays({kDefaultRelays.begin(), kDefaultRelays.end()}), ());
+  TEST(alice.M().SetHomeRelays(withOwn), ());
   alice.M().SetForeground(false);
   bob.M().SetForeground(false);
   world.Run(10'000);
-  TEST_EQUAL(share(), "wss://nos.lol", ());
+  TEST_EQUAL(share(), kOwn, ());
 }
 
 UNIT_TEST(Manager_LiveUpdatesNeedTheListeningRelay)
