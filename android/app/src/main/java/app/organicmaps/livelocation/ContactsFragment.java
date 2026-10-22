@@ -40,13 +40,12 @@ public class ContactsFragment extends LiveLocationFragment
     final Sharing sharing = LiveLocation.getSharing();
     final List<Contact> contacts = LiveLocation.getContacts();
     views.outlinedButton(getString(R.string.live_location_send_current_location), v -> sendCurrentLocation());
+    // Without contacts there is nobody to share with: "Add contact" comes first.
     if (sharing.active)
       views.redButton(getString(R.string.live_location_stop_sharing_location), v -> LiveLocation.stopSharing());
-    else
-      views
-          .button(getString(R.string.live_location_share_my_location),
-                  v -> host().open(ManageSharingFragment.class, R.string.live_location_manage_sharing, null))
-          .setEnabled(!contacts.isEmpty());
+    else if (!contacts.isEmpty())
+      views.button(getString(R.string.live_location_share_my_location),
+                   v -> host().open(ManageSharingFragment.class, R.string.live_location_manage_sharing, null));
     views.outlinedButton(getString(R.string.live_location_add_contact),
                          v -> host().open(PairingFragment.class, R.string.live_location_add_contact, null));
 

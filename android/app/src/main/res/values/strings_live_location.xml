@@ -37,7 +37,7 @@
   <string name="live_location_add_contact">Add contact</string>
   <string name="live_location_share_my_location">Share live location</string>
   <string name="live_location_send_current_location">Send current location</string>
-  <string name="live_location_no_contacts">No contacts yet. To add someone, show them a QR code or send them a link.</string>
+  <string name="live_location_no_contacts">No contacts yet. Add a contact to share your live location.</string>
   <string name="live_location_sharing_with_you">Sharing their location with you</string>
   <string name="live_location_sharing_with_you_until">Sharing their location with you until %s</string>
   <string name="live_location_you_share">Sharing your location with them</string>
