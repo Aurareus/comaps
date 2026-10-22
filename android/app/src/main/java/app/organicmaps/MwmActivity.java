@@ -72,6 +72,7 @@ import app.organicmaps.leftbutton.LeftToggleButton;
 import app.organicmaps.livelocation.LiveLocationActivity;
 import app.organicmaps.livelocation.LiveLocationFeature;
 import app.organicmaps.livelocation.LiveLocationInviteProcessor;
+import app.organicmaps.livelocation.LiveLocationLeftButton;
 import app.organicmaps.livelocation.LiveLocationMapUi;
 import app.organicmaps.location.TrackRecordingService;
 import app.organicmaps.maplayer.MapButtonsController;
@@ -882,6 +883,7 @@ public class MwmActivity extends BaseMwmFragmentActivity
         drawIcon(left);
       }
     });
+    buttonsHolder.registerButton(new LiveLocationLeftButton(this)); // Live location (NLL)
   }
 
   private void initNavigationButtons(MapButtonsController.LayoutMode layoutMode)
