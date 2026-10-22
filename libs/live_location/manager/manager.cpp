@@ -1084,8 +1084,14 @@ void Manager::SetHidden(std::string const & id, bool hidden)
   if (peer == nullptr || peer->m_hidden == hidden)
     return;
   peer->m_hidden = hidden;
-  if (hidden)
-    peer->m_following.Stop();
+  // A hidden contact's share is still known, only not followed: shown again, it is followed at once, unless it
+  // ended meanwhile.
+  if (!hidden)
+  {
+    ExpireFollowing(*peer, Now());
+    if (peer->m_following.Grant())
+      StartFollowing(*peer);
+  }
   Save();
   Answer(*peer);  // shown again: it learns where this user's states went meanwhile
   UpdateConnections();
@@ -1180,29 +1186,42 @@ void Manager::OnState(Peer & peer, State const & state, int64_t createdAt)
   peer.m_color = state.m_color && DotColorRgba(*state.m_color) ? *state.m_color : std::string();
   Answer(peer);
   std::string const oldPk = peer.m_following.Grant() ? peer.m_following.Grant()->m_pk : std::string();
-  if (!peer.m_hidden)
-    peer.m_following.OnState(state, Now());
+  // Also while the contact is hidden: no stream, signals or dot then, but its share is known once it is shown.
+  peer.m_following.OnState(state, Now());
   auto const & grant = peer.m_following.Grant();
   if (grant && grant->m_pk != oldPk)
   {
     peer.m_streamEpoch = EpochOf(createdAt);
-    if (m_foreground)
-    {
-      auto const asks = SplitRelays(state.m_relays, Trusted()).second;
-      for (auto const & url : asks)
-      {
-        bool const listening = url == state.m_relays.front() && m_settings.m_requestLive;
-        AskConsent(url, peer.m_contact->m_name,
-                   listening ? ConsentRequest::Purpose::LiveUpdates : ConsentRequest::Purpose::Viewing);
-      }
-      if (m_settings.m_requestLive)
-        SendWatch(peer);
-    }
+    if (!peer.m_hidden)
+      StartFollowing(peer);
   }
   Save();  // the last seq, the relays, the confirmation
   UpdateConnections();
   NotifyContacts();
   NotifyPositions();
+}
+
+void Manager::StartFollowing(Peer & peer)
+{
+  if (!m_foreground)
+    return;
+  Relays const & relays = peer.m_contact->m_relays;
+  for (auto const & url : SplitRelays(relays, Trusted()).second)
+  {
+    bool const listening = url == relays.front() && m_settings.m_requestLive;
+    AskConsent(url, peer.m_contact->m_name,
+               listening ? ConsentRequest::Purpose::LiveUpdates : ConsentRequest::Purpose::Viewing);
+  }
+  if (m_settings.m_requestLive)
+    SendWatch(peer);
+}
+
+void Manager::ExpireFollowing(Peer & peer, int64_t now)
+{
+  peer.m_following.Tick(now);
+  auto const & grant = peer.m_following.Grant();
+  if (grant && grant->m_until != 0 && grant->m_until <= now)
+    peer.m_following.Stop();  // the time limit is enforced locally too
 }
 
 void Manager::Answer(Peer & peer)
@@ -1848,12 +1867,7 @@ void Manager::ViewTick()
 {
   int64_t const now = Now();
   for (auto & peer : m_peers)
-  {
-    peer->m_following.Tick(now);  // a stale position goes kEndGrace after its stream's end
-    auto const & grant = peer->m_following.Grant();
-    if (grant && grant->m_until != 0 && grant->m_until <= now)
-      peer->m_following.Stop();  // the time limit is enforced locally too
-  }
+    ExpireFollowing(*peer, now);
   NotifyPositions();
   NotifyContacts();
   UpdateConnections();
@@ -1887,7 +1901,8 @@ std::vector<ContactInfo> Manager::Contacts() const
     if (auto const & grant = peer->m_following.Grant())
     {
       info.m_sharesWithMeUntil = grant->m_until;
-      if (auto relay = MissingListeningRelay(contact.m_relays, trusted); relay && m_settings.m_requestLive)
+      if (auto relay = MissingListeningRelay(contact.m_relays, trusted);
+          relay && m_settings.m_requestLive && !peer->m_hidden)
       {
         info.m_liveUpdatesOff = true;
         info.m_liveRelay = std::move(*relay);

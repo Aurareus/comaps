@@ -674,6 +674,65 @@ UNIT_TEST(Manager_TimeLimitsAndStop)
   TEST(!bob.Position("Alice") && !bob.Contact("Alice")->m_sharesWithMeUntil, ("stopping ends it for Bob"));
 }
 
+UNIT_TEST(Manager_AContactShownAgainIsFollowedAtOnce)
+{
+  World world;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+  std::string const aliceId = bob.Id("Alice");
+  alice.M().SetForeground(false);
+
+  // Hidden while Alice shares: no dot, and nobody watches her, so her share goes idle.
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+  alice.M().OnLocation(FixAt(world, 41.9, 12.5));
+  world.Run(2'000);
+  TEST(bob.Position("Alice") && alice.Events().m_location == LocationRequest::Live, ());
+  bob.M().SetHidden(aliceId, true);
+  world.Run(130'000);
+  TEST(!bob.Position("Alice") && alice.Events().m_location == LocationRequest::Idle, ("a hidden contact has no dot"));
+  alice.M().OnLocation(FixAt(world, 41.95, 12.5));
+  world.Run(2'000);
+  TEST(!bob.Position("Alice"), ());
+
+  // Shown again: her share is followed at once, without a new state from her, and watched again.
+  bob.M().SetHidden(aliceId, false);
+  world.Run(2'000);
+  TEST(bob.Position("Alice") && std::abs(bob.Position("Alice")->m_location.m_lat - 41.95) < 1e-9,
+       ("Bob follows Alice again"));
+  TEST(alice.Events().m_location == LocationRequest::Live, ("Bob's watch signal"));
+
+  // Hidden before a share starts: the share is known meanwhile, though neither shown nor watched, and
+  // followed once she is shown.
+  alice.M().StopSharing();
+  world.Run(15'000);
+  bob.M().SetHidden(aliceId, true);
+  world.Run(130'000);
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+  alice.M().OnLocation(FixAt(world, 42.0, 12.5));
+  world.Run(5'000);
+  TEST(!bob.Position("Alice") && bob.Contact("Alice")->m_sharesWithMeUntil, ("known, not shown"));
+  TEST(alice.Events().m_location == LocationRequest::Idle, ("nobody watches a hidden contact"));
+  bob.M().SetHidden(aliceId, false);
+  world.Run(2'000);
+  TEST(bob.Position("Alice") && std::abs(bob.Position("Alice")->m_location.m_lat - 42.0) < 1e-9, ());
+
+  // A share whose end never reached Bob while she was hidden is not followed once she is shown: its time
+  // limit is enforced locally, as while viewing.
+  alice.M().StopSharing();
+  world.Run(15'000);
+  bob.M().SetHidden(aliceId, true);
+  int64_t const until = world.m_executor.Now() + 60;
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), until}}), ());
+  world.Run(5'000);
+  TEST(bob.Contact("Alice")->m_sharesWithMeUntil == std::optional<int64_t>(until), ());
+  for (auto const url : kDefaults)
+    world.Relay(std::string(url)).m_deaf = true;  // her end does not reach Bob
+  world.Run(70'000);
+  bob.M().SetHidden(aliceId, false);
+  TEST(!bob.Contact("Alice")->m_sharesWithMeUntil, ("the share ended meanwhile"));
+}
+
 UNIT_TEST(Manager_OnlyWhatHasNotEndedResumes)
 {
   World world;
@@ -961,6 +1020,10 @@ UNIT_TEST(Manager_LiveUpdatesNeedTheListeningRelay)
   TEST(bob.Contact("Alice")->m_liveUpdatesOff, ("but without live updates, and says so"));
   TEST_EQUAL(bob.Contact("Alice")->m_liveRelay, "wss://relay.alice.example", ("the relay Bob may allow"));
   TEST(alice.Events().m_location == LocationRequest::Idle, ("Alice never heard Bob's signals"));
+  bob.M().SetHidden(bob.Id("Alice"), true);
+  TEST(!bob.Contact("Alice")->m_liveUpdatesOff, ("not while hidden: Bob does not view her"));
+  bob.M().SetHidden(bob.Id("Alice"), false);
+  TEST(bob.Contact("Alice")->m_liveUpdatesOff, ());
 
   bob.M().SetConsent(bob.Contact("Alice")->m_liveRelay, Consent::Allow, "Alice");
   world.Run(70'000);

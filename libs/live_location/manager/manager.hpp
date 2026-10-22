@@ -155,6 +155,10 @@ private:
   void OnInboxEvent(nostr::Event const & event, bool viaHome);
   bool NoteMoved(Peer & peer, bool viaHome);
   void OnState(Peer & peer, State const & state, int64_t createdAt);
+  /// A share to follow from now on: its relays asked about where needed, live updates asked for (D4).
+  void StartFollowing(Peer & peer);
+  /// What has ended by `now`: a stale position kEndGrace after its stream's end, a share past its time limit.
+  void ExpireFollowing(Peer & peer, int64_t now);
   void Answer(Peer & peer);
   void OnWatch(Peer & peer, Watch const & watch);
   void OnStreamEvent(std::string const & peerId, nostr::Event const & event);
