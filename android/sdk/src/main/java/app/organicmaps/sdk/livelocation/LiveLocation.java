@@ -54,6 +54,11 @@ public final class LiveLocation
     default void onWriteFailed() {}
     /** The user tapped a contact's dot on the map (docs/LIVE_LOCATION.md §11.4). */
     default void onDotTapped(@NonNull String contactId) {}
+    /**
+     * Something is to be sent at {@code at} (Unix seconds; at or before now: once there is a network), 0 for
+     * nothing: e.g. a stop made without a network. Whenever the core does not run then, {@link #deliver} sends it.
+     */
+    default void onDeliveryDue(long at) {}
   }
 
   private static final Handler sMain = new Handler(Looper.getMainLooper());
@@ -145,6 +150,20 @@ public final class LiveLocation
   {
     if (isSupported())
       nativeRatchet(storeFile(context).getAbsolutePath());
+  }
+
+  /**
+   * What no relay has accepted yet goes out, also while the feature is off or the app's core does not run:
+   * from a core started for it, which goes once the relays have answered (docs/LIVE_LOCATION.md §29). Waits
+   * for their answers, for 30 s at most. Returns when something is next due, as {@link Listener#onDeliveryDue},
+   * 0 for nothing. Without a store, nothing, and none is made.
+   */
+  @WorkerThread
+  public static long deliver(@NonNull Context context)
+  {
+    if (!isSupported() || !storeFile(context).exists())
+      return 0;
+    return nativeDeliver(storeFile(context).getAbsolutePath());
   }
 
   // The store: one file, in a directory that is not backed up (docs/LIVE_LOCATION.md §8.5).
@@ -470,6 +489,11 @@ public final class LiveLocation
         for (Listener listener : sListeners)
           listener.onWriteFailed();
         break;
+      case "delivery_due":
+        final long at = event.getLong("at");
+        for (Listener listener : sListeners)
+          listener.onDeliveryDue(at);
+        break;
       default: Logger.w(TAG, "Unknown event " + event.optString("event"));
       }
     }
@@ -519,6 +543,8 @@ public final class LiveLocation
   private static native boolean nativeStart(@NonNull String path);
   private static native void nativeRatchet(@NonNull String path);
   private static native void nativeStop();
+
+  private static native long nativeDeliver(@NonNull String path);
   private static native void nativeDeleteAllData();
   private static native void nativeSetForeground(boolean foreground);
   @NonNull

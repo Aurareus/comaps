@@ -18,9 +18,10 @@ import java.util.ArrayDeque;
 
 /**
  * Live location (NLL): the feature's switch and lifecycle (docs/LIVE_LOCATION.md §8.4). While it is
- * off, nothing of it runs: no native thread, no file, no network. It also holds what any screen may
- * have to show: relay consent questions and what the user must be told, which the screen in front
- * presents one at a time (§11.4), and whether the store could not be read.
+ * off, nothing of it runs: no native thread, no file, no network, but for telling contacts that the
+ * share it stopped has ended, once there is a network (LiveLocationDeliveryWork). It also holds what any
+ * screen may have to show: relay consent questions and what the user must be told, which the screen in
+ * front presents one at a time (§11.4), and whether the store could not be read.
  */
 @MainThread
 public final class LiveLocationFeature
@@ -69,6 +70,13 @@ public final class LiveLocationFeature
         return;
       sToldWriteFailed = true;
       tell(R.string.live_location_not_saved);
+    }
+
+    @Override
+    public void onDeliveryDue(long at)
+    {
+      // Also when the app has ended by then, or the phone restarted.
+      LiveLocationDeliveryWork.schedule(MwmApplication.sInstance, at);
     }
   };
 
@@ -198,6 +206,8 @@ public final class LiveLocationFeature
     LiveLocationService.stop(context);
     LiveLocation.stop();
     LiveLocation.removeListener(sListener);
+    // A share it stopped ends for its recipients too, also when no relay could be reached just now.
+    LiveLocationDeliveryWork.schedule(context, System.currentTimeMillis() / 1000);
     sPending.clear();
     sPresenting = false;
     sStoreError = false;

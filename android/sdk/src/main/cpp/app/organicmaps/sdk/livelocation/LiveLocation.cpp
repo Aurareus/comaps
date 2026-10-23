@@ -21,12 +21,15 @@
 #include "base/string_utils.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -36,12 +39,13 @@ using namespace live_location;
 
 int64_t constexpr kRetireCheckMs = 500;
 int64_t constexpr kRetireWaitMs = 30'000;  // at most, for the relays' answers to a stop
+int64_t constexpr kDeliverWaitMs = 30'000;  // at most, for the relays' answers to what a delivery job sent
 // Messages of one relay connection waiting for the core's thread. Normal traffic stays far below; a
 // relay that floods the app loses the excess, and the relay pool fails it for the junk it reads.
 size_t constexpr kMaxPendingMessages = 256;
 
-// Made on the first nativeStart() or nativeRatchet(), on a Java thread, where the app's class loader
-// finds the classes.
+// Made on the first nativeStart(), nativeRatchet() or nativeDeliver(), on a Java thread, where the app's class
+// loader finds the classes.
 jclass g_transportClass;
 jmethodID g_connect;
 jmethodID g_send;
@@ -362,6 +366,8 @@ public:
       OnPositions(m_manager->Positions());
       for (auto const & pairing : m_manager->Pairings())
         OnPairing(pairing);
+      OnDeliveryDue(m_manager->DeliveryDue());
+      m_manager->Deliver();  // what no relay accepted before the app last ended
     });
     return ok;
   }
@@ -395,6 +401,46 @@ public:
       Manager manager(m_executor, m_transport, store, crypto::SystemRng(), quiet);
       manager.Start();
     });
+  }
+
+  /// The delivery job, on its thread: what is due goes out, from a core started for it if none runs, which goes
+  /// again once the relays have answered. Waits for their answers, for kDeliverWaitMs at most. When something
+  /// is next due (Manager::DeliveryDue()), 0 for nothing; also 0 without a store, which it does not make.
+  int64_t Deliver(std::string const & path)
+  {
+    bool pending = false;
+    m_executor.RunSync([&]
+    {
+      if (!m_manager)
+      {
+        if (!std::filesystem::exists(path))
+          return;  // deleted, or never made: nothing to send
+        m_store = std::make_unique<store::Store>(path, m_keys, crypto::SystemRng());
+        m_manager = std::make_unique<Manager>(m_executor, m_transport, *m_store, crypto::SystemRng(), *this);
+        m_started = m_manager->Start();
+      }
+      ++m_generation;  // a retirement pending waits for this delivery
+      m_manager->Deliver();
+      pending = true;
+    });
+    if (!pending)
+      return 0;
+    int64_t const deadlineMs = m_executor.NowMs() + kDeliverWaitMs;
+    while (pending && m_executor.NowMs() < deadlineMs)
+    {
+      std::this_thread::sleep_for(std::chrono::milliseconds(kRetireCheckMs));
+      m_executor.RunSync([&] { pending = m_manager && m_manager->HasPendingPublications(); });
+    }
+    int64_t due = 0;
+    m_executor.RunSync([&]
+    {
+      if (!m_manager)
+        return;
+      due = m_manager->DeliveryDue();
+      if (!m_running)
+        RetireWhenIdle(++m_generation, m_executor.NowMs() + kRetireWaitMs);
+    });
+    return due;
   }
 
   /// Also the way out of a store that cannot be read: the manager starts afresh.
@@ -431,6 +477,13 @@ public:
   {
     auto event = json::Value::Object();
     event.Set("event", json::Value::String("write_failed"));
+    Send(event);
+  }
+  void OnDeliveryDue(int64_t at) override
+  {
+    auto event = json::Value::Object();
+    event.Set("event", json::Value::String("delivery_due"));
+    event.Set("at", json::Value::Int(at));
     Send(event);
   }
 
@@ -537,6 +590,13 @@ JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_native
 {
   InitJni(env);
   GetOrMakeHost()->Ratchet(ToUtf8(env, path));
+}
+
+JNIEXPORT jlong JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeDeliver(JNIEnv * env, jclass,
+                                                                                         jstring path)
+{
+  InitJni(env);
+  return static_cast<jlong>(GetOrMakeHost()->Deliver(ToUtf8(env, path)));
 }
 
 JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeStop(JNIEnv *, jclass)
