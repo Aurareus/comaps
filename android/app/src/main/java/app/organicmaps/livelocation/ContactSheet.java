@@ -220,7 +220,13 @@ final class ContactSheet implements LiveLocation.Listener
       @Override
       public void onSlide(@NonNull View bottomSheet, float slideOffset)
       {
-        if (bottomSheet == mSheet && mMovesButtons && isUp())
+        if (bottomSheet != mSheet)
+          return;
+        // Over the map, a SurfaceView, the window tells the compositor which of its parts are transparent only
+        // at a layout pass, and the behaviour moves the sheet without one: where nothing else drew at the last
+        // pass, the sheet would leave the map showing through, e.g. at its sides and behind the navigation bar.
+        bottomSheet.requestLayout();
+        if (mMovesButtons && isUp())
           mPlacePage.setPlacePageDistanceToTop(bottomSheet.getTop());
       }
     });
