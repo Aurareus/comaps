@@ -47,6 +47,7 @@ reference implementation, test vectors and the relay test harness are in
 25. [Third review of Phase 2 (2026-10-21)](#25-third-review-of-phase-2-2026-10-21)
 26. [Fourth review of Phase 2 (2026-10-22)](#26-fourth-review-of-phase-2-2026-10-22)
 27. [Fifth review of Phase 2 (2026-10-22)](#27-fifth-review-of-phase-2-2026-10-22)
+28. [Sixth review of Phase 2 (2026-10-23)](#28-sixth-review-of-phase-2-2026-10-23)
 
 ## 0. Summary
 
@@ -572,7 +573,8 @@ What it never holds:
 - positions, on either side. Viewers keep the latest position per contact in memory, and fetch it
   again from the relays when they start;
 - stream secrets and stream keys. They live in memory only. After a process death, the sharer starts
-  a new stream once the user resumes, and recipients re-read their grants from the relays.
+  a new stream once the user resumes, and recipients re-read their grants from the relays: each
+  contact's latest state, read once more (spec §8).
 
 How it is protected:
 
@@ -1257,7 +1259,8 @@ reviews of Phase 2 (§24 to §27).
 | Undelivered pairing steps | Resent every 30 s while the app is in the foreground and the invite lasts. | Relays keep one event per step and author, so resending is harmless. |
 | Store format | Binary contents of one version. A store of any other version is not read, like a store that cannot be read: the app offers to delete it. While the feature is in development, each change of the format takes the next number, and the number goes back to 1 for the first release. A dot colour of the user's own that this build does not know reads as automatic, as a contact's does: a palette changed meanwhile must not cost the contacts (§27). A save rotates the keys when a secret of the previous save is missing, judged by digests of the secrets, so no call site can forget to. A pairing in progress is stored whole, Noise state included. | §8.5; a link pairing must survive app restarts at every step. Nobody has data to keep before the first release: reading the stores of development builds cost code, tests and review for nothing (§26). |
 | Starting a share | The first position published is a fix that arrives after the share started, never the last fix the app had. | That fix could be hours old. |
-| Hidden contacts | Their keys stay in the inbox subscription, and their states are read: a share is known, but not followed: no stream, no signals, no dot, no "Live updates off". Shown again, a share is followed at once, unless its time limit passed meanwhile. | Their states still arrive, e.g. the end of a share or the joiner's confirmations, and the inbox's size does not change when someone is hidden. A share was forgotten when hidden, so shown again a contact had no dot until its next state (§27). |
+| Hidden contacts | Their keys stay in the inbox subscription, and their states are read: a share is known, but not followed: no stream, no signals, no dot, no "Live updates off". Shown again, a share is followed at once. A share's time limit ends it on time, hidden or not: the app's clock wakes for the end of every share it follows. | Their states still arrive, e.g. the end of a share or the joiner's confirmations, and the inbox's size does not change when someone is hidden. A share was forgotten when hidden, so shown again a contact had no dot until its next state (§27). A hidden contact's share then outlived its time limit when the sharer's phone was off by then: only the view's clock enforced it, and it runs while the app is in the foreground and a contact who is not hidden is followed (§28). |
+| After a restart | A contact's latest state is read once more, and only it: an older one is still refused, as is the latest one read again in the same run (spec §8; **review**). | Your finding in the sixth review (§28): what a state grants is kept in memory only (§8.5), but the rule that ignores a state not newer than the last one accepted took the re-read state for a replay, so a restarted viewer lost every running share until the contact's next state. Storing grants instead would put stream keys on flash, which §8.5 rules out. A restart still forgets that the latest grant's stream ended. The viewer learns it again from the stream's `end` while that is on the relays (15 minutes); after that, it matters only if the state sent with the `end` never arrived, and then a viewer that did not restart but was not watching at the time cannot tell either. |
 | A contact's relays | Each state's relay list replaces the one from pairing. | A contact can change its relays; its states name the current ones. |
 | Changing one's home relays | Spec §11: every contact gets a state naming the new list at once, in one shuffled batch, and a running share is re-keyed onto it. A contact counts as not moved until something new from it arrives through a current home relay. Until all have moved, and for at most 30 days, the inbox also reads the previous relays in the foreground; they stay allowed meanwhile. A change made with no contacts and no pairing under way tells no one. | Contacts learn one's relays only from one's states. Your change in the second review (§24): a week, then silence, was the worst kind of failure for a location share. |
 | Repeating the new list | Each contact that has not moved gets the current state again on each UTC day the app runs, for as long as it has not moved, past the 30 days too. Not a contact that never finished connecting (offered for removal): it gets the new list once, is not waited for when deciding whether everyone has moved, and is not labelled. | A contact who opens CoMaps on day 40 still learns the new list from that day's state, and answers. The cost is one small state a day per such contact, sent only while the app runs. Your verdict in the third review (§25): kept, without contacts that never finished connecting. That they are not waited for either, so that the old relays are not read for 30 days for them, was mine, kept in the fourth (§26). |
@@ -1295,7 +1298,7 @@ The Android app (`android/app/.../livelocation`, `android/sdk/.../livelocation`)
 | Resuming after the process died | The map offers it in a dialog. "Resume" restarts the share with the same people and ends; without the permissions it needs, Manage sharing asks for them and then resumes. Manage sharing offers it too, at its top, until it is resumed or dismissed. Only the people whose end has not passed are offered; if every end passed after the offer, the app says so and forgets the share. | §8.5. Coming back from the notification settings resumed nothing, and a share whose ends had all passed was offered again and again (§25). |
 | Relay consent questions | Queued; whichever live location screen or the map is in front asks them, one at a time, with [Allow] / [Not now] / [Don't allow] (core, above). A question dismissed with the activity counts as "Not now". The labels of a contact (§11.5) and Settings → Relays for contacts ask again. | Questions arrive at any time, often while the user is on the map. |
 | A contact's dot | A circle, 20 dp across (16 until the third review), in the colour the sharer chose, or one derived from the contact's id (grey once old), with the name under it, in the layer of bookmarks' labels. A tap on either opens the sheet over the map (§11.4); "Center" zooms to the position at zoom 16. A long tap opens the usual place page of that point, titled with the name, from which one can route there. | Drape places no labels in the user mark layer. A tap on a name used to reach upstream code that aborts on an unknown mark type (§24). |
-| The dot's sheet | A bottom sheet in the map's layout, as the place page is, not a dialog: the map stays bright and can be moved, the map buttons rise above it, and "Center" puts the contact in the part of the map above it. A drag down closes it, and so does whatever closes the place page: back, the main menu, the search bar on the map, planning a route, full screen; the search button leaves both open. A place tapped on the map takes its place; another contact's dot replaces its lines. It stays open while the contact's details are open, and comes back after a rotation. Hooks in `MwmActivity`: back, `closeFloatingPanels()` and full screen. It gets the navigation bar's room itself, before its first layout, and tells the map buttons where it rests after each layout pass. | Your change in the fourth review (§26): the dialog dimmed the map, covered the map buttons, and closed when the map was touched. The behaviour gave the bar's room only after the sheet had started to open, and a layout listener sees the sheet before the behaviour moves it down: it opened over the bar, and the buttons hid (§27). |
+| The dot's sheet | A bottom sheet in the map's layout, as the place page is, not a dialog: the map stays bright and can be moved, the map buttons rise above it, and "Center" puts the contact in the part of the map above it. A drag down closes it, and so does whatever closes the place page: back, the main menu, the search bar on the map, planning a route, full screen; the search button leaves both open. A place tapped on the map takes its place; another contact's dot replaces its lines. It stays open while the contact's details are open, and comes back after a rotation. Hooks in `MwmActivity`: back, `closeFloatingPanels()` and full screen. It gets the navigation bar's room itself, before its first layout, and tells the map buttons where it rests after each layout pass. It asks for a layout pass at each step of its movement. | Your change in the fourth review (§26): the dialog dimmed the map, covered the map buttons, and closed when the map was touched. The behaviour gave the bar's room only after the sheet had started to open, and a layout listener sees the sheet before the behaviour moves it down: it opened over the bar, and the buttons hid (§27). Over the map, a SurfaceView, the window tells the compositor which of its parts are transparent only at a layout pass, and the behaviour slides the sheet up without one: its sides and the part behind the navigation bar showed the map (§28). |
 | The left button | Settings → Interface → Left button setup offers "Share Live Location", from Android 7. It opens Manage sharing, where one picks whom to share with, as the indicator does; with no contacts yet, Share My Location, where one adds one; with the feature off, its explanation, where one turns it on. Its icon is that of the feature's settings. The main menu keeps "Share My Location", which opens the feature's first screen. | Your request in the fourth review (§26), its target kept in the fifth (§27). The label names the act of sharing, so the button goes where sharing starts. Share My Location stays in the menu because its screen (adding contacts, sending the current location once) has no other way in. |
 | A contact that has not moved | Labelled "Hasn't picked up your new relays yet", and after the 30 days "Hasn't picked up your new relays". Its screen explains and suggests asking the contact to open CoMaps. A contact that never finished connecting is not labelled. | Your change in the second review (§24), kept in the third (§25); §11.5. |
 | Opening an invite link | A link opened from outside the app asks "Connect with whoever created this invite? They will see your name, …" before anything is sent. A pasted invite opens directly. When the user refused or put off every relay the invite has, the screen names them, each with "Allow …", rather than calling the invite invalid. | Opening a link must not by itself send one's name or add a contact (§11.2). "Created", not "sent": in person nobody sent anything (§24). |
@@ -1313,20 +1316,20 @@ the phones. A first brief run on two phones, and the review that followed, are i
 review, with your verdicts on the judgement calls, in §24; the third, after more runs on phones,
 with the screens reworked, in §25; the fourth, which dropped compatibility with development builds
 and made the dot's sheet behave as the place page, in §26; the fifth, before the full runs on
-phones, in §27.
+phones, in §27; the sixth, after a run on phones, in §28.
 
 ### What was built
 
 | Part | Where | Size |
 |---|---|---|
 | Core: crypto (BIP-340 through libsecp256k1, NIP-44 v2, Noise NNpsk0, HKDF), Nostr events and the strict JSON profile, NLL v1 (invites, pairing, channels, streams, signals, receiving rules), relay pool, encrypted store, manager | `libs/live_location` | 9,500 lines |
-| Tests of the core | `libs/live_location/live_location_tests` | 5,500 lines, 100 tests (71 at first, 79 after §23, 87 after §24, 95 after §25, 98 after §26) |
+| Tests of the core | `libs/live_location/live_location_tests` | 5,500 lines, 102 tests (71 at first, 79 after §23, 87 after §24, 95 after §25, 98 after §26, 100 after §27) |
 | Contacts' dots on the map, and a tap on them | `libs/map/live_location_marks.*`, `Framework`; a test in `map_tests` | |
 | Desktop test peer (the core driven by line commands, plain `ws://`) | `libs/live_location/peer` | 630 lines |
 | JNI host: the core's thread, OkHttp sockets, Keystore key wrapping | `android/sdk/src/main/cpp/.../livelocation` | 780 lines |
 | SDK: facade, OkHttp transport, Keystore wrapper, models; location pace | `android/sdk/src/main/java/.../livelocation`, `LocationHelper` | 1,230 lines |
 | App: foreground service, the switch and its settings, screens, the dot's sheet, the indicator's icon, the left button, hooks | `android/app/src/main/java/.../livelocation` | 4,100 lines |
-| Python reference implementation, test peer, cross test, fixtures | `tools/python/live_location` | 4,700 lines |
+| Python reference implementation, test peer, cross test, fixtures | `tools/python/live_location` | 4,800 lines |
 
 ### How it was tested
 
@@ -1340,8 +1343,9 @@ phones, in §27.
   record, contacts that never finished connecting, upgrade answers, dot colour and low battery, and
   the fixes from the code review that ended it: charging, failed writes, resuming and invites through
   relays not allowed (30 mutants, §25), and the fourth review's rules for relay URLs and names, the
-  store's version, the notice of failed writes and the default relays' echo (12 mutants, §26), and
-  the fifth's hidden contacts and own dot colour (7 mutants, §27).
+  store's version, the notice of failed writes and the default relays' echo (12 mutants, §26), the
+  fifth's hidden contacts and own dot colour (7 mutants, §27), and the sixth's time limits of
+  followed shares and reading the latest state again after a restart (7 mutants, §28).
 - **Map**: a test taps a dot as drape reports it, on its name and on the dot itself, with and without
   the app's listener (`LiveLocationMarks_TapOnADot`). Without the fix it aborts, as the app did.
 - **Cross-implementation, over a real relay** (strfry): the C++ core and the Python reference pair
@@ -1379,13 +1383,14 @@ phones, in §27.
 
 ### What to review
 
-Nothing is marked **review** in §21: the fifth review (§27) kept both calls of the fourth.
+One row of §21 is marked **review**, from the sixth review (§28): after a restart, a contact's latest
+state is read once more, which amends the rule of spec §8 that ignores a state not newer than the
+last one accepted.
 
 ### Known gaps
 
-- The changes of the fifth review (§27) have not been on a phone yet: the dot's sheet over the
-  navigation bar and with the map buttons, showing a hidden contact again, Share My Location without
-  contacts. Android 5 and 6 are not tested on a phone at all.
+- The changes of the sixth review (§28) have not been on a phone yet: the dot's sheet drawn whole, a
+  hidden contact's share ending at its time limit, a share followed again after a restart.
 - §11.5 once promised a test of whether each relay can be reached; none was built.
 - English only.
 - Phones whose makers kill background apps aggressively may stop the sharing service; only
@@ -1701,3 +1706,25 @@ sharing, with its two fallbacks. No row of §21 awaits a verdict now.
 **Tests now.** 100 C++ tests of the core pass with clang 18 (unity and non-unity builds) and GCC
 13, and the map's tap test. The cross-implementation test passes 15 of 15 over strfry, the Python
 reference's tests 305 of 305, the JVM tests 9 of 9, and lint finds no errors. The APK builds.
+
+## 28. Sixth review of Phase 2 (2026-10-23)
+
+A run on phones found the changes of the fifth review working, and three problems; you confirmed
+that item 7 of §27 (tablets) did not hold. Each finding was checked here before it was acted on.
+Each change in the core has a test that fails without it (7 mutants, all caught, and 2 in the Python
+reference); the sheet's change has none, there being no phone or emulator here, and is for the next
+run on phones.
+
+| # | Your finding | Verdict | Change | Test |
+|---|---|---|---|---|
+| 1 | A hidden contact's share can show as running after its time limit, when the sharer's phone was off at the time | **Right**, as you traced it: a followed share's time limit was enforced only by the view's clock, which runs while the app is in the foreground and a contact who is not hidden is followed, and when a contact is shown again. Spec §12 has a recipient enforce `until` locally, whatever the sharer does | The clock that already wakes the app for the ends of its own share, the invites' expiry and midnight also wakes it at the end of every share it follows, hidden contacts' included; it ends them and tells the app | `Manager_AContactShownAgainIsFollowedAtOnce`, which now also checks while Alice is hidden; `Manager_TimeLimitsAndStop`, the dot going at the time limit itself |
+| 2 | Closed and opened again while a contact shares, the app shows no dot for them until their next state | **Right**, and a contradiction between the spec and the design. The design keeps what a state grants in memory only and has a restarted viewer re-read its grants from the relays (§8.5); but the store keeps the last state's `seq`, and the spec ignores a state that is not newer. The re-read state counted as a replay, so a restarted viewer lost every running share until the contact's next state, at the latest the share's republication after midnight UTC | After a restart, a contact's latest state is read once more, and only it: an older one is still refused, and so is the latest one read again in the same run. Spec §8 and §12 say so, and the Python reference does the same. It amends a MUST of the spec, so it is marked **review** in §21, with what a restart still cannot know | `Sharing_ARestartedViewerReadsTheLatestStateOnceMore`, `Manager_AViewerRestartedDuringAShareFollowsItAgain`; 4 checks in `test_protocol.py` |
+| 3 | The first time the dot's sheet opens after launch, its sides and bottom are not drawn | **Right**. The sheet is laid out whole: its lines and buttons sit on the same pixels as in the screenshot of the earlier dialog, so what is missing is drawn but not shown. The map is a SurfaceView, and the window tells the compositor which of its parts are transparent only at a layout pass; the compositor then shows the map there (Android 14's `ViewRootImpl`, `View`, `SurfaceView` and SurfaceFlinger). The bottom-sheet behaviour slides the sheet up from below the screen without a layout pass, so only what other views covered at the last pass was shown: in your screenshot, the part shown ends exactly where the map buttons' margins do, 8 dp in from the sides and above the navigation bar. Which view covered that part could not be told here. Nothing in this makes the first open special, so later opens may have shown it too | The sheet asks for a layout pass at each step of its movement | — |
+
+The store's format did not change: this build reads the data of the builds since the fourth review.
+The checklist's note on installing over the previous build still said otherwise, a leftover of the
+fourth review; it is corrected.
+
+**Tests now.** 102 C++ tests of the core pass with clang 18 (unity and non-unity builds) and GCC 13,
+and the map's tap test. The cross-implementation test passes 15 of 15 over strfry, the Python
+reference's tests 309 of 309, the JVM tests 9 of 9, and lint finds no errors. The APK builds.

@@ -175,12 +175,14 @@ screen on a phone, or nearly; it says what relays can and cannot see (§11.6).
 
 ## New code paths to check
 
-- **Installing over the previous build.** This build reads no store of an earlier one (LIVE_LOCATION.md
-  §26). Installed over the previous build, Share My Location says the data cannot be read and offers
-  "Delete all live location data": delete it on every phone, then connect the phones again.
+- **Installing over the previous build.** This build reads the store of every build since the fourth
+  review (LIVE_LOCATION.md §26): installed over one of them, contacts and settings stay. Over an
+  earlier build, Share My Location says the data cannot be read and offers "Delete all live location
+  data": delete it on every phone, then connect the phones again.
 - **The dot's sheet.** Tap a contact's dot: the sheet rises without dimming the map, stops above the
-  navigation bar from the first frame, and the zoom and my-position buttons rise above it and stay
-  there while positions update. With the sheet open, move and zoom the map; "Center" puts the
+  navigation bar from the first frame, is drawn whole, its sides and the part behind the navigation
+  bar included, also the first time after CoMaps starts, and the zoom and my-position buttons rise
+  above it and stay there while positions update. With the sheet open, move and zoom the map; "Center" puts the
   contact in the part of the map above the sheet. Drag the sheet down: it closes, and the buttons
   come back down. Open it again, then each of these closes it: back; the main menu; the search bar on
   the map after a search; planning a route; a long tap with "full screen on long tap" on (Settings →
@@ -204,7 +206,11 @@ screen on a phone, or nearly; it says what relays can and cannot see (§11.6).
   "Allow viewers to request live updates" has two arrows turning in a circle.
 - **Hiding.** While A shares with B: on B, A's details → "Hide on the map": A's dot goes, and A's status
   reads "Sharing their location with you" above "Hidden". Turn it off: the dot is back within a few
-  seconds, without A doing anything.
+  seconds, without A doing anything. Hide A again, and on A share with B "For 15 minutes"; put A in
+  airplane mode before the end: at the end, A's details on B no longer say A shares, A still hidden.
+- **Restart during a share.** While A shares with B: close CoMaps on B (swipe it from the recent
+  apps) and open it again: A's dot is back within seconds, without A doing anything. Stop the share
+  on A, then close and open CoMaps on B again: no dot, and A's details do not say A shares.
 - **Share My Location without contacts** (after "Delete all live location data"): no "Share live
   location" button, and "No contacts yet. Add a contact to share your live location."
 - **Names and relays.** "Appear as" or renaming a contact with a tab or a line break pasted in: "A
