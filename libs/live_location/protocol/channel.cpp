@@ -130,10 +130,12 @@ std::optional<State> ReadControl(Contact & contact, nostr::Event const & event, 
   if (!body)
     return {};
   auto state = ParseState(*body);
-  // An older seq is a replay, e.g. a grant re-served after it was ended.
-  if (!state || state->m_seq <= contact.m_lastSeqIn)
+  // An older seq is a replay, e.g. a grant re-served after it was ended. So is the latest one read again,
+  // except once after a restart: what it granted was kept in memory only.
+  if (!state || state->m_seq < contact.m_lastSeqIn || (state->m_seq == contact.m_lastSeqIn && contact.m_lastStateRead))
     return {};
   contact.m_lastSeqIn = state->m_seq;
+  contact.m_lastStateRead = true;
   contact.m_confirmed = true;
   return state;
 }

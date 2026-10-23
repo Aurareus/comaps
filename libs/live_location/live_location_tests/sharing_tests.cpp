@@ -5,8 +5,10 @@
 
 #include "live_location/crypto/nip44.hpp"
 #include "live_location/encoding/base64.hpp"
+#include "live_location/encoding/binary.hpp"
 #include "live_location/protocol/common.hpp"
 #include "live_location/protocol/constants.hpp"
+#include "live_location/protocol/persist.hpp"
 #include "live_location/protocol/stream.hpp"
 
 #include <algorithm>
@@ -114,6 +116,33 @@ UNIT_TEST(Sharing_GrantsAndLocations)
   bobView.OnState(*extended, now + 9);
   TEST(bobView.Grant()->m_until == now + 7200 && alice.GetStream()->Pubkey() == stream.Pubkey(),
        ("Extend(): same stream, later time limit"));
+}
+
+UNIT_TEST(Sharing_ARestartedViewerReadsTheLatestStateOnceMore)
+{
+  // What a state grants is kept in memory only, stream keys never being stored: after a restart the viewer
+  // reads the latest state once more. An older one stays a replay, as does the latest one read again (§8).
+  auto & rng = ScenarioRng();
+  Paired const bob = Pair("Alice", kRelaysA, "Bob", kRelaysB, kT0, false);
+  ContactPtr const & bobA = bob.m_joinerSide;
+  int64_t const now = kT0 + 200;
+  Sharer alice(kRelaysA);
+  Rekey const start = alice.Start({{bob.m_inviterSide, now + 3600}}, rng, now);
+  TEST_EQUAL(start.m_states.size(), 1, ());
+  nostr::Event const first = start.m_states[0].second;
+  nostr::Event const extension = alice.Extend(bob.m_inviterSide, now + 7200, rng, now + 10);
+  TEST(ReadControl(*bobA, Wire(first), now + 1) && ReadControl(*bobA, Wire(extension), now + 11), ());
+  TEST(!ReadControl(*bobA, Wire(extension), now + 12), ("read again in the same run: a replay"));
+
+  binary::Writer writer;
+  persist::WriteContact(writer, *bobA);
+  SecretBytes const saved = writer.Finish();
+  binary::Reader reader(saved);
+  ContactPtr const restarted = persist::ReadContact(reader);
+  TEST(!ReadControl(*restarted, Wire(first), now + 20), ("an older state stays a replay"));
+  auto const latest = ReadControl(*restarted, Wire(extension), now + 21);
+  TEST(latest && latest->m_share && latest->m_share->m_until == now + 7200, ("the latest is read once more"));
+  TEST(!ReadControl(*restarted, Wire(extension), now + 22), ("once"));
 }
 
 // --- Revocation: what a removed recipient sees must not depend on whether the share goes on ---

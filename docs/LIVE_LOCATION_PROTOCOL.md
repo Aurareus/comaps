@@ -383,7 +383,9 @@ Each direction has a single addressable slot (kind `30484`, `d = ""`, pubkey `ct
 
 - `seq` is a per-direction counter, starting at 1 and strictly increasing across epochs.
   Receivers MUST ignore a state whose `seq` is not greater than the last one accepted from that
-  contact. This stops a relay replaying an old grant after the share ended.
+  contact. This stops a relay replaying an old grant after the share ended. One exception: after a
+  restart, a receiver reads the state of the last accepted `seq` once more, since what it granted
+  was kept in memory only (§12). A state older than that one is still ignored.
 - `relays` are the sender's current home relays, in its order (§11).
 - In the first week after pairing, the joiner's states also confirm the pairing to the inviter
   (§6.3). The first carries no `share`; each later one is the joiner's current state.
@@ -639,7 +641,8 @@ defined in §5.
 - A recipient keeps a stream key only while its grant is current. It MUST erase the key when a new
   grant replaces it, when the stream's `end` arrives, and when the grant's `until` passes.
 - It also enforces `until` locally, whatever the sharer does.
-- Positions are kept in memory only (design doc §8.5).
+- Stream keys and positions are kept in memory only (design doc §8.5). After a restart, the
+  recipient learns its grants again from its contacts' latest states (§8).
 - On an `end`, the recipient keeps the last position, marked stale, for up to 120 s, or until a state
   arrives:
   - with a new grant, it shows the stale position until the new stream's first location;

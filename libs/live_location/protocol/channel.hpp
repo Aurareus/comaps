@@ -65,7 +65,10 @@ struct Contact
   int64_t m_pairingEpoch = 0;
   bool m_joiner = false;    // this device joined: it scanned or opened the invite
   int64_t m_lastSeqIn = 0;  // the last state seq accepted from the peer
-  int64_t m_seqOut = 0;     // the last state seq sent
+  // In memory only: whether the state of m_lastSeqIn was read in this run. What it granted is kept in memory
+  // only too (stream keys are never stored), so after a restart that state is read once more (§8).
+  bool m_lastStateRead = false;
+  int64_t m_seqOut = 0;  // the last state seq sent
   int64_t m_lastCreatedOut = 0;
   bool m_verified = false;  // this device's user confirmed that both screens showed the same code
   bool m_flagged = false;   // someone else used the same invite after this pairing finished (§6.3)

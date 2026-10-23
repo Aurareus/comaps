@@ -763,6 +763,42 @@ UNIT_TEST(Manager_AContactShownAgainIsFollowedAtOnce)
   TEST(!bob.Contact("Alice")->m_sharesWithMeUntil && !bob.Position("Alice"), ("not followed once shown"));
 }
 
+UNIT_TEST(Manager_AViewerRestartedDuringAShareFollowsItAgain)
+{
+  // What a state grants is kept in memory only, stream keys never being stored (design §8.5): a restarted
+  // viewer reads its contacts' latest states once more.
+  World world;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+  bob.M().SetForeground(true);
+  int64_t const until = world.m_executor.Now() + 3600;
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), until}}), ());
+  alice.M().OnLocation(FixAt(world, 48.85, 2.35));
+  world.Run(3'000);
+  TEST(bob.Position("Alice"), ());
+  bob.M().SetForeground(false);
+  world.Run(130'000);
+  TEST(alice.Events().m_location == LocationRequest::Idle, ("nobody watches"));
+
+  bob.Restart();
+  TEST(!bob.Position("Alice") && !bob.Contact("Alice")->m_sharesWithMeUntil, ("nothing of it is stored"));
+  bob.M().SetForeground(true);
+  world.Run(3'000);
+  TEST(bob.Contact("Alice")->m_sharesWithMeUntil == std::optional<int64_t>(until), ("Bob knows the share again"));
+  TEST(bob.Position("Alice") && std::abs(bob.Position("Alice")->m_location.m_lat - 48.85) < 1e-9, ("and follows it"));
+  TEST(alice.Events().m_location == LocationRequest::Live, ("his watch signal"));
+
+  // Read once: the share still ends with the next state, and nothing brings it back after that.
+  alice.M().StopSharing();
+  world.Run(20'000);
+  TEST(!bob.Contact("Alice")->m_sharesWithMeUntil && !bob.Position("Alice"), ());
+  bob.Restart();
+  bob.M().SetForeground(true);
+  world.Run(3'000);
+  TEST(!bob.Contact("Alice")->m_sharesWithMeUntil && !bob.Position("Alice"), ("her latest state has no share"));
+}
+
 UNIT_TEST(Manager_OnlyWhatHasNotEndedResumes)
 {
   World world;

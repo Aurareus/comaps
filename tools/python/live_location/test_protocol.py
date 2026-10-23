@@ -1,5 +1,6 @@
 """End-to-end scenario tests of the NLL v1 reference implementation (no network)."""
 
+import dataclasses
 import json
 import os
 import sys
@@ -612,6 +613,15 @@ check(raises(lambda: alice_share.extend(a_bob, now, rng, now + 8)), 'extend() re
 g = alice_share.extend(a_bob, now + 7200, rng, now + 8)
 bob_view.on_state(P.read_control(bob_a, wire(g), now + 9), now + 9)
 check(bob_view.grant['until'] == now + 7200 and alice_share.stream is stream, 'extend(): same stream, later until')
+
+# A restart: the stored contact keeps the last seq, not the grant, which was kept in memory only (stream keys
+# are never stored). The latest state is read once more, and only it; an older one stays a replay (§8).
+check(P.read_control(bob_a, wire(g), now + 10) is None, 'the latest state read again in the same run: a replay')
+bob_restarted = dataclasses.replace(bob_a, last_seq_in=dict(bob_a.last_seq_in), last_state_read=False)
+check(P.read_control(bob_restarted, g_bob, now + 11) is None, 'after a restart, an older state stays a replay')
+st = P.read_control(bob_restarted, wire(g), now + 12)
+check(st is not None and st['share']['until'] == now + 7200, 'after a restart, the latest state is read once more')
+check(P.read_control(bob_restarted, wire(g), now + 13) is None, 'once')
 
 # --- Revocation: what a removed recipient sees must not depend on whether the share goes on ---
 

@@ -434,6 +434,10 @@ class Contact:
     # first state or signal that arrives from the joiner (§6.3). False is a label, not a block: sharing with
     # a joiner that never finished leaks nothing, since nobody else holds the channel keys.
     confirmed: bool = True
+    # In memory only: whether the state of last_seq_in['state'] was read in this run. What it granted is
+    # kept in memory only too (stream keys are never stored), so after a restart that state is read once
+    # more (§8).
+    last_state_read: bool = False
 
 
 def ratchet(contact: Contact, now: int):
@@ -807,9 +811,13 @@ def read_control(contact: Contact, ev: Event, now: int) -> dict | None:
         check_state(body)
     except Exception:
         return None
-    if body['seq'] <= contact.last_seq_in.get('state', 0):
-        return None  # replay of an older state, e.g. a grant re-served after it was ended
+    last = contact.last_seq_in.get('state', 0)
+    if body['seq'] < last or (body['seq'] == last and contact.last_state_read):
+        # A replay of an older state, e.g. a grant re-served after it was ended, or of the latest one, except
+        # once after a restart: what it granted was kept in memory only.
+        return None
     contact.last_seq_in['state'] = body['seq']
+    contact.last_state_read = True
     contact.confirmed = True
     return body
 
