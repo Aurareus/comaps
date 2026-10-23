@@ -1199,6 +1199,7 @@ void Manager::OnState(Peer & peer, State const & state, int64_t createdAt)
   }
   Save();  // the last seq, the relays, the confirmation
   UpdateConnections();
+  ScheduleClock();  // the share's end
   NotifyContacts();
   NotifyPositions();
 }
@@ -1618,6 +1619,10 @@ void Manager::ScheduleClock()
     for (auto const & grant : m_sharer->GetGrants())
       if (grant.second != 0)
         next = std::min(next, std::max(now, grant.second));
+  // Contacts' shares end here too, hidden contacts' included: the sharer's phone may be off by then.
+  for (auto const & peer : m_peers)
+    if (auto const & grant = peer->m_following.Grant(); grant && grant->m_until != 0)
+      next = std::min(next, std::max(now, grant->m_until));
   if (m_liveUntil > now)
     next = std::min(next, m_liveUntil);
   m_clock = Later(next * 1000 - m_executor.NowMs(), [this]
@@ -1631,7 +1636,10 @@ void Manager::OnClock()
 {
   int64_t const now = Now();
   for (auto & peer : m_peers)
+  {
     Ratchet(*peer->m_contact, now);  // CK(e) goes at epoch_end(e) + 3600 (spec §7)
+    ExpireFollowing(*peer, now);
+  }
 
   std::vector<std::string> expired;
   for (auto const & session : m_sessions)
@@ -1674,7 +1682,8 @@ void Manager::OnClock()
   Save();  // rotates the store's keys when chain keys were erased
   UpdateConnections();
   ScheduleClock();
-  NotifyContacts();  // labels that time changes: removal offered, a move overdue
+  NotifyContacts();  // labels that time changes: removal offered, a move overdue, a share's end
+  NotifyPositions();
 }
 
 std::vector<nostr::Filter> Manager::InboxRequest(int64_t epoch, bool listening) const

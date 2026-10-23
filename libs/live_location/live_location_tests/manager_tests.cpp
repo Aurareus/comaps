@@ -687,6 +687,20 @@ UNIT_TEST(Manager_TimeLimitsAndStop)
   alice.M().StopSharing();
   world.Run(15'000);
   TEST(!bob.Position("Alice") && !bob.Contact("Alice")->m_sharesWithMeUntil, ("stopping ends it for Bob"));
+
+  // With Alice's phone off by then, Bob's app ends the share itself at its time limit, and the dot goes
+  // at once, not at the view clock's next tick.
+  int64_t const soon = world.m_executor.Now() + 60;
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), soon}}), ());
+  alice.M().OnLocation(FixAt(world, 41.9, 12.5));
+  world.Run(2'000);
+  TEST(bob.Position("Alice"), ());
+  for (auto const url : kDefaults)
+    world.Relay(std::string(url)).m_deaf = true;  // her end does not reach Bob
+  world.Run(soon * 1000 - world.m_executor.NowMs() - 1);
+  TEST(bob.Position("Alice") && bob.Contact("Alice")->m_sharesWithMeUntil, ("until the time limit"));
+  world.Run(2);
+  TEST(!bob.Position("Alice") && !bob.Contact("Alice")->m_sharesWithMeUntil, ("at it"));
 }
 
 UNIT_TEST(Manager_AContactShownAgainIsFollowedAtOnce)
@@ -732,8 +746,8 @@ UNIT_TEST(Manager_AContactShownAgainIsFollowedAtOnce)
   world.Run(2'000);
   TEST(bob.Position("Alice") && std::abs(bob.Position("Alice")->m_location.m_lat - 42.0) < 1e-9, ());
 
-  // A share whose end never reached Bob while she was hidden is not followed once she is shown: its time
-  // limit is enforced locally, as while viewing.
+  // A share whose end never reaches Bob while she is hidden ends at its time limit all the same, enforced
+  // locally, as while viewing, and is not followed once she is shown.
   alice.M().StopSharing();
   world.Run(15'000);
   bob.M().SetHidden(aliceId, true);
@@ -744,8 +758,9 @@ UNIT_TEST(Manager_AContactShownAgainIsFollowedAtOnce)
   for (auto const url : kDefaults)
     world.Relay(std::string(url)).m_deaf = true;  // her end does not reach Bob
   world.Run(70'000);
+  TEST(!bob.Contact("Alice")->m_sharesWithMeUntil, ("ended at its time limit, while hidden"));
   bob.M().SetHidden(aliceId, false);
-  TEST(!bob.Contact("Alice")->m_sharesWithMeUntil, ("the share ended meanwhile"));
+  TEST(!bob.Contact("Alice")->m_sharesWithMeUntil && !bob.Position("Alice"), ("not followed once shown"));
 }
 
 UNIT_TEST(Manager_OnlyWhatHasNotEndedResumes)
