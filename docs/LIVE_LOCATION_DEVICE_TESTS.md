@@ -175,10 +175,35 @@ screen on a phone, or nearly; it says what relays can and cannot see (§11.6).
 
 ## New code paths to check
 
-- **Installing over the previous build.** This build reads the store of every build since the fourth
-  review (LIVE_LOCATION.md §26): installed over one of them, contacts and settings stay. Over an
-  earlier build, Share My Location says the data cannot be read and offers "Delete all live location
-  data": delete it on every phone, then connect the phones again.
+- **Installing over the previous build.** The store's format changed in the seventh review
+  (LIVE_LOCATION.md §29): installed over an earlier build, Share My Location says the data cannot be
+  read and offers "Delete all live location data". Delete it on every phone, then connect the phones
+  again.
+- **Updates made offline** (§29). Airplane mode stands for a tunnel. Each should reach B within a
+  few minutes of A's network coming back, rather than at the next midnight or never:
+  - **Starting.** A in airplane mode: share with B. A minute later, airplane mode off: B's list says
+    A shares, and A's dot shows up.
+  - **Stopping, with CoMaps closed.** While A shares with B: airplane mode on A, stop from the
+    notification, then swipe CoMaps away from the recent apps. A minute later, airplane mode off and
+    leave A's phone alone: B's list no longer says A shares. Meanwhile `adb shell dumpsys jobscheduler
+    | grep -i -A3 comaps.fdroid.debug` lists the delivery job next to the daily one, and once it has
+    run, after midnight UTC, it runs once more and is gone.
+  - **A new end.** Share "For 15 minutes"; airplane mode; Contact details → Change → 1 hour later;
+    airplane mode off: B's details show the new end, and B still sees A after the first one.
+  - **Someone added.** While A shares with B: airplane mode, add C; airplane mode off: C sees A, and
+    B's dot moves on after the usual pause.
+  - **Deleting B.** While A shares with B: airplane mode, delete B on A; airplane mode off: B's list
+    no longer says A shares.
+  - **Turning the feature off.** While A shares with B: airplane mode, turn live location sharing
+    off, airplane mode off, the feature still off: B's list no longer says A shares.
+  - **Pairing.** B opens A's link invite in airplane mode, then force-stops CoMaps (`adb shell am
+    force-stop app.comaps.fdroid.debug`). Airplane mode off, open CoMaps on B and on A: the pairing
+    goes on to the codes.
+  - If convenient, **midnight UTC**: A in airplane mode from a few minutes before to a few minutes
+    after, while sharing: B follows A again within minutes.
+- **"Don't resume".** While A shares with B: `adb shell am force-stop app.comaps.fdroid.debug` on A,
+  then open CoMaps: B still lists A as sharing, stale, until A decides. "Don't resume": within seconds
+  B's list no longer says A shares.
 - **The dot's sheet.** Tap a contact's dot: the sheet rises without dimming the map, stops above the
   navigation bar from the first frame, is drawn whole, its sides and the part behind the navigation
   bar included, also the first time after CoMaps starts, and the zoom and my-position buttons rise

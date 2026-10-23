@@ -549,8 +549,9 @@ Each hook is marked `// Live location (NLL): …`.
 A runtime preference "Live location sharing", default **off**, at the top of its own
 section of the settings (§11.1). While off, nothing in the feature is constructed: no library init,
 no threads, no files, no network. When it is switched off, all shares stop and connections close.
-Contacts are kept until deleted: "Delete all live location data", in the same section, works while
-the feature is off too.
+The one exception: the end of a share that it stopped, which no relay could be reached for then, still
+goes out once there is a network, and once more on the next day (§29). Contacts are kept until deleted:
+"Delete all live location data", in the same section, works while the feature is off too.
 
 ### 8.5 Persistence
 
@@ -559,11 +560,16 @@ One file, `live_location.dat`, in Android's `noBackupFilesDir`.
 What it holds:
 
 - contacts: name, relays, the chain key of each direction (for the oldest epoch still needed only),
-  and sequence counters;
+  and sequence counters; whether a relay has accepted the latest state sent to each, and whether the
+  end of a share is still to be sent once more on a later day (spec §8);
 - the decoy seed (spec §11);
 - pending pairings: until they end, the PSK, the pairing secret, the Noise ephemeral key and the
-  step 0; until the invite expires, what watching for conflicts needs: the MAC key, the inviter's
-  pairing key and the ids of the accepted events (spec §6.3);
+  step 0, and the steps no relay has accepted yet; until the invite expires, what watching for
+  conflicts needs: the MAC key, the inviter's pairing key and the ids of the accepted events (spec
+  §6.3);
+- deleted contacts that have not been told yet that a share with them ended: their relays and states
+  without a share made when they were deleted, one per UTC day, for 7 days at most. Not their keys,
+  which go with them (spec §8, §29);
 - each contact's verified and flagged status;
 - the active share's settings (recipients and their `until`), so that the app can offer to resume
   after its process was killed.
@@ -1045,7 +1051,7 @@ The text, also a DoD item. It claims only what the threat model supports (§3):
 | Risk | Mitigation |
 |---|---|
 | Relay policies tighten (web-of-trust, paid, kind whitelists are spreading) | Configurable relays, health checks, documented self-hosting; the soak harness re-runs in minutes |
-| Doze and OEM battery savers stall network for a stationary sharer with the screen off | Measure on your devices. If needed, a user-initiated battery-optimisation exemption (F-Droid-safe) and an explanation |
+| Doze and OEM battery savers stall network for a stationary sharer with the screen off | Stock Android lets an app with a foreground service, as a running share has, use the network in Doze (AOSP's `NetworkPolicyManager`); OEM savers may not. What could not be sent goes again once there is a network (§29). Measure on your devices. If needed, a user-initiated battery-optimisation exemption (F-Droid-safe) and an explanation |
 | Metadata expectations (users may assume anonymity) | The one-screen explanation; Tor or proxy later |
 | Clock skew (epochs, expiry) | ±1 epoch acceptance, 300 s future skew; phones are NTP-synced |
 | Composition bugs in our protocol (not in primitives) | Independent reference implementation plus vectors, receiving rules tested adversarially; external review before any upstream proposal |
@@ -1256,7 +1262,7 @@ reviews of Phase 2 (§24 to §27).
 | Yesterday's states | In the first hour of a day, an app in the foreground reads its contacts' states once (30 s) with yesterday's keys, over yesterday's scope. | A contact's latest state may still be signed with yesterday's key until it expires at 01:00. Holding a second subscription for the whole hour would cost more for little gain. |
 | "Each UTC day it runs" | The joiner sends its daily confirmation when the app is in the foreground or sharing. | It never opens a connection just to confirm, which keeps "no traffic when unused" true. |
 | Failing relays | A relay that refuses, drops the connection, or sends no OK within 10 s (25 s while connecting) backs off: 1 s, doubling to 5 min, ±20 %. A relay's CLOSED is answered with a new REQ after 30 s. A connection used only to publish closes after 60 s without traffic. | §10.3 asks for dead connections to be detected by a missing OK. The rest are ordinary defaults. |
-| Undelivered pairing steps | Resent every 30 s while the app is in the foreground and the invite lasts. | Relays keep one event per step and author, so resending is harmless. |
+| Undelivered pairing steps | Resent every 30 s while the app is in the foreground and the invite lasts, as the same events. They are kept in the store with their pairing, so a restart loses none. | Relays keep one event per step and author, so resending is harmless. A step sent offline was lost when the app restarted before the network came back, and the pairing waited for the invite to expire (§29). |
 | Store format | Binary contents of one version. A store of any other version is not read, like a store that cannot be read: the app offers to delete it. While the feature is in development, each change of the format takes the next number, and the number goes back to 1 for the first release. A dot colour of the user's own that this build does not know reads as automatic, as a contact's does: a palette changed meanwhile must not cost the contacts (§27). A save rotates the keys when a secret of the previous save is missing, judged by digests of the secrets, so no call site can forget to. A pairing in progress is stored whole, Noise state included. | §8.5; a link pairing must survive app restarts at every step. Nobody has data to keep before the first release: reading the stores of development builds cost code, tests and review for nothing (§26). |
 | Starting a share | The first position published is a fix that arrives after the share started, never the last fix the app had. | That fix could be hours old. |
 | Hidden contacts | Their keys stay in the inbox subscription, and their states are read: a share is known, but not followed: no stream, no signals, no dot, no "Live updates off". Shown again, a share is followed at once. A share's time limit ends it on time, hidden or not: the app's clock wakes for the end of every share it follows. | Their states still arrive, e.g. the end of a share or the joiner's confirmations, and the inbox's size does not change when someone is hidden. A share was forgotten when hidden, so shown again a contact had no dot until its next state (§27). A hidden contact's share then outlived its time limit when the sharer's phone was off by then: only the view's clock enforced it, and it runs while the app is in the foreground and a contact who is not hidden is followed (§28). |
@@ -1264,7 +1270,11 @@ reviews of Phase 2 (§24 to §27).
 | A contact's relays | Each state's relay list replaces the one from pairing. | A contact can change its relays; its states name the current ones. |
 | Changing one's home relays | Spec §11: every contact gets a state naming the new list at once, in one shuffled batch, and a running share is re-keyed onto it. A contact counts as not moved until something new from it arrives through a current home relay. Until all have moved, and for at most 30 days, the inbox also reads the previous relays in the foreground; they stay allowed meanwhile. A change made with no contacts and no pairing under way tells no one. | Contacts learn one's relays only from one's states. Your change in the second review (§24): a week, then silence, was the worst kind of failure for a location share. |
 | Repeating the new list | Each contact that has not moved gets the current state again on each UTC day the app runs, for as long as it has not moved, past the 30 days too. Not a contact that never finished connecting (offered for removal): it gets the new list once, is not waited for when deciding whether everyone has moved, and is not labelled. | A contact who opens CoMaps on day 40 still learns the new list from that day's state, and answers. The cost is one small state a day per such contact, sent only while the app runs. Your verdict in the third review (§25): kept, without contacts that never finished connecting. That they are not waited for either, so that the old relays are not read for 30 days for them, was mine, kept in the fourth (§26). |
-| Answering a contact's move | A state naming relays other than those the user's last state to that contact reached gets the current state in answer, through the named relays the user allows, at once, or when the user allows one, or shows the contact again after hiding it; never to a hidden contact. It asks about the other relays only when none is allowed. | Spec §11. Each relay is asked about once: asking as the answer went out took the place of the question that says what a relay is for, such as live updates once the contact shares (§24). |
+| Answering a contact's move | A state naming relays other than those the user's last state to that contact reached gets the current state in answer, through the named relays the user allows, at once, or when the user allows one, or shows the contact again after hiding it; never to a hidden contact. It asks about the other relays only when none is allowed. An answer no relay accepts goes again as any state (next row). | Spec §11. Each relay is asked about once: asking as the answer went out took the place of the question that says what a relay is for, such as live updates once the contact shares (§24). |
+| States no relay accepted | Each state counts as not delivered until a relay accepts it, also across a restart: the stored record of which relays the latest state to a contact reached is then empty. Such a contact gets the current state again whenever a relay connection opens, 30 s after a failure doubling to 5 min, when the app comes to the foreground, when a relay is allowed or the contact shown again, at midnight, when the app starts the core, and when the delivery job runs; not when the daily ratchet job reads the store, which connects nowhere. Within the same UTC day the same event goes again, after it a new state. All that are due leave in one shuffled batch, hidden contacts' too: hiding stops following a contact, not telling it about one's own share. | Spec §8. Your finding in the seventh review (§29): a state was published once, so a share started, stopped or re-keyed offline was lost until the next state. One rule for answers and re-sends: a contact whose relays do not hold the latest state gets the current one. |
+| A share's end, once more | Once a relay has accepted the state ending a share with a contact, the contact gets the current state once more on a later UTC day: at midnight if the app runs, else by the delivery job. Not while it is a recipient again. | Spec §8. Your decision in the seventh review (§29): a state can be read only until 01:00 UTC the next day, and an app open offline past then (a night flight) kept the share for good. |
+| Deleting a contact one shares with | The contact's keys go at once. If a share with it ends then, ended at a process death, or ended without its end delivered twice, states without a share are made at that moment, one for that day and each of the next six, signed with their days' keys; only those and the contact's relays are kept, and sent as above until one is accepted and then another on a later day, for 7 days at most. | Your decision in the seventh review (§29). Keeping the channel instead would have left a phone taken from its owner with the keys of a contact the user believes deleted, for up to a week (T7). |
+| A share interrupted by the process's death | Nothing goes to its recipients until the user resumes it or not: no re-send, no confirmation, no new relay list, each of which would end it. "Don't resume" sends each of them the end, and once more on a later day. An offer past its time limit holds nothing back. | Your decision in the seventh review (§29): until the user decides, contacts see the share as it was, stale, as for a phone that is switched off. "Don't resume" used to send nothing, so they saw the share until their app restarted on a later day. |
 | Idle publishing | A fix is published when it moved at least max(20 m, both fixes' accuracies added) from the last one published, or is at least twice as accurate; at least 30 s apart, with the 5-minute heartbeat. | §10.3. Your compromise in the second review (§24); the clause for a sharper fix is mine. |
 | The listening relay's echo | On the listening relay, the inbox subscription also asks for the share's own stream, of the inbox's epoch. A stream post accepted with `OK true` (not `duplicate:`) that has not come back 15 s later marks the relay deaf: the subscription moves to the next relay, and publishing to it goes on. It is tried again after 5 minutes alongside the relay in use, doubling to 30 (±20 %), until a post comes back over it. A reconnect does not clear the mark. A relay that has never sent a post back is not judged, except the default relays, which are judged from the start. Which relays have sent one back is kept in the store for as long as they are home relays (current or previous), so that one already deaf when the app starts is judged too; the first post of a share leaves before the listening subscription is open, so the check starts with the second. | §10.3. Your proposal in the second review, with one miss in 15 s as you chose, kept in the third (§25), where you also asked to keep the record across runs. The back-off and the trial alongside are mine: retrying a relay alone moved the inbox back onto a relay still deaf, for minutes. That the record lasts as long as the relay is a home relay, with no time limit, was mine, kept in the fourth (§26). The defaults: your question in the fourth, since a fresh install whose listening relay was deaf already was never judged; they were measured to send posts back (§24). They count in every run rather than being written into the record, so that one removed and added again is still judged: kept in the fifth review (§27). |
 | What a relay delivers | An event counts as received only once it matches the filters of the REQ it came for and its id and signature verify. A connection that sends more than 32 other events counts as failing (back-off). Until a REQ sent again with other filters has its EOSE, events that match only its previous filters are dropped without counting. | Spec §11: otherwise a relay that sends a broken copy first hides the intact ones, and junk costs key derivations. An honest relay may still answer the previous filters meanwhile (§24). |
@@ -1287,7 +1297,8 @@ The Android app (`android/app/.../livelocation`, `android/sdk/.../livelocation`)
 | Background location pace | Only while a share alone keeps location running in the background: 2 s at high accuracy when someone watches, else 30 s at balanced accuracy (§10.3). Navigation, track recording, Android Auto and the "waiting for position" mode keep their own pace; in the foreground the map's 500 ms applies. | Balanced accuracy is a hint: the fused providers honour it, a plain GPS provider does not. |
 | Low battery | The service reports the battery level and whether the phone is plugged in. Plugged in, the share does not stop for the battery, and positions do not say `low` (above, core). | Stopping a share on a charging phone helps nobody. The service once reported 100 % while charging, which counted as the battery having been above the level (§25). |
 | A fix without accuracy | Dropped, as are fixes with values out of range; out-of-range optional fields are left out. | The protocol requires an accuracy, and receivers drop a message with a bad field. Fused and GPS fixes carry one. |
-| Turning the feature off | Stops any share, closes connections, and frees the core once the stop's messages have their relays' answers (at most 30 s). Deleting the data while it is off deletes the file and the Keystore keys without starting anything. | "No traffic when unused" includes the moment of deletion. |
+| Turning the feature off | Stops any share, closes connections, and frees the core once the stop's messages have their relays' answers (at most 30 s). What no relay accepted then goes out later, by the delivery job (below). Deleting the data while it is off deletes the file and the Keystore keys without starting anything. | "No traffic when unused" includes the moment of deletion. Contacts must still learn that the share ended (§29). |
+| The delivery job | A one-time WorkManager job with a network constraint, scheduled for when the core says something is next due: a state no relay accepted (a minute after it left, in case the process ends while it is on its way), a share's end once more on the next day, a deleted contact's. It runs the core if none runs, waits up to 30 s for the relays' answers, and frees it again; then it schedules the next run, or retries with WorkManager's back-off from 30 s. Also while the feature is off; never without a store, which it does not create. | Your decision in the seventh review (§29): a stop made in a tunnel would otherwise reach contacts only when the user opened the app again. WorkManager runs it after a reboot too, and in Doze's maintenance windows. |
 | The sharing indicator | A round button like track recording's, at the top right of the map, where track recording's is, or below it when both show, in every layout that has track recording's; the compass moves below both. While a route is planned, both sit 72 dp from the top, clear of the planning header (64 dp). Its icon is a pin with arcs on both sides, as large as the recording ring, with the number of people cut out of the pin ("99+" from 100). It blinks between grey and blue, in step with track recording's: each blinking starts on a common clock, one line added to upstream's `animateIconBlinking()`. A tap opens Manage sharing. It hides with the other map buttons. Its blinking stops with its view, e.g. when the buttons are made again for navigation. | Your changes in the third review (§25): the badge was cut off on some phones, the indicator covered the compass, and it should blink like track recording's, in blue; below track recording's, kept in the fourth (§26), where both indicators touched the planning header (40 dp from the top on short screens, 64 on others). |
 | Adding a contact | The screen opens with a QR invite (10 min). "Share a link instead" cancels it and makes a link invite (24 h). "Paste invite" cancels the user's own open QR invite before joining. | One open invite per screen, so the two codes are never confused. |
 | Share durations | 15 min, 1 h (preselected), 8 h, until stopped, or until a time of day picked on a clock (tomorrow if it has passed). A contact's details change the end of a running share, earlier or later, without re-keying. | §11.3's list, and your changes in the third review (§25). |
@@ -1295,7 +1306,7 @@ The Android app (`android/app/.../livelocation`, `android/sdk/.../livelocation`)
 | Buttons | Filled for the screen's main action, outlined for the others, red for stopping and deleting: filled red "Stop sharing location" and "Stop all", outlined red "Stop sharing with …", "Delete contact" and "Cancel invite". | What CoMaps' own screens imply (§25): Start, Download and Log in filled; Register and Edit outlined; navigation's Stop filled red; the editor's Reset outlined red. |
 | Leaving an open invite | "Leave the invite waiting?" → [Leave it waiting] / [Cancel invite], on back, the toolbar's arrow, and for the inviter only. | Your change in the third review (§25). A joiner's pairing goes on by itself, and its screen says so. |
 | Screen titles | Each screen on top of another has its title, and the one below gets its title back however the screen goes. | "Cancel invite" closed the screen without going "back", which left "Add contact" as the title (§25). |
-| Resuming after the process died | The map offers it in a dialog. "Resume" restarts the share with the same people and ends; without the permissions it needs, Manage sharing asks for them and then resumes. Manage sharing offers it too, at its top, until it is resumed or dismissed. Only the people whose end has not passed are offered; if every end passed after the offer, the app says so and forgets the share. | §8.5. Coming back from the notification settings resumed nothing, and a share whose ends had all passed was offered again and again (§25). |
+| Resuming after the process died | The map offers it in a dialog. "Resume" restarts the share with the same people and ends; without the permissions it needs, Manage sharing asks for them and then resumes. Manage sharing offers it too, at its top, until it is resumed or dismissed. Only the people whose end has not passed are offered; if every end passed after the offer, the app says so and forgets the share. "Don't resume" tells them that the share ended (core, above). | §8.5. Coming back from the notification settings resumed nothing, and a share whose ends had all passed was offered again and again (§25). |
 | Relay consent questions | Queued; whichever live location screen or the map is in front asks them, one at a time, with [Allow] / [Not now] / [Don't allow] (core, above). A question dismissed with the activity counts as "Not now". The labels of a contact (§11.5) and Settings → Relays for contacts ask again. | Questions arrive at any time, often while the user is on the map. |
 | A contact's dot | A circle, 20 dp across (16 until the third review), in the colour the sharer chose, or one derived from the contact's id (grey once old), with the name under it, in the layer of bookmarks' labels. A tap on either opens the sheet over the map (§11.4); "Center" zooms to the position at zoom 16. A long tap opens the usual place page of that point, titled with the name, from which one can route there. | Drape places no labels in the user mark layer. A tap on a name used to reach upstream code that aborts on an unknown mark type (§24). |
 | The dot's sheet | A bottom sheet in the map's layout, as the place page is, not a dialog: the map stays bright and can be moved, the map buttons rise above it, and "Center" puts the contact in the part of the map above it. A drag down closes it, and so does whatever closes the place page: back, the main menu, the search bar on the map, planning a route, full screen; the search button leaves both open. A place tapped on the map takes its place; another contact's dot replaces its lines. It stays open while the contact's details are open, and comes back after a rotation. Hooks in `MwmActivity`: back, `closeFloatingPanels()` and full screen. It gets the navigation bar's room itself, before its first layout, and tells the map buttons where it rests after each layout pass. It asks for a layout pass at each step of its movement. | Your change in the fourth review (§26): the dialog dimmed the map, covered the map buttons, and closed when the map was touched. The behaviour gave the bar's room only after the sheet had started to open, and a layout listener sees the sheet before the behaviour moves it down: it opened over the bar, and the buttons hid (§27). Over the map, a SurfaceView, the window tells the compositor which of its parts are transparent only at a layout pass, and the behaviour slides the sheet up without one: its sides and the part behind the navigation bar showed the map (§28). |
@@ -1316,19 +1327,20 @@ the phones. A first brief run on two phones, and the review that followed, are i
 review, with your verdicts on the judgement calls, in §24; the third, after more runs on phones,
 with the screens reworked, in §25; the fourth, which dropped compatibility with development builds
 and made the dot's sheet behave as the place page, in §26; the fifth, before the full runs on
-phones, in §27; the sixth, after a run on phones, in §28.
+phones, in §27; the sixth, after a run on phones, in §28; the seventh, on updates sent while offline,
+in §29.
 
 ### What was built
 
 | Part | Where | Size |
 |---|---|---|
-| Core: crypto (BIP-340 through libsecp256k1, NIP-44 v2, Noise NNpsk0, HKDF), Nostr events and the strict JSON profile, NLL v1 (invites, pairing, channels, streams, signals, receiving rules), relay pool, encrypted store, manager | `libs/live_location` | 9,500 lines |
-| Tests of the core | `libs/live_location/live_location_tests` | 5,500 lines, 102 tests (71 at first, 79 after §23, 87 after §24, 95 after §25, 98 after §26, 100 after §27) |
+| Core: crypto (BIP-340 through libsecp256k1, NIP-44 v2, Noise NNpsk0, HKDF), Nostr events and the strict JSON profile, NLL v1 (invites, pairing, channels, streams, signals, receiving rules), relay pool, encrypted store, manager | `libs/live_location` | 9,800 lines |
+| Tests of the core | `libs/live_location/live_location_tests` | 6,100 lines, 110 tests (71 at first, 79 after §23, 87 after §24, 95 after §25, 98 after §26, 100 after §27, 102 after §28) |
 | Contacts' dots on the map, and a tap on them | `libs/map/live_location_marks.*`, `Framework`; a test in `map_tests` | |
 | Desktop test peer (the core driven by line commands, plain `ws://`) | `libs/live_location/peer` | 630 lines |
-| JNI host: the core's thread, OkHttp sockets, Keystore key wrapping | `android/sdk/src/main/cpp/.../livelocation` | 780 lines |
-| SDK: facade, OkHttp transport, Keystore wrapper, models; location pace | `android/sdk/src/main/java/.../livelocation`, `LocationHelper` | 1,230 lines |
-| App: foreground service, the switch and its settings, screens, the dot's sheet, the indicator's icon, the left button, hooks | `android/app/src/main/java/.../livelocation` | 4,100 lines |
+| JNI host: the core's thread, OkHttp sockets, Keystore key wrapping | `android/sdk/src/main/cpp/.../livelocation` | 850 lines |
+| SDK: facade, OkHttp transport, Keystore wrapper, models; location pace | `android/sdk/src/main/java/.../livelocation`, `LocationHelper` | 1,260 lines |
+| App: foreground service, delivery and ratchet jobs, the switch and its settings, screens, the dot's sheet, the indicator's icon, the left button, hooks | `android/app/src/main/java/.../livelocation` | 4,200 lines |
 | Python reference implementation, test peer, cross test, fixtures | `tools/python/live_location` | 4,800 lines |
 
 ### How it was tested
@@ -1344,8 +1356,10 @@ phones, in §27; the sixth, after a run on phones, in §28.
   the fixes from the code review that ended it: charging, failed writes, resuming and invites through
   relays not allowed (30 mutants, §25), and the fourth review's rules for relay URLs and names, the
   store's version, the notice of failed writes and the default relays' echo (12 mutants, §26), the
-  fifth's hidden contacts and own dot colour (7 mutants, §27), and the sixth's time limits of
-  followed shares and reading the latest state again after a restart (7 mutants, §28).
+  fifth's hidden contacts and own dot colour (7 mutants, §27), the sixth's time limits of
+  followed shares and reading the latest state again after a restart (7 mutants, §28), and the
+  seventh's states sent again, the next day's repeat, deleted contacts, interrupted shares and
+  pairing steps (21 mutants, §29). The fake network also takes one phone offline.
 - **Map**: a test taps a dot as drape reports it, on its name and on the dot itself, with and without
   the app's listener (`LiveLocationMarks_TapOnADot`). Without the fix it aborts, as the app did.
 - **Cross-implementation, over a real relay** (strfry): the C++ core and the Python reference pair
@@ -1353,7 +1367,7 @@ phones, in §27; the sixth, after a run on phones, in §28.
   revoke, and each reads the other's dot colour. After a removal, the removed peer's old key opens
   none of the events published afterwards (12 of 12 refused). 15 checks, all passing. Between two
   C++ peers a live fix arrives in about 0.1 s.
-- **Android**: the APK builds (fdroid debug, arm64). All 33 native methods are exported, and their
+- **Android**: the APK builds (fdroid debug, arm64). All 34 native methods are exported, and their
   JNI descriptors match the C++ parameter types. The Java parsers are tested on the JVM against
   views recorded from the C++ core (9 tests). Android lint, app and SDK: no errors. Its first run
   found seven in this code, of two kinds (posting the notification without an explicit
@@ -1389,8 +1403,10 @@ last one accepted.
 
 ### Known gaps
 
-- The changes of the sixth review (§28) have not been on a phone yet: the dot's sheet drawn whole, a
-  hidden contact's share ending at its time limit, a share followed again after a restart.
+- The changes of the sixth and seventh reviews (§28, §29) have not been on a phone yet: the dot's
+  sheet drawn whole, a hidden contact's share ending at its time limit, a share followed again after
+  a restart, and updates sent offline arriving once the network is back. The delivery job that sends
+  them while the app is closed has no test here.
 - §11.5 once promised a test of whether each relay can be reached; none was built.
 - English only.
 - Phones whose makers kill background apps aggressively may stop the sharing service; only
@@ -1728,3 +1744,73 @@ fourth review; it is corrected.
 **Tests now.** 102 C++ tests of the core pass with clang 18 (unity and non-unity builds) and GCC 13,
 and the map's tap test. The cross-implementation test passes 15 of 15 over strfry, the Python
 reference's tests 309 of 309, the JVM tests 9 of 9, and lint finds no errors. The APK builds.
+
+## 29. Seventh review of Phase 2 (2026-10-23)
+
+You found that an update sent while the sharer is offline is lost. It was checked before anything
+changed: right in all three cases, and seven more paths lost updates the same way. Your suggested fix
+covers them all: a contact's current state goes again until a relay accepts it, and the app keeps
+across restarts which contacts still wait for one. With your decisions below, each change in the core
+has a test that fails without it (21 mutants, all caught).
+
+| Your claim | Verdict |
+|---|---|
+| Offline at midnight UTC, Bob's map keeps the pre-midnight position until the next midnight's grant | **Right.** Reproduced with one phone's network switched off in the test harness: at 08:10 Bob's map still showed the 23:59 position, stale. Any other state from Alice to Bob would have ended it sooner; the next midnight's at the latest |
+| Stopping offline, Bob's list still says she shares six hours later | **Right**, even with Alice back online and her app open. With a time limit, the share ended there on Bob's phone (§28); without one, only when Bob's app restarted on a later day |
+| Starting offline, Bob sees nothing three hours later | **Right**, until the next midnight's grant |
+| Doze makes the midnight case common on real phones | **In part.** The risk list says so (§13), but stock Android lets an app with a foreground service use the network in Doze (AOSP's `NetworkPolicyManager.isProcStateAllowedWhileIdleOrPowerSaveMode`: process states up to a bound foreground service), and a running share has one. On stock Android the loss needs the network itself to go: tunnels, flights, airplane mode overnight, weak coverage. OEM battery savers may still cut it. High all the same: every update made offline was lost, not only midnight's |
+| There since the first implementation | **Right.** A state was published once; the relay pool reports a failure and keeps nothing. Only pairing steps went again, and only until the app restarted |
+
+**Also lost, found while checking.**
+
+1. A later time limit set offline: Bob's view ended at the earlier one while Alice shared for two
+   more hours.
+2. Someone added offline never saw the share, and the other recipients stayed on the old stream; the
+   same when another recipient's time limit passed offline.
+3. A dot colour chosen offline reached nobody.
+4. Home relays changed offline: contacts learned the new list only the next day.
+5. An answer to a contact's move, and the joiner's daily confirmation, waited for the contact's next
+   state, or the next day.
+6. Not offline: after the app was killed during a share, "Don't resume" sent nothing, so contacts saw
+   the share until their app restarted on a later day.
+7. Rarer: a pairing step sent offline was lost if the app restarted before the network came back;
+   deleting a contact one shared with, offline, never told it; and an app left open offline past
+   01:00 UTC, as on a night flight, missed a stop for good (reproduced: still listed at 02:00).
+
+**Your decisions.**
+
+| Question | Decision |
+|---|---|
+| How to keep that no relay accepted a state | In the stored record of which relays the latest state to a contact reached, empty until one did; answers and re-sends become one rule. It was to spare a change of the store's format, which the pairing steps below need anyway |
+| CoMaps not running | A background job (WorkManager) that runs once there is a network, also after the app was killed or the phone restarted, and while the feature is off |
+| "Don't resume" | Tells the recipients; until the user decides, they see the share as it was |
+| Pairing steps | Kept in the store with their pairing, and sent again while the app is open until the invite expires |
+| Deleting a contact one shares with | Its keys go at once, as before. Only states without a share, made then for that day and the next six, and the contact's relays are kept, until one is accepted and another on a later day. You asked what keeping the channel itself would risk: a phone taken from its owner would hold, for up to a week, the keys of a contact the user believes deleted (T7) |
+| An app offline past 01:00 UTC | The sharer sends the end once more on a later day, by the background job if CoMaps is closed |
+
+**What changed.** §21 has the rules (rows "States no relay accepted", "A share's end, once more",
+"Deleting a contact one shares with", "A share interrupted by the process's death" and "The delivery
+job"); spec §6.3, §8, §9, §11 and §13 the protocol's side, as SHOULDs. Beyond your finding:
+
+- A share interrupted by the process's death needed a rule of its own: sending the current state again
+  after the restart would have sent one without a share, ending the share before the user decided.
+  Nothing goes to its recipients until then, not even a confirmation or a new relay list.
+- A contact's move that arrives while the user's own latest state to it is still on its way is
+  answered once that state has its answer.
+- The core tells the app when something is next due, and a start alone sends nothing, so the daily
+  ratchet job still connects nowhere.
+
+**Store.** Its format is now 6, for the pairing steps and the deleted contacts' states: the data of
+earlier builds is not read. Delete the live location data on both phones and pair again.
+
+**Tests now.** 110 C++ tests of the core pass with clang 18 (unity and non-unity builds) and GCC 13.
+Eight are new: the three cases of your finding, the other paths, a restart in between, "Don't
+resume", the next day's repeat, deleted contacts, pairing steps, and the relay pool saying that a
+connection opened. Of 21 mutants of the new rules, 16 were caught at first; each of the other five
+showed a gap, and the tests gained a check for it: a repeat sent on the same day, the repeat kept for
+someone shared with again, an expired resume offer holding things back, a deleted contact's week, and
+the due time while a state is on its way. The cross-implementation test passes 15 of 15 over strfry
+and the Python reference's tests 309 of 309, unchanged: its test peer does not send again, as it
+never did. The JVM tests pass 9 of 9, lint finds no errors and nothing in the new code, and the APK
+builds with all 34 native methods exported. The delivery job has no test here, there being no phone or
+emulator; the checklist has it, with the other offline cases.
