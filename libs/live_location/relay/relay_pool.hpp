@@ -79,6 +79,7 @@ public:
   using DoneFn = std::function<void(bool delivered)>;
   using AllowFn = std::function<bool(std::string const & url)>;
   using EchoFn = std::function<void(std::string const & url)>;
+  using ConnectedFn = std::function<void(std::string const & url)>;
 
   RelayPool(Transport & transport, Executor & executor, crypto::Rng & rng, AllowFn isAllowed, PoolConfig config = {});
   ~RelayPool();
@@ -113,6 +114,8 @@ public:
   void SetEchoing(std::set<std::string> urls) { m_echoing.insert(urls.begin(), urls.end()); }
   /// Called on every event that comes back to the connection that published it.
   void OnEchoed(EchoFn fn) { m_onEchoed = std::move(fn); }
+  /// Called whenever a connection opens: the relay can be reached, e.g. once the network is back.
+  void OnConnected(ConnectedFn fn) { m_onConnected = std::move(fn); }
   /// The relay a FirstReachable subscription on `urls` relies on: the first that is allowed, not failing,
   /// and not found deaf, else the first that is not failing.
   std::optional<std::string> FirstReachable(Relays const & urls) const;
@@ -178,6 +181,7 @@ private:
   std::map<std::string, Deafness> m_deaf;
   std::set<std::string> m_echoing;  // relays that have sent an event back to the connection that published it
   EchoFn m_onEchoed;
+  ConnectedFn m_onConnected;
   std::vector<std::unique_ptr<Connection>> m_closed;  // destroyed outside their own callbacks
 };
 }  // namespace live_location::relay

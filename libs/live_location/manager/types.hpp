@@ -142,6 +142,11 @@ public:
   /// Writing the store fails, after it last worked: until a write works, what changed since the last one is
   /// lost if the process ends, and erased keys stay in the file. Each change tries again.
   virtual void OnWriteFailed() {}
+  /// Something is to be sent at `at` (Unix seconds; at or before now: as soon as there is a network), 0 for
+  /// nothing: a state no relay has accepted yet, a share's end told once more on a later day, a deleted
+  /// contact's. Whenever the core does not run then, the app should run it (Manager::Deliver()): a stop made
+  /// offline would otherwise wait for the user to open the app again.
+  virtual void OnDeliveryDue(int64_t /* at */) {}
 };
 
 /// The cadence of design doc §10.3.

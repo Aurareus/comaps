@@ -106,12 +106,21 @@ public:
   /// Whether something sent still waits for relays' answers, e.g. the ends of a share just stopped.
   /// An app that stops keeps the manager until it has none, so that a stop reaches the relays.
   bool HasPendingPublications() const { return m_pool->HasPendingPublications(); }
+  /// Sends what is due (spec §8): contacts' latest states that no relay has accepted yet, again until one does;
+  /// a share's end once more on a later UTC day; the ends of shares with deleted contacts. The manager also
+  /// does this by itself: when a relay connection opens, on a back-off after a failure, at midnight, and when
+  /// the app comes to the foreground. Call it after Start() when the app runs the core for this.
+  void Deliver();
+  /// When something is next to be sent (Unix seconds; at or before now: now), 0 for nothing. A state that
+  /// waits for its relays' answers counts from a minute after it left, in case the process ends first.
+  int64_t DeliveryDue() const;
   /// For tests and diagnostics.
   relay::RelayPool const & Pool() const { return *m_pool; }
 
 private:
   struct Peer;
   struct Session;
+  struct Departed;
 
   // Store
   SecretBytes Encode(std::set<ByteArray<32>> & digests) const;
@@ -125,6 +134,7 @@ private:
   Peer * FindPeer(std::string const & id);
   Peer * FindPeer(ContactPtr const & contact);
   Session * FindSession(std::string const & id);
+  Departed * FindDeparted(std::string const & id);
   std::set<std::string> Trusted() const;
   /// The 30 days after a change of home relays (spec §11) ...
   bool MoveWindow() const;
@@ -159,12 +169,29 @@ private:
   void StartFollowing(Peer & peer);
   /// What has ended by `now`: a stale position kEndGrace after its stream's end, a share past its time limit.
   void ExpireFollowing(Peer & peer, int64_t now);
-  void Answer(Peer & peer);
   void OnWatch(Peer & peer, Watch const & watch);
   void OnStreamEvent(std::string const & peerId, nostr::Event const & event);
-  /// To the contact's relays that the user allows. `ask`: about the others, once each (relay consent).
-  void PublishControl(ContactPtr const & contact, nostr::Event const & event, relay::RelayPool::DoneFn done = {},
-                      bool ask = true);
+  /// States, each the latest towards its contact, to the contact's relays that the user allows; saved first.
+  /// Each counts as not delivered until a relay accepts it (spec §8). `answered`: once each has an answer, or
+  /// failed. `ask`: about the other relays, once each (relay consent).
+  void PublishStates(std::vector<std::pair<ContactPtr, nostr::Event>> const & states,
+                     std::function<void()> answered = {}, bool ask = true);
+  /// The same, for states that are already saved as the latest, e.g. sent again.
+  void SendStates(std::vector<std::pair<ContactPtr, nostr::Event>> const & states, std::function<void()> answered,
+                  bool ask);
+  void OnStateAnswered(std::string const & id, nostr::Event const & event, Relays const & relays, bool delivered);
+  /// Whether the contact is owed the current state: its relays do not hold this user's latest state, because
+  /// no relay accepted that yet, or because the contact moved (the answer, spec §11, never to a hidden one).
+  bool Owed(Peer const & peer) const;
+  /// A recipient of a share that the process's death interrupted: until the user resumes it or not, the contact
+  /// sees it as it was, and nothing goes to it.
+  bool Interrupted(Peer const & peer) const;
+  void PublishDeparted(Departed & departed, nostr::Event const & event);
+  /// Shares that ended with `before`'s recipients are told once more on a later day; new ones need not be.
+  void NoteShareEnds(Grants const & before);
+  /// Deliver() again after a failure, on a back-off.
+  void ScheduleDelivery();
+  void NotifyDelivery();
   void SendConfirmations();
   void SendWatchSignals();
   void SendWatch(Peer & peer);
@@ -183,7 +210,8 @@ private:
   // Time and connections
   std::vector<nostr::Filter> InboxRequest(int64_t epoch, bool listening) const;
   void ScheduleClock();
-  void OnClock();
+  /// `deliver`: also what is due to be sent (not at Start(): a start only to ratchet connects nowhere).
+  void OnClock(bool deliver = true);
   void UpdateConnections();
   void ViewTick();
 
@@ -207,6 +235,7 @@ private:
   Key m_decoySeed;
   std::vector<std::unique_ptr<Peer>> m_peers;
   std::vector<std::unique_ptr<Session>> m_sessions;
+  std::vector<std::unique_ptr<Departed>> m_departed;
   std::set<std::string> m_asked;  // relays asked about in this run
   std::set<std::string> m_echoed;  // relays that have sent an event back (the echo check), kept while in use
   int m_battery = -1;              // the last level reported during the share, -1: none
@@ -238,5 +267,10 @@ private:
   Executor::TaskId m_clock = Executor::kNoTask;
   Executor::TaskId m_watchTimer = Executor::kNoTask;
   Executor::TaskId m_viewTimer = Executor::kNoTask;
+
+  // Delivery
+  Executor::TaskId m_delivery = Executor::kNoTask;
+  int m_deliveryFailures = 0;  // in a row: the back-off
+  int64_t m_notifiedDue = -1;  // as last told the app
 };
 }  // namespace live_location

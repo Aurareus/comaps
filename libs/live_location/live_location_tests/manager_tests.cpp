@@ -21,9 +21,9 @@
 #include <string_view>
 #include <vector>
 
-// Whole phones against in-process relays: pairing, sharing, live updates, relays down, time limits,
-// revocation, the connection policy, relay consent, restarts, the store's key rotation, dot colours and
-// the battery.
+// Whole phones against in-process relays: pairing, sharing, live updates, relays down, a phone offline, time
+// limits, revocation, the connection policy, relay consent, restarts, the store's key rotation, dot colours
+// and the battery.
 namespace manager_tests
 {
 using namespace live_location;
@@ -77,6 +77,85 @@ public:
   bool m_failing = false;
 };
 
+/// A phone's network: the world's relays, or none while it is offline (no coverage, airplane mode, Doze).
+/// Going offline closes the open connections, as losing the network does; connecting while offline fails.
+class PhoneNetwork : public relay::Transport
+{
+public:
+  PhoneNetwork(VirtualExecutor & executor, FakeTransport & world) : m_executor(executor), m_world(world) {}
+
+  std::unique_ptr<relay::Socket> Connect(std::string const & url, relay::SocketListener & listener) override
+  {
+    auto link = std::make_shared<Link>(listener);
+    link->m_inner = m_world.Connect(m_offline ? std::string("wss://offline.invalid") : url, *link);
+    m_links.push_back(link);
+    return std::make_unique<Socket>(link);
+  }
+
+  void SetOffline(bool offline)
+  {
+    m_offline = offline;
+    if (!offline)
+      return;
+    for (auto const & link : m_links)
+    {
+      if (link->m_inner)
+        link->m_inner->Close();
+      m_executor.Post([link] { link->OnClosed("network lost"); });
+    }
+    m_links.clear();
+  }
+
+private:
+  /// Between the pool's socket and the world's: forwards events until either side closes.
+  struct Link : relay::SocketListener
+  {
+    explicit Link(relay::SocketListener & listener) : m_listener(&listener) {}
+    void OnOpen() override
+    {
+      if (m_listener)
+        m_listener->OnOpen();
+    }
+    void OnMessage(std::string const & text) override
+    {
+      if (m_listener)
+        m_listener->OnMessage(text);
+    }
+    void OnClosed(std::string const & reason) override
+    {
+      if (auto * listener = std::exchange(m_listener, nullptr))
+        listener->OnClosed(reason);
+    }
+
+    relay::SocketListener * m_listener;
+    std::unique_ptr<relay::Socket> m_inner;
+  };
+
+  struct Socket : relay::Socket
+  {
+    explicit Socket(std::shared_ptr<Link> link) : m_link(std::move(link)) {}
+    ~Socket() override { Close(); }
+    void Send(std::string const & text) override
+    {
+      if (m_link->m_listener && m_link->m_inner)
+        m_link->m_inner->Send(text);
+    }
+    void Close() override
+    {
+      m_link->m_listener = nullptr;
+      if (m_link->m_inner)
+        m_link->m_inner->Close();
+    }
+
+    std::shared_ptr<Link> m_link;
+  };
+
+  VirtualExecutor & m_executor;
+  FakeTransport & m_world;
+  bool m_offline = false;
+  std::vector<std::shared_ptr<Link>> m_links;
+};
+
 /// One phone: a manager with its own store, key store and randomness.
 class Phone
 {
@@ -86,6 +165,10 @@ public:
 
   /// The process dies and starts again from its store. False when the store cannot be read.
   bool Restart(bool expectReadable = true);
+  /// The process dies, until Restart().
+  void Stop() { m_manager.reset(); }
+  /// Loses the network, or gets it back.
+  void SetOffline(bool offline) { m_network->SetOffline(offline); }
 
   Manager & M() { return *m_manager; }
   Recorder & Events() { return m_events; }
@@ -115,6 +198,7 @@ private:
   TestKeys m_keys;
   Recorder m_events;
   std::unique_ptr<store::Store> m_store;
+  std::unique_ptr<PhoneNetwork> m_network;
   std::unique_ptr<Manager> m_manager;
 };
 
@@ -138,6 +222,7 @@ Phone::Phone(World & world, std::string const & name)
   : m_world(world)
   , m_path((std::filesystem::temp_directory_path() / ("nll_manager_" + name + ".dat")).string())
   , m_rng(AsBytes("phone " + name))
+  , m_network(std::make_unique<PhoneNetwork>(world.m_executor, world.m_transport))
 {
   std::remove(m_path.c_str());
   Restart();
@@ -154,7 +239,7 @@ bool Phone::Restart(bool expectReadable)
 {
   m_manager.reset();
   m_store = std::make_unique<store::Store>(m_path, m_keys, m_rng);
-  m_manager = std::make_unique<Manager>(m_world.m_executor, m_world.m_transport, *m_store, m_rng, m_events);
+  m_manager = std::make_unique<Manager>(m_world.m_executor, *m_network, *m_store, m_rng, m_events);
   bool const started = m_manager->Start();
   if (expectReadable)
     TEST(started, ());
@@ -1480,4 +1565,454 @@ UNIT_TEST(Manager_LowBattery)
   alice.Restart();
   TEST_EQUAL(alice.M().GetSettings().m_lowBatteryStop, 20, ());
 }
+/// Runs the world until `done` holds, for at most `maxMs`, a fix every 30 s from a sharer that walks north.
+/// Whether it did.
+template <typename Done>
+bool WalkUntil(World & world, Phone & sharer, double & lat, Done && done, int64_t maxMs)
+{
+  int64_t const end = world.m_executor.NowMs() + maxMs;
+  while (!done() && world.m_executor.NowMs() < end)
+  {
+    lat += 0.001;
+    sharer.M().OnLocation(FixAt(world, lat, 7.0));
+    world.Run(30'000);
+  }
+  return done();
+}
+
+int64_t constexpr kBackOnlineMs = 7 * 60'000;  // the relay pool's longest back-off, and the manager's, at most
+
+UNIT_TEST(Manager_UpdatesMadeOfflineArriveOnceOnline)
+{
+  auto const ended = [](Phone & viewer)
+  { return !viewer.Contact("Alice")->m_sharesWithMeUntil && !viewer.Position("Alice"); };
+  auto const current = [](Phone & viewer, double const & lat)
+  {
+    auto const * position = viewer.Position("Alice");
+    return position && !position->m_stale && std::abs(position->m_location.m_lat - lat) < 0.0015;
+  };
+
+  // Started without a network: Bob sees the share once the phone is back online, not at the next midnight.
+  {
+    World world;
+    Phone alice(world, "Alice");
+    Phone bob(world, "Bob");
+    Pair(world, alice, bob);
+    alice.M().SetForeground(false);  // in a pocket: only the share runs
+    alice.SetOffline(true);
+    TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+    double lat = 45.0;
+    WalkUntil(world, alice, lat, [] { return false; }, 600'000);
+    TEST(!bob.Contact("Alice")->m_sharesWithMeUntil, ());
+    int64_t const due = alice.M().DeliveryDue();
+    TEST(due != 0 && due <= world.m_executor.Now(), ("the app's job would run as soon as there is a network"));
+    alice.SetOffline(false);
+    TEST(WalkUntil(world, alice, lat, [&] { return current(bob, lat); }, kBackOnlineMs), ());
+    TEST_EQUAL(alice.M().DeliveryDue(), 0, ());
+  }
+
+  // Stopped without a network, from the notification: the share ends on Bob's phone once Alice's is back
+  // online. Nothing else connects then: the app is in the background and shares nothing.
+  {
+    World world;
+    Phone alice(world, "Alice");
+    Phone bob(world, "Bob");
+    Pair(world, alice, bob);
+    alice.M().SetForeground(false);
+    TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+    alice.M().OnLocation(FixAt(world, 46.0, 7.0));
+    world.Run(3'000);
+    TEST(bob.Position("Alice"), ());
+    alice.SetOffline(true);
+    alice.M().StopSharing();
+    world.Run(600'000);
+    TEST(!ended(bob), ());
+    alice.SetOffline(false);
+    double lat = 0;
+    TEST(WalkUntil(world, bob, lat, [&] { return ended(bob); }, kBackOnlineMs), ());
+  }
+
+  // Offline across midnight UTC, when the stream is replaced: Bob follows the new one once Alice is back.
+  {
+    World world;
+    Phone alice(world, "Alice");
+    Phone bob(world, "Bob");
+    Pair(world, alice, bob);
+    alice.M().SetForeground(false);
+    TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+    double lat = 47.0;
+    int64_t const midnight = EpochEnd(EpochOf(world.m_executor.Now()));
+    world.Run((midnight - 900 - world.m_executor.Now()) * 1000);
+    WalkUntil(world, alice, lat, [&] { return world.m_executor.Now() >= midnight - 60; }, 900'000);
+    TEST(current(bob, lat), ());
+    alice.SetOffline(true);
+    WalkUntil(world, alice, lat, [] { return false; }, 11 * 60'000);
+    alice.SetOffline(false);
+    TEST(WalkUntil(world, alice, lat, [&] { return current(bob, lat); }, kBackOnlineMs), ("the new day's grant"));
+  }
+
+  // A contact Alice hides is told too: hiding stops following its share, not telling it about hers.
+  {
+    World world;
+    Phone alice(world, "Alice");
+    Phone bob(world, "Bob");
+    Pair(world, alice, bob);
+    alice.M().SetHidden(alice.Id("Bob"), true);
+    TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+    alice.M().OnLocation(FixAt(world, 48.0, 7.0));
+    world.Run(3'000);
+    TEST(bob.Position("Alice"), ());
+    alice.SetOffline(true);
+    alice.M().StopSharing();
+    world.Run(600'000);
+    alice.SetOffline(false);
+    double lat = 0;
+    TEST(WalkUntil(world, bob, lat, [&] { return ended(bob); }, kBackOnlineMs), ());
+  }
+}
+
+UNIT_TEST(Manager_ChangesMadeOfflineReachEveryone)
+{
+  // A later time limit: Bob still follows Alice after the earlier one.
+  {
+    World world;
+    Phone alice(world, "Alice");
+    Phone bob(world, "Bob");
+    Pair(world, alice, bob);
+    int64_t const hour = world.m_executor.Now() + 3600;
+    TEST(alice.M().StartSharing({{alice.Id("Bob"), hour}}), ());
+    alice.M().OnLocation(FixAt(world, 48.0, 7.0));
+    world.Run(3'000);
+    alice.SetOffline(true);
+    TEST(alice.M().ExtendSharing(alice.Id("Bob"), hour + 7200), ());
+    world.Run(60'000);
+    alice.SetOffline(false);
+    double lat = 48.0;
+    WalkUntil(world, alice, lat, [] { return false; }, (hour + 600 - world.m_executor.Now()) * 1000);
+    TEST(bob.Contact("Alice")->m_sharesWithMeUntil == std::optional<int64_t>(hour + 7200), ());
+    TEST(bob.Position("Alice") && !bob.Position("Alice")->m_stale, ());
+  }
+
+  // Carol added offline, and Carol's time limit passing offline: both re-key the stream.
+  {
+    World world;
+    Phone alice(world, "Alice");
+    Phone bob(world, "Bob");
+    Phone carol(world, "Carol");
+    Pair(world, alice, bob);
+    Pair(world, alice, carol);
+    alice.M().SetForeground(false);
+    TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+    double lat = 49.0;
+    WalkUntil(world, alice, lat, [] { return false; }, 60'000);
+    alice.SetOffline(true);
+    int64_t const half = world.m_executor.Now() + 1800;
+    TEST(alice.M().ChangeSharing({{alice.Id("Bob"), 0}, {alice.Id("Carol"), half}}), ());
+    world.Run(60'000);
+    alice.SetOffline(false);
+    auto const follows = [&](Phone & viewer)
+    {
+      auto const * position = viewer.Position("Alice");
+      return position && !position->m_stale && std::abs(position->m_location.m_lat - lat) < 0.0015;
+    };
+    TEST(WalkUntil(world, alice, lat, [&] { return follows(bob) && follows(carol); }, kBackOnlineMs), ());
+
+    WalkUntil(world, alice, lat, [&] { return world.m_executor.Now() >= half - 60; }, 1800'000);
+    alice.SetOffline(true);
+    WalkUntil(world, alice, lat, [] { return false; }, 120'000);
+    alice.SetOffline(false);
+    TEST(WalkUntil(world, alice, lat, [&] { return follows(bob) && !carol.Position("Alice"); }, kBackOnlineMs), ());
+  }
+
+  // A colour chosen offline.
+  {
+    World world;
+    Phone alice(world, "Alice");
+    Phone bob(world, "Bob");
+    Pair(world, alice, bob);
+    TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+    world.Run(3'000);
+    alice.SetOffline(true);
+    TEST(alice.M().SetColor("red"), ());
+    world.Run(60'000);
+    alice.SetOffline(false);
+    double lat = 50.0;
+    TEST(WalkUntil(world, alice, lat, [&] { return bob.Contact("Alice")->m_color == "red"; }, kBackOnlineMs), ());
+  }
+
+  // Home relays changed offline: contacts learn the new list once online, not on the next day.
+  {
+    World world;
+    std::string const kOwn = "wss://own.example";
+    world.m_transport.Add(kOwn);
+    Phone alice(world, "Alice");
+    Phone bob(world, "Bob");
+    Pair(world, alice, bob);
+    alice.SetOffline(true);
+    TEST(alice.M().SetHomeRelays({kOwn}), ());
+    world.Run(60'000);
+    alice.SetOffline(false);
+    double lat = 0;
+    TEST(WalkUntil(world, bob, lat, [&] { return !bob.Events().m_consents.empty(); }, kBackOnlineMs), ());
+    TEST_EQUAL(bob.Events().m_consents.back().m_url, kOwn, ("Bob's app asks before answering there"));
+  }
+}
+
+UNIT_TEST(Manager_AStateNoRelayAcceptedOutlivesTheProcess)
+{
+  World world;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+  alice.M().OnLocation(FixAt(world, 51.0, 7.0));
+  world.Run(3'000);
+  TEST_EQUAL(alice.M().DeliveryDue(), 0, ("everything delivered"));
+
+  // Alice stops in a tunnel, and the process dies before the phone is back online.
+  alice.SetOffline(true);
+  alice.M().StopSharing();
+  world.Run(60'000);
+  alice.SetOffline(false);
+  alice.Restart();
+  int64_t const due = alice.M().DeliveryDue();
+  TEST(due != 0 && due <= world.m_executor.Now(), ("still owed after the restart"));
+  world.Run(60'000);
+  TEST(bob.Contact("Alice")->m_sharesWithMeUntil, ("a start sends nothing by itself ..."));
+  TEST(alice.M().Pool().Connections().empty(), ("... nor connects: the daily ratchet job only starts the core"));
+
+  // The app's job runs the core: the stop reaches Bob.
+  alice.M().Deliver();
+  TEST_GREATER(alice.M().DeliveryDue(), world.m_executor.Now(), ("on its way: the app's job waits a minute"));
+  world.Run(3'000);
+  TEST(!bob.Contact("Alice")->m_sharesWithMeUntil && !bob.Position("Alice"), ());
+  // Told once more on the next UTC day, for a phone that was offline until this one could no longer be read.
+  int64_t const midnight = EpochEnd(EpochOf(world.m_executor.Now()));
+  TEST_EQUAL(alice.M().DeliveryDue(), midnight, ());
+  world.Run((midnight - world.m_executor.Now()) * 1000 + 60'000);
+  TEST_EQUAL(alice.M().DeliveryDue(), 0, ("once only"));
+
+  // Shared with again before the repeat: none is due.
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+  world.Run(3'000);
+  alice.M().StopSharing();
+  world.Run(3'000);
+  TEST_EQUAL(alice.M().DeliveryDue(), EpochEnd(EpochOf(world.m_executor.Now())), ());
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+  world.Run(3'000);
+  TEST_EQUAL(alice.M().DeliveryDue(), 0, ());
+}
+
+UNIT_TEST(Manager_NotResumingTellsTheRecipients)
+{
+  World world;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+  alice.M().OnLocation(FixAt(world, 52.0, 7.0));
+  world.Run(3'000);
+  alice.Restart();  // the process dies during the share
+  alice.M().SetForeground(true);
+  world.Run(600'000);
+  TEST(bob.Contact("Alice")->m_sharesWithMeUntil, ("Bob sees the share until Alice decides"));
+  std::string const kOwn = "wss://own.example";
+  world.m_transport.Add(kOwn);
+  TEST(alice.M().SetHomeRelays({std::string(kDefaultRelays[0]), kOwn}), ());  // nor does a change of relays
+  world.Run(60'000);
+  TEST(bob.Contact("Alice")->m_sharesWithMeUntil, ());
+  alice.M().DismissResume();
+  world.Run(3'000);
+  TEST(!bob.Contact("Alice")->m_sharesWithMeUntil && !bob.Position("Alice"), ("\"Don't resume\" ends it"));
+
+  // Also when the process died before a grant reached a relay: nothing goes to Bob before Alice decides.
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+  alice.M().OnLocation(FixAt(world, 52.1, 7.0));
+  world.Run(3'000);
+  alice.SetOffline(true);
+  TEST(alice.M().ExtendSharing(alice.Id("Bob"), world.m_executor.Now() + 7200), ());
+  world.Run(60'000);
+  alice.Restart();
+  alice.SetOffline(false);
+  alice.M().Deliver();
+  alice.M().SetForeground(true);
+  world.Run(600'000);
+  TEST(bob.Contact("Alice")->m_sharesWithMeUntil == std::optional<int64_t>(0), ("as it was"));
+  TEST_EQUAL(alice.M().DeliveryDue(), 0, ("the decision is the user's, not the network's"));
+  alice.M().DismissResume();
+  world.Run(3'000);
+  TEST(!bob.Contact("Alice")->m_sharesWithMeUntil, ());
+
+  // Nor the joiner's daily confirmation: Bob joined, and his share with Alice was interrupted the next day.
+  bob.M().SetForeground(false);
+  alice.M().SetForeground(false);
+  world.Run((EpochEnd(EpochOf(world.m_executor.Now())) - world.m_executor.Now()) * 1000 + 3600'000);
+  alice.M().SetForeground(true);
+  TEST(bob.M().StartSharing({{bob.Id("Alice"), 0}}), ());
+  world.Run(3'000);
+  bob.Restart();
+  alice.M().SetForeground(false);
+  world.Run(86'400'000);
+  alice.M().SetForeground(true);
+  bob.M().SetForeground(true);  // a confirmation is due that day
+  world.Run(60'000);
+  TEST(alice.Contact("Bob")->m_sharesWithMeUntil, ("still Bob's to decide"));
+  bob.M().DismissResume();
+  world.Run(3'000);
+  TEST(!alice.Contact("Bob")->m_sharesWithMeUntil, ());
+
+  // An interrupted share past its time limit holds nothing back: the app no longer offers it.
+  std::string const kOwn2 = "wss://own2.example";
+  world.m_transport.Add(kOwn2);
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), world.m_executor.Now() + 600}}), ());
+  world.Run(3'000);
+  alice.Restart();
+  world.Run(1200'000);
+  TEST(alice.M().SetHomeRelays({kOwn2}), ());
+  world.Run(3'000);
+  TEST(!bob.Events().m_consents.empty() && bob.Events().m_consents.back().m_url == kOwn2, ("Bob learned the list"));
+}
+
+UNIT_TEST(Manager_AViewerOfflineUntilAnEndExpiredLearnsItTheNextDay)
+{
+  World world;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+  alice.M().OnLocation(FixAt(world, 53.0, 7.0));
+  world.Run(3'000);
+  bob.SetOffline(true);  // a night flight, with the map open
+  world.Run(600'000);
+  alice.M().StopSharing();
+  world.Run(60'000);
+  // Opened again that day, Alice's app does not repeat it yet: it would expire with the first.
+  world.Run(3 * 3600'000);
+  alice.M().SetForeground(false);
+  alice.M().SetForeground(true);
+  world.Run(60'000);
+  TEST_EQUAL(alice.M().DeliveryDue(), EpochEnd(EpochOf(world.m_executor.Now())), ());
+  // The stop can be read until 01:00 UTC; Bob lands at 02:00, when Alice's app has told him once more.
+  int64_t const twoAm = EpochEnd(EpochOf(world.m_executor.Now())) + 2 * 3600;
+  world.Run((twoAm - world.m_executor.Now()) * 1000);
+  TEST(bob.Contact("Alice")->m_sharesWithMeUntil, ());
+  bob.SetOffline(false);
+  double lat = 0;
+  TEST(WalkUntil(world, bob, lat, [&] { return !bob.Contact("Alice")->m_sharesWithMeUntil; }, kBackOnlineMs), ());
+}
+
+UNIT_TEST(Manager_ADeletedContactIsToldItsShareEnded)
+{
+  // Deleted offline, while Alice shares with Bob and Carol: Bob's keys go at once, and the state ending his share
+  // reaches him once Alice is back online, two days later. Carol follows the share on.
+  {
+    World world;
+    Phone alice(world, "Alice");
+    Phone bob(world, "Bob");
+    Phone carol(world, "Carol");
+    Pair(world, alice, bob);
+    Pair(world, alice, carol);
+    alice.M().SetForeground(false);
+    TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}, {alice.Id("Carol"), 0}}), ());
+    double lat = 54.0;
+    WalkUntil(world, alice, lat, [] { return false; }, 60'000);
+    TEST(bob.Position("Alice") && carol.Position("Alice"), ());
+    alice.SetOffline(true);
+    std::string const alias = *alice.Keys().Aliases().begin();
+    alice.M().DeleteContact(alice.Id("Bob"));
+    TEST(!alice.Contact("Bob"), ());
+    TEST(*alice.Keys().Aliases().begin() != alias, ("Bob's chain keys are erased: the store's keys rotated"));
+    bob.M().SetForeground(false);
+    carol.M().SetForeground(false);
+    world.Run(2 * 86'400'000LL);
+    bob.M().SetForeground(true);
+    carol.M().SetForeground(true);
+    alice.SetOffline(false);
+    TEST(WalkUntil(world, alice, lat, [&] { return !bob.Contact("Alice")->m_sharesWithMeUntil; }, kBackOnlineMs),
+         ("a state made two days earlier, for that day"));
+    TEST(WalkUntil(world, alice, lat, [&] { return carol.Position("Alice") && !carol.Position("Alice")->m_stale; },
+                   kBackOnlineMs),
+         ());
+    // Once more on the next day, then nothing is kept.
+    int64_t const midnight = EpochEnd(EpochOf(world.m_executor.Now()));
+    TEST_EQUAL(alice.M().DeliveryDue(), midnight, ());
+    bob.M().SetForeground(false);
+    carol.M().SetForeground(false);
+    world.Run((midnight - world.m_executor.Now()) * 1000 + 60'000);
+    TEST_EQUAL(alice.M().DeliveryDue(), 0, ());
+  }
+
+  // Also across a restart.
+  {
+    World world;
+    Phone alice(world, "Alice");
+    Phone bob(world, "Bob");
+    Pair(world, alice, bob);
+    TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+    world.Run(3'000);
+    alice.SetOffline(true);
+    alice.M().DeleteContact(alice.Id("Bob"));
+    world.Run(60'000);
+    alice.Restart();
+    alice.SetOffline(false);
+    alice.M().Deliver();
+    world.Run(3'000);
+    TEST(!bob.Contact("Alice")->m_sharesWithMeUntil, ());
+  }
+
+  // Never back online within a week: nothing is kept after it.
+  {
+    World world;
+    Phone alice(world, "Alice");
+    Phone bob(world, "Bob");
+    Pair(world, alice, bob);
+    TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+    world.Run(3'000);
+    bob.M().SetForeground(false);
+    alice.SetOffline(true);
+    alice.M().DeleteContact(alice.Id("Bob"));
+    world.Run(6 * 86'400'000LL);
+    TEST(alice.M().DeliveryDue() != 0, ());
+    alice.Stop();  // the app does not run when the week ends
+    world.Run(86'400'000LL);
+    alice.Restart();
+    TEST_EQUAL(alice.M().DeliveryDue(), 0, ("a week is over"));
+  }
+}
+
+UNIT_TEST(Manager_APairingStepNoRelayAcceptedOutlivesTheProcess)
+{
+  World world;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  alice.M().SetForeground(true);
+  auto const invite = alice.M().CreateInvite(true);
+  alice.M().SetForeground(false);
+
+  // Bob opens the link offline, and his app's process dies before the phone is back online.
+  bob.M().SetForeground(true);
+  bob.SetOffline(true);
+  auto const opened = bob.M().OpenInvite(invite->m_link);
+  TEST(opened && opened->m_stage == PairingInfo::Stage::Waiting, ());
+  world.Run(60'000);
+  bob.Restart();
+  bob.SetOffline(false);
+  bob.M().SetForeground(true);
+  world.Run(5'000);
+
+  // Alice's step 1 is refused by every relay, and her process dies too.
+  SetDown(world, kDefaults, false);
+  for (auto const & url : kDefaults)
+    world.Relay(std::string(url)).m_refuse = true;
+  alice.M().SetForeground(true);
+  world.Run(5'000);
+  alice.Restart();
+  for (auto const & url : kDefaults)
+    world.Relay(std::string(url)).m_refuse = false;
+  alice.M().SetForeground(true);
+  world.Run(5'000);
+  TEST(alice.Events().m_pairings[invite->m_id].m_stage == PairingInfo::Stage::CompareCode, ());
+  TEST(bob.Events().m_pairings[opened->m_id].m_stage == PairingInfo::Stage::CompareCode, ("both steps arrived"));
+}
+
 }  // namespace manager_tests

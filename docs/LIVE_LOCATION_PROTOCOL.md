@@ -205,6 +205,10 @@ Subscriptions on the invite's relays, kept until the invite expires:
 - the inviter: `{"kinds":[30484],"#p":[ipk]}`;
 - the joiner: `{"kinds":[30484],"authors":[ipk]}` and `{"kinds":[30484],"#p":[ipk]}`.
 
+A step that no relay has accepted yet is published again, as the same event, until one does or the
+invite expires; a client keeps it across a restart for that. Publishing it again is not a second step:
+it has the same id, and relays keep one event per step and author.
+
 **Definitions.**
 
 - An event is **envelope-valid for step s** when it passes §12 items 1–4 with `d` equal to `s`.
@@ -400,6 +404,20 @@ Each direction has a single addressable slot (kind `30484`, `d = ""`, pubkey `ct
 - Published to the **recipient's** home relays (its inbox, §11).
 - A sender with an active share republishes its state under the new epoch's key at the first
   opportunity after midnight UTC (the stream also rotates then, §9).
+- A state is **delivered** once a relay answers `OK true` (§11). Until one does, the sender SHOULD
+  send that contact its current state again: whenever a relay connection opens, after a failure on a
+  back-off, and after a restart, so it keeps across restarts which contacts wait for one. Within the
+  epoch of the state the same event goes again, after it a new state. Without this, a state sent
+  offline is lost: a share started then never reaches the recipient, a stop leaves it running, and
+  the grant of midnight leaves it on the old stream for a day.
+- After a share with a contact ends, once a state without `share` has been delivered to it, the
+  sender SHOULD send it its current state once more on a later UTC day. A state can be read only
+  until 01:00 UTC the next day, so a recipient offline until then would otherwise go on showing the
+  share.
+- A sender that deletes a contact erases its channel keys at once (design doc §8.5). If a share with
+  that contact ends then, or ended without both of those states having been delivered, it MAY keep
+  states without `share` made at that moment, one for each of the next 7 epochs, and send them as
+  above: the first until one is delivered, then one on a later day. Only the contact can read them.
 
 ## 9. Location stream
 
@@ -434,7 +452,8 @@ sharer's relays 30–120 s later (design doc, threat T4).
 The wait makes it likely that the remaining recipients have their grants before the `end` arrives,
 but it cannot guarantee it: states go to each recipient's inbox relays and the `end` to the sharer's
 relays. A recipient that sees the `end` first keeps the last position, marked stale, until a state
-arrives (§12).
+arrives (§12). States that no relay accepted go again (§8); the `end` does not need to, since a new
+grant, or a state without `share`, ends the stream a recipient had too.
 
 A sharer that has lost `stream_sk` (its process died) cannot publish the `end`. The old stream's
 last event then simply expires. Recipients treat a new grant, or a state without `share`, as the end
@@ -525,7 +544,7 @@ not shown as not moved (the app offers to remove it instead).
 
 A client that accepts a state naming relays other than those its last state to that contact was
 accepted on (the "answer") SHOULD send that contact its current state at once, through the relays now
-named and as relay consent allows; if no OK arrives, again with the next state, or when the user
+named and as relay consent allows; if no OK arrives, again as any state (§8), and when the user
 allows one of those relays. It sends no answer to a contact it hides. The answer tells the user's app
 that the contact has moved. Like any state, it lets the new relays see which of the user's inbox keys
 are real (T1).
@@ -676,7 +695,10 @@ Further obligations:
 - Rotate the stream on every membership change and every epoch, in the order of §9.
 - One epoch per connection, decoys in the inbox subscription (§11).
 - Never publish anything for a contact the user has not explicitly shared with. After the user
-  stops sharing, publish nothing but the final states and the `end`. The one exception is the
+  stops sharing, publish nothing but the final states and the `end`. The final states go again until
+  delivered, and once more on a later day (§8).
+- Send a state that no relay has accepted again until one does, also after a restart (§8); a pairing
+  step too, until the invite expires (§6.3). The one exception is the
   joiner's confirmation: a state right after pairing, then its current state on each UTC day it
   runs, through epoch `e_p + 7` (§6.3).
 - Connect only to the user's own, the default and approved relays (relay consent, §11); when that

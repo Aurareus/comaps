@@ -526,7 +526,10 @@ void RelayPool::OnOpen(uint64_t connectionId)
     connection->m_socket->Send(text);
   Linger(*connection);
   // The relay is reachable again: subscriptions that skipped it come back.
-  PlaceAllUsing(std::string(connection->m_url));
+  std::string const url = connection->m_url;
+  PlaceAllUsing(url);
+  if (m_onConnected)
+    m_onConnected(url);
 }
 
 void RelayPool::OnMessage(uint64_t connectionId, std::string const & text)

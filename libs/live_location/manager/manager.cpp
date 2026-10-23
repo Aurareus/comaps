@@ -20,13 +20,17 @@ namespace
 // Stores of other versions are not read, like stores that cannot be read: the app offers to delete them.
 // While the feature is in development each change of the format takes the next number; it goes back to 1
 // for the first release.
-uint8_t constexpr kStateVersion = 5;
+uint8_t constexpr kStateVersion = 6;
 int64_t constexpr kQrLifetime = 600;      // design doc §11.2
 int64_t constexpr kLinkLifetime = 86400;  // spec §6.1: at most a day
 int64_t constexpr kCatchUpMs = 30'000;    // how long the previous epoch's states are read for
 int64_t constexpr kPairingRetryMs = 30'000;
 size_t constexpr kMaxPreviousRelays = 8;  // after several changes before everyone moved
 int64_t constexpr kMoveEpochs = 30;       // the previous home relays are read at most through epoch e_c + 30
+int64_t constexpr kDeliveryMinMs = 30'000;   // a state no relay accepted goes again after this, doubling ...
+int64_t constexpr kDeliveryMaxMs = 300'000;  // ... up to this, and whenever a relay connection opens
+int64_t constexpr kInFlight = 60;            // seconds: longer than any relay takes to answer (relay pool)
+int64_t constexpr kDepartedEpochs = 7;       // a deleted contact is told its share ended for at most this long
 
 bool Contains(Relays const & relays, std::string const & url)
 {
@@ -72,11 +76,16 @@ struct Manager::Peer
   // Since this user's home relays last changed, nothing from the contact has come through the new ones
   // (spec §11): it may still send to the previous ones.
   bool m_notMoved = false;
-  // The contact's relays as of the last state of this user's that one of them accepted: a state naming
-  // others is answered there (spec §11).
+  // The contact's relays as of this user's latest state to it, once one of them has accepted that state; empty
+  // until then. A contact whose relays are other ones gets the current state: no relay has accepted the latest
+  // yet, which goes again until one does (spec §8), or the contact moved (the answer, spec §11).
   Relays m_deliveredTo;
-  bool m_answering = false;  // in memory: an answer waits for its OK
-  std::string m_color;       // the dot colour the contact chose, from its last state; "" if none
+  // A share with the contact ended: once a relay has accepted a state without it, the contact gets another one
+  // on a later UTC day, for an app that was offline until the first could no longer be read (spec §8).
+  bool m_repeat = false;
+  bool m_sending = false;                    // in memory: the latest state waits for its relays' answers
+  std::optional<nostr::Event> m_unaccepted;  // in memory: the latest state, while no relay has accepted it
+  std::string m_color;                       // the dot colour the contact chose, from its last state; "" if none
   // The viewer's side of the contact's share, in memory only.
   Following m_following;
   int64_t m_streamEpoch = 0;  // of the grant: the stream travels in that epoch's scope
@@ -98,10 +107,23 @@ struct Manager::Session
   std::string m_contactId;
   relay::RelayPool::SubscriptionId m_subscription = 0;
   std::vector<nostr::Event> m_held;    // out of order: offered again after the next step
-  std::vector<nostr::Event> m_unsent;  // steps no relay has accepted yet
+  std::vector<nostr::Event> m_unsent;  // steps no relay has accepted yet, also after a restart
 
   Invite const & GetInvite() const { return m_inviter ? m_inviter->GetInvite() : m_joiner->GetInvite(); }
   bool Watching() const { return m_inviter ? !m_inviter->IsAborted() : !m_joiner->IsAborted(); }
+};
+
+// A deleted contact whose share's end it has not been told yet, or not once more on a later day (spec §8). Its
+// channel keys went with it: what is kept is a state without a share for each of the kDepartedEpochs epochs
+// from its deletion on, made then, which only it can read, and where to send them (design doc §8.5).
+struct Manager::Departed
+{
+  std::string m_id;  // the contact's, as it was
+  Relays m_relays;
+  std::vector<nostr::Event> m_states;  // one per epoch, in order
+  int64_t m_acceptedEpoch = 0;         // of the one a relay accepted; 0: none yet
+  bool m_sending = false;              // in memory: one waits for its relays' answers
+  int64_t m_after = 0;                 // in memory: an answer for an earlier state, maybe a grant, tells nothing
 };
 
 Manager::Manager(Executor & executor, relay::Transport & transport, store::Store & store, crypto::Rng & rng,
@@ -115,6 +137,8 @@ Manager::Manager(Executor & executor, relay::Transport & transport, store::Store
   m_pool = std::make_unique<relay::RelayPool>(transport, executor, rng,
                                               [this](std::string const & url) { return IsAllowed(url); });
   m_pool->OnEchoed([this](std::string const & url) { OnEchoed(url); });
+  // A relay connection opened: the network is there, so what no relay has accepted yet goes now.
+  m_pool->OnConnected([this](std::string const &) { Later(0, [this] { Deliver(); }); });
   // The default relays were measured to send every event back (design doc §24): the echo check judges them
   // from the start, also on a fresh install whose listening relay is deaf already.
   m_pool->SetEchoing({kDefaultRelays.begin(), kDefaultRelays.end()});
@@ -129,6 +153,7 @@ Manager::~Manager()
   Cancel(m_clock);
   Cancel(m_watchTimer);
   Cancel(m_viewTimer);
+  Cancel(m_delivery);
 }
 
 // --- Store ----------------------------------------------------------------------------------
@@ -141,6 +166,7 @@ void Manager::Fresh()
   m_echoed.clear();
   m_peers.clear();
   m_sessions.clear();
+  m_departed.clear();
   m_sharer.reset();
   m_resumable.clear();
 }
@@ -189,7 +215,10 @@ SecretBytes Manager::Encode(std::set<ByteArray<32>> & digests) const
     persist::WriteContact(writer, *peer->m_contact);
     writer.Bool(peer->m_hidden);
     writer.Bool(peer->m_notMoved);
-    persist::WriteRelays(writer, peer->m_deliveredTo);
+    writer.Bool(!peer->m_deliveredTo.empty());  // empty while no relay has accepted the latest state
+    if (!peer->m_deliveredTo.empty())
+      persist::WriteRelays(writer, peer->m_deliveredTo);
+    writer.Bool(peer->m_repeat);
     writer.String(peer->m_color);
   }
 
@@ -215,6 +244,20 @@ SecretBytes Manager::Encode(std::set<ByteArray<32>> & digests) const
       session->m_inviter->Save(writer, idOf);
     else
       session->m_joiner->Save(writer, idOf);
+    writer.U32(static_cast<uint32_t>(session->m_unsent.size()));
+    for (auto const & event : session->m_unsent)
+      persist::WriteEvent(writer, event);
+  }
+
+  writer.U32(static_cast<uint32_t>(m_departed.size()));
+  for (auto const & departed : m_departed)
+  {
+    writer.String(departed->m_id);
+    persist::WriteRelays(writer, departed->m_relays);
+    writer.U32(static_cast<uint32_t>(departed->m_states.size()));
+    for (auto const & event : departed->m_states)
+      persist::WriteEvent(writer, event);
+    writer.I64(departed->m_acceptedEpoch);
   }
 
   // The share's recipients, so that the app can offer to resume it after its process died.
@@ -285,7 +328,9 @@ void Manager::Decode(ByteSpan data)
     peer->m_contact = persist::ReadContact(reader);
     peer->m_hidden = reader.Bool();
     peer->m_notMoved = reader.Bool();
-    peer->m_deliveredTo = persist::ReadRelays(reader);
+    if (reader.Bool())
+      peer->m_deliveredTo = persist::ReadRelays(reader);
+    peer->m_repeat = reader.Bool();
     peer->m_color = reader.String();
     m_peers.push_back(std::move(peer));
   }
@@ -314,7 +359,21 @@ void Manager::Decode(ByteSpan data)
       session->m_inviter = Inviter::Load(reader, contactById);
     else
       session->m_joiner = Joiner::Load(reader, contactById);
+    for (uint32_t j = 0, unsent = reader.Count(32); j < unsent; ++j)
+      session->m_unsent.push_back(persist::ReadEvent(reader));
     m_sessions.push_back(std::move(session));
+  }
+
+  m_departed.clear();
+  for (uint32_t i = 0, n = reader.Count(8); i < n; ++i)
+  {
+    auto departed = std::make_unique<Departed>();
+    departed->m_id = reader.String();
+    departed->m_relays = persist::ReadRelays(reader);
+    for (uint32_t j = 0, states = reader.Count(32); j < states; ++j)
+      departed->m_states.push_back(persist::ReadEvent(reader));
+    departed->m_acceptedEpoch = reader.I64();
+    m_departed.push_back(std::move(departed));
   }
 
   m_resumable.clear();
@@ -380,9 +439,12 @@ bool Manager::Start()
   // The echo check judges a relay that has ever sent an event back, also one that stopped before this run
   // (spec §11).
   m_pool->SetEchoing(m_echoed);
-  OnClock();  // erases what is due after the time the app was closed, and expires invites
+  // Erases what is due after the time the app was closed, and expires invites. Sends nothing: a start only to
+  // ratchet (D16) connects nowhere, and an app that runs the core calls Deliver().
+  OnClock(false);
   NotifyContacts();
   NotifySharing();
+  NotifyDelivery();
   return true;
 }
 
@@ -397,6 +459,8 @@ void Manager::DeleteAllData()
   Cancel(m_streamStart);
   Cancel(m_watchTimer);
   Cancel(m_viewTimer);
+  Cancel(m_delivery);
+  m_deliveryFailures = 0;
   m_store.Erase();
   Fresh();
   m_started = true;  // also after a store that could not be read
@@ -410,6 +474,7 @@ void Manager::DeleteAllData()
   NotifyContacts();
   NotifyPositions();
   NotifySharing();
+  NotifyDelivery();
 }
 
 // --- Helpers --------------------------------------------------------------------------------
@@ -440,6 +505,14 @@ Manager::Session * Manager::FindSession(std::string const & id)
   for (auto & session : m_sessions)
     if (session->m_id == id)
       return session.get();
+  return nullptr;
+}
+
+Manager::Departed * Manager::FindDeparted(std::string const & id)
+{
+  for (auto & departed : m_departed)
+    if (departed->m_id == id)
+      return departed.get();
   return nullptr;
 }
 
@@ -544,6 +617,7 @@ void Manager::SetForeground(bool foreground)
   {
     SendConfirmations();
     SendWatchSignals();
+    Deliver();
   }
   UpdateConnections();
 }
@@ -618,12 +692,11 @@ void Manager::AnnounceRelays()
     m_lastPublished.reset();
   }
   for (auto const & peer : m_peers)
-    if (granted.count(peer->m_contact) == 0)
+    if (granted.count(peer->m_contact) == 0 && !Interrupted(*peer))  // those learn the list from the user's decision
       rekey.m_states.emplace_back(
           peer->m_contact, StateEvent(*peer->m_contact, m_settings.m_homeRelays, std::nullopt, m_rng, now, Color()));
   Shuffle(rekey.m_states, m_rng);
-  Save();  // the seqs and created_at of these states, and the new stream, before they leave
-  PublishRekey(std::move(rekey), oldEpoch, oldRelays);
+  PublishRekey(std::move(rekey), oldEpoch, oldRelays);  // saves the new list and stream too
   if (sharing)
   {
     ScheduleStreamStart();
@@ -654,8 +727,7 @@ void Manager::SetConsent(std::string const & url, Consent consent, std::string c
   }
   Save();
   if (consent == Consent::Allow)
-    for (auto & peer : m_peers)
-      Answer(*peer);  // the relay a contact moved to, now allowed
+    Deliver();  // through the relay a contact moved to, or that its states wait for, now allowed
   UpdateConnections();
   NotifyContacts();
 }
@@ -677,9 +749,7 @@ bool Manager::SetColor(std::string color)
         states.emplace_back(grant.first, m_sharer->CurrentState(grant.first, m_rng, Now()));
     Shuffle(states, m_rng);
   }
-  Save();
-  for (auto const & [contact, event] : states)
-    PublishControl(contact, event);
+  PublishStates(states);  // saves the colour too
   return true;
 }
 
@@ -815,8 +885,8 @@ std::optional<PairingInfo> Manager::OpenInvite(std::string const & link)
   std::string const id = session->m_id;
   nostr::Event const step0 = session->m_joiner->CommitEvent(m_rng, Now());
   m_sessions.push_back(std::move(session));
-  Save();
   PublishPairing(id, step0);
+  Save();  // with the step, kept until a relay accepts it
   ScheduleClock();
   UpdateConnections();
   info = Info(*FindSession(id));
@@ -922,9 +992,10 @@ void Manager::HandleOutcome(Session & session, Outcome const & outcome)
     session.m_stage = PairingInfo::Stage::Connected;
     session.m_peerName = outcome.m_contact->m_name;
     session.m_contactId = peer.m_id;
-    Save();
     if (outcome.m_publish)
-      PublishControl(outcome.m_contact, *outcome.m_publish);
+      PublishStates({{outcome.m_contact, *outcome.m_publish}});  // saves the contact too
+    else
+      Save();
     UpdateConnections();
     NotifyContacts();
     m_listener.OnPairing(Info(session));
@@ -1047,16 +1118,43 @@ void Manager::DeleteContact(std::string const & id)
   Peer * peer = FindPeer(id);
   if (peer == nullptr)
     return;
+  bool recipient = false;
   if (m_sharer && m_sharer->IsSharing())
   {
     Recipients remaining;
     for (auto const & [contact, until] : m_sharer->GetGrants())
       if (contact != peer->m_contact)
         remaining.emplace_back(FindPeer(contact)->m_id, until);
-    if (remaining.size() != m_sharer->GetGrants().size())
-      ChangeSharing(remaining);
+    recipient = remaining.size() != m_sharer->GetGrants().size();
+    if (recipient)
+      ChangeSharing(remaining);  // its state without a share leaves among the others' grants
   }
   peer = FindPeer(id);
+  bool const resumable = std::erase_if(m_resumable, [&](auto const & r) { return r.first == id; }) != 0;
+  // A share with it that ends now, ended when the process died, or ended without the contact having been told
+  // twice yet: it is told without its keys, which go now (design doc §8.5).
+  if (recipient || resumable || peer->m_repeat)
+  {
+    Contact & contact = *peer->m_contact;
+    auto departed = std::make_unique<Departed>();
+    departed->m_id = id;
+    departed->m_relays = contact.m_relays;
+    // Unless the share ended when the process died, the latest state has no share: an answer for it counts.
+    departed->m_after = contact.m_lastCreatedOut + (resumable ? 1 : 0);
+    if (!resumable)
+    {
+      departed->m_sending = peer->m_sending;
+      if (!peer->m_deliveredTo.empty())
+        departed->m_acceptedEpoch = EpochOf(contact.m_lastCreatedOut);
+    }
+    int64_t const now = Now();
+    for (int64_t k = 0; k < kDepartedEpochs; ++k)
+    {
+      int64_t const at = k == 0 ? now : EpochEnd(EpochOf(now) + k - 1);  // the first second of each later epoch
+      departed->m_states.push_back(StateEvent(contact, m_settings.m_homeRelays, std::nullopt, m_rng, at, Color()));
+    }
+    m_departed.push_back(std::move(departed));
+  }
   if (peer->m_stream != 0)
     m_pool->Unsubscribe(peer->m_stream);
   for (auto & session : m_sessions)
@@ -1067,6 +1165,8 @@ void Manager::DeleteContact(std::string const & id)
   UpdateConnections();
   NotifyContacts();
   NotifyPositions();
+  NotifySharing();
+  Deliver();
 }
 
 void Manager::MarkVerified(std::string const & id)
@@ -1095,7 +1195,7 @@ void Manager::SetHidden(std::string const & id, bool hidden)
       StartFollowing(*peer);
   }
   Save();
-  Answer(*peer);  // shown again: it learns where this user's states went meanwhile
+  Deliver();  // shown again: it learns where this user's states went meanwhile
   UpdateConnections();
   NotifyContacts();
   NotifyPositions();
@@ -1103,32 +1203,254 @@ void Manager::SetHidden(std::string const & id, bool hidden)
 
 // --- Channels -------------------------------------------------------------------------------
 
-void Manager::PublishControl(ContactPtr const & contact, nostr::Event const & event, relay::RelayPool::DoneFn done,
-                             bool ask)
+void Manager::PublishStates(std::vector<std::pair<ContactPtr, nostr::Event>> const & states,
+                            std::function<void()> answered, bool ask)
 {
-  if (ask)
-    for (auto const & url : contact->m_relays)
-      AskConsent(url, contact->m_name, ConsentRequest::Purpose::Sending);
-  int64_t const epoch = std::max(EpochOf(event.m_createdAt), contact->m_outgoing.Epoch());
-  std::weak_ptr<int> alive = m_alive;
-  m_pool->Publish(relay::EpochScope(epoch), Allowed(contact->m_relays), event,
-                  [this, alive, contact, relays = contact->m_relays, done = std::move(done)](bool delivered)
+  // Each is the latest towards its contact, and counts as not delivered until a relay accepts it, also across a
+  // restart: saved so before it leaves, with its seq and created_at.
+  for (auto const & [contact, event] : states)
   {
-    if (!alive.expired())
+    if (Peer * peer = FindPeer(contact))
     {
-      if (Peer * peer = FindPeer(contact))
+      peer->m_deliveredTo.clear();
+      peer->m_unaccepted = event;
+    }
+  }
+  Save();
+  SendStates(states, std::move(answered), ask);
+}
+
+void Manager::SendStates(std::vector<std::pair<ContactPtr, nostr::Event>> const & states,
+                         std::function<void()> answered, bool ask)
+{
+  auto const pending = std::make_shared<size_t>(states.size());
+  std::weak_ptr<int> alive = m_alive;
+  for (auto const & [contact, event] : states)
+  {
+    if (ask)
+      for (auto const & url : contact->m_relays)
+        AskConsent(url, contact->m_name, ConsentRequest::Purpose::Sending);
+    Peer * peer = FindPeer(contact);
+    std::string const id = peer != nullptr ? peer->m_id : std::string();
+    if (peer != nullptr)
+      peer->m_sending = true;
+    int64_t const epoch = std::max(EpochOf(event.m_createdAt), contact->m_outgoing.Epoch());
+    m_pool->Publish(relay::EpochScope(epoch), Allowed(contact->m_relays), event,
+                    [this, alive, id, event, relays = contact->m_relays, pending, answered](bool delivered)
+    {
+      if (alive.expired())
+        return;
+      OnStateAnswered(id, event, relays, delivered);
+      if (--*pending == 0 && answered)
+        answered();
+    });
+  }
+  if (states.empty() && answered)
+    answered();
+  NotifyDelivery();
+}
+
+void Manager::OnStateAnswered(std::string const & id, nostr::Event const & event, Relays const & relays, bool delivered)
+{
+  if (Peer * peer = FindPeer(id))
+  {
+    if (event.m_createdAt != peer->m_contact->m_lastCreatedOut)
+      return;  // an earlier state's answer tells nothing about the latest
+    peer->m_sending = false;
+    if (delivered)
+    {
+      peer->m_deliveredTo = relays;
+      peer->m_unaccepted.reset();
+      m_deliveryFailures = 0;
+      Save();
+      if (Owed(*peer))
+        Later(0, [this] { Deliver(); });  // it moved while the state was on its way: the answer
+    }
+    else
+    {
+      ScheduleDelivery();
+    }
+  }
+  else if (Departed * departed = FindDeparted(id); departed != nullptr && event.m_createdAt >= departed->m_after)
+  {
+    departed->m_sending = false;
+    if (delivered)
+    {
+      // The first one accepted tells it the share ended; one on a later day, read by an app that was offline
+      // until the first could no longer be read, finishes.
+      int64_t const epoch = EpochOf(event.m_createdAt);
+      if (departed->m_acceptedEpoch == 0)
+        departed->m_acceptedEpoch = epoch;
+      else if (epoch > departed->m_acceptedEpoch)
+        std::erase_if(m_departed, [&](auto const & d) { return d.get() == departed; });
+      Save();
+    }
+    else
+    {
+      ScheduleDelivery();
+    }
+  }
+  NotifyDelivery();
+}
+
+bool Manager::Interrupted(Peer const & peer) const
+{
+  // Not past its time limit: the app no longer offers that, and the contact's app has ended it by itself.
+  int64_t const now = Now();
+  return std::any_of(m_resumable.begin(), m_resumable.end(),
+                     [&](auto const & r) { return r.first == peer.m_id && (r.second == 0 || r.second > now); });
+}
+
+bool Manager::Owed(Peer const & peer) const
+{
+  if (peer.m_sending || peer.m_contact->m_relays == peer.m_deliveredTo)
+    return false;
+  return peer.m_deliveredTo.empty() || !peer.m_hidden;
+}
+
+void Manager::Deliver()
+{
+  if (!m_started)
+    return;
+  int64_t const now = Now();
+  int64_t const epoch = EpochOf(now);
+  bool const sharing = m_sharer && m_sharer->IsSharing();
+  bool fresh = false;
+  std::vector<std::pair<ContactPtr, nostr::Event>> states;
+  for (auto & peer : m_peers)
+  {
+    if (Interrupted(*peer))
+      continue;
+    Contact & contact = *peer->m_contact;
+    // Once a relay has accepted the state that ended a share, another one on a later day.
+    bool const repeat =
+        peer->m_repeat && !peer->m_sending && !peer->m_deliveredTo.empty() && EpochOf(contact.m_lastCreatedOut) < epoch;
+    if (!Owed(*peer) && !repeat)
+      continue;
+    if (Allowed(contact.m_relays).empty())
+    {
+      // Nothing can reach it. The user is asked only then: each relay is asked about once, and a question
+      // asked here would take the place of one that says what the relay is for, such as live updates once the
+      // contact shares (§24). Never about a hidden contact's.
+      if (!peer->m_hidden)
+        for (auto const & url : contact.m_relays)
+          AskConsent(url, contact.m_name, ConsentRequest::Purpose::Sending);
+      continue;
+    }
+    if (!repeat && peer->m_unaccepted && EpochOf(peer->m_unaccepted->m_createdAt) == epoch)
+    {
+      states.emplace_back(peer->m_contact, *peer->m_unaccepted);  // still readable: sent again as it is
+      continue;
+    }
+    // The current state: with the grant while sharing with the contact, so that it never ends a share.
+    if (repeat)
+      peer->m_repeat = false;
+    fresh = true;
+    states.emplace_back(peer->m_contact,
+                        sharing ? m_sharer->CurrentState(peer->m_contact, m_rng, now)
+                                : StateEvent(contact, m_settings.m_homeRelays, std::nullopt, m_rng, now, Color()));
+  }
+  Shuffle(states, m_rng);
+  if (fresh)
+    PublishStates(states, {}, false /* ask: see above */);
+  else
+    SendStates(states, {}, false);
+
+  // Deleted contacts, through their states made when they were deleted.
+  bool expired = false;
+  for (auto & departed : m_departed)
+  {
+    if (departed->m_states.empty() || EpochOf(departed->m_states.back().m_createdAt) < epoch)
+    {
+      expired = true;  // a week has passed
+      continue;
+    }
+    if (departed->m_sending || (departed->m_acceptedEpoch != 0 && departed->m_acceptedEpoch >= epoch) ||
+        Allowed(departed->m_relays).empty())
+    {
+      continue;
+    }
+    for (auto const & event : departed->m_states)
+    {
+      if (EpochOf(event.m_createdAt) == epoch)
       {
-        peer->m_answering = false;
-        if (delivered && peer->m_deliveredTo != relays)
-        {
-          peer->m_deliveredTo = relays;
-          Save();
-        }
+        PublishDeparted(*departed, event);
+        break;
       }
     }
-    if (done)
-      done(delivered);
+  }
+  if (expired)
+  {
+    std::erase_if(m_departed, [epoch](auto const & d)
+    { return d->m_states.empty() || EpochOf(d->m_states.back().m_createdAt) < epoch; });
+    Save();
+  }
+  NotifyDelivery();
+}
+
+void Manager::PublishDeparted(Departed & departed, nostr::Event const & event)
+{
+  departed.m_sending = true;
+  std::weak_ptr<int> alive = m_alive;
+  m_pool->Publish(relay::EpochScope(EpochOf(event.m_createdAt)), Allowed(departed.m_relays), event,
+                  [this, alive, id = departed.m_id, event, relays = departed.m_relays](bool delivered)
+  {
+    if (!alive.expired())
+      OnStateAnswered(id, event, relays, delivered);
   });
+}
+
+int64_t Manager::DeliveryDue() const
+{
+  if (!m_started)
+    return 0;
+  int64_t const epoch = EpochOf(Now());
+  int64_t due = std::numeric_limits<int64_t>::max();
+  for (auto const & peer : m_peers)
+  {
+    Contact const & contact = *peer->m_contact;
+    if (Allowed(contact.m_relays).empty() || Interrupted(*peer))
+      continue;  // nothing can reach it until the user allows a relay, or decides
+    if (peer->m_deliveredTo.empty())
+      due = std::min(due, contact.m_lastCreatedOut + (peer->m_sending ? kInFlight : 0));
+    else if (peer->m_repeat)
+      due = std::min(due, EpochEnd(EpochOf(contact.m_lastCreatedOut)));
+  }
+  for (auto const & departed : m_departed)
+  {
+    if (departed->m_states.empty() || EpochOf(departed->m_states.back().m_createdAt) < epoch ||
+        Allowed(departed->m_relays).empty())
+    {
+      continue;
+    }
+    if (departed->m_acceptedEpoch != 0)
+      due = std::min(due, EpochEnd(departed->m_acceptedEpoch));
+    else
+      due = std::min(due, departed->m_states.front().m_createdAt + (departed->m_sending ? kInFlight : 0));
+  }
+  return due == std::numeric_limits<int64_t>::max() ? 0 : due;
+}
+
+void Manager::ScheduleDelivery()
+{
+  if (m_delivery != Executor::kNoTask)
+    return;
+  int64_t const delay = std::min(kDeliveryMaxMs, kDeliveryMinMs << std::min(m_deliveryFailures, 10));
+  ++m_deliveryFailures;
+  m_delivery = Later(delay, [this]
+  {
+    m_delivery = Executor::kNoTask;
+    Deliver();
+  });
+}
+
+void Manager::NotifyDelivery()
+{
+  int64_t const due = DeliveryDue();
+  if (due == m_notifiedDue)
+    return;
+  m_notifiedDue = due;
+  m_listener.OnDeliveryDue(due);
 }
 
 bool Manager::NoteMoved(Peer & peer, bool viaHome)
@@ -1186,7 +1508,7 @@ void Manager::OnState(Peer & peer, State const & state, int64_t createdAt)
 {
   peer.m_contact->m_relays = state.m_relays;  // the contact's current relays, in its order
   peer.m_color = state.m_color && DotColorRgba(*state.m_color) ? *state.m_color : std::string();
-  Answer(peer);
+  Deliver();  // the answer, if it moved
   std::string const oldPk = peer.m_following.Grant() ? peer.m_following.Grant()->m_pk : std::string();
   // Also while the contact is hidden: no stream, signals or dot then, but its share is known once it is shown.
   peer.m_following.OnState(state, Now());
@@ -1225,31 +1547,6 @@ void Manager::ExpireFollowing(Peer & peer, int64_t now)
   auto const & grant = peer.m_following.Grant();
   if (grant && grant->m_until != 0 && grant->m_until <= now)
     peer.m_following.Stop();  // the time limit is enforced locally too
-}
-
-void Manager::Answer(Peer & peer)
-{
-  // A contact that names other relays than those this user's last state reached gets the current state
-  // there, so that it can tell when everyone has moved (spec §11). Not a hidden one; and only through a
-  // relay the user allows, which may come later. The user is asked only when none is allowed: each relay
-  // is asked about once, and a question asked here would take the place of one that says what the relay
-  // is for, such as live updates once the contact shares.
-  Contact & contact = *peer.m_contact;
-  if (contact.m_relays == peer.m_deliveredTo || peer.m_hidden || peer.m_answering)
-    return;
-  if (Allowed(contact.m_relays).empty())
-  {
-    for (auto const & url : contact.m_relays)
-      AskConsent(url, contact.m_name, ConsentRequest::Purpose::Sending);
-    return;
-  }
-  peer.m_answering = true;
-  int64_t const now = Now();
-  bool const sharing = m_sharer && m_sharer->IsSharing();
-  nostr::Event const answer = sharing ? m_sharer->CurrentState(peer.m_contact, m_rng, now)
-                                      : StateEvent(contact, m_settings.m_homeRelays, std::nullopt, m_rng, now, Color());
-  Save();  // its seq and created_at, before it leaves
-  PublishControl(peer.m_contact, answer, {}, false /* ask */);
 }
 
 void Manager::OnWatch(Peer & peer, Watch const & watch)
@@ -1295,6 +1592,8 @@ void Manager::SendConfirmations()
   std::vector<std::pair<ContactPtr, nostr::Event>> due;
   for (auto const & peer : m_peers)
   {
+    if (Interrupted(*peer))
+      continue;  // a state now would end the share before the user decides; the decision sends one
     Contact const & contact = *peer->m_contact;
     bool const announce =
         peer->m_notMoved && !OfferRemoval(contact, now) && EpochOf(contact.m_lastCreatedOut) < EpochOf(now);
@@ -1305,11 +1604,8 @@ void Manager::SendConfirmations()
                                               : StateEvent(*peer->m_contact, m_settings.m_homeRelays, std::nullopt,
                                                            m_rng, now, Color()));
   }
-  if (due.empty())
-    return;
-  Save();  // the seq and created_at of these states, before they leave
-  for (auto const & [contact, event] : due)
-    PublishControl(contact, event);
+  if (!due.empty())
+    PublishStates(due);
 }
 
 void Manager::SendWatch(Peer & peer)
@@ -1363,6 +1659,7 @@ bool Manager::StartSharing(Recipients const & recipients)
   m_sharer = std::make_unique<Sharer>(m_shareRelays);
   m_sharer->SetColor(Color());
   Rekey rekey = m_sharer->Start(ToGrants(recipients), m_rng, now);
+  NoteShareEnds({});
   m_resumable.clear();
   m_lastFix.reset();  // a fix from before the share could be hours old
   m_battery = -1;     // and so could the battery level
@@ -1370,8 +1667,7 @@ bool Manager::StartSharing(Recipients const & recipients)
   m_batteryArmed = false;
   m_lastPublished.reset();
   m_liveUntil = 0;
-  Save();
-  PublishRekey(std::move(rekey), m_sharer->StreamEpoch(), m_shareRelays);
+  PublishRekey(std::move(rekey), m_sharer->StreamEpoch(), m_shareRelays);  // saves
   UpdateLocationRequest();
   ScheduleClock();
   UpdateConnections();
@@ -1401,10 +1697,11 @@ bool Manager::ChangeSharing(Recipients const & recipients)
       return false;
   }
   int64_t const oldEpoch = m_sharer->StreamEpoch();
+  Grants const before = m_sharer->GetGrants();
   Rekey rekey = m_sharer->Change(ToGrants(recipients), m_rng, now);
+  NoteShareEnds(before);
   m_lastPublished.reset();
-  Save();
-  PublishRekey(std::move(rekey), oldEpoch, m_shareRelays);
+  PublishRekey(std::move(rekey), oldEpoch, m_shareRelays);  // saves
   ScheduleStreamStart();
   ScheduleClock();
   UpdateConnections();  // the listening REQ asks for the new stream
@@ -1427,8 +1724,7 @@ bool Manager::ExtendSharing(std::string const & id, int64_t until)
   {
     return false;
   }
-  Save();
-  PublishControl(peer->m_contact, event);
+  PublishStates({{peer->m_contact, event}});  // saves the new time limit too
   ScheduleClock();
   NotifySharing();
   NotifyContacts();
@@ -1443,11 +1739,12 @@ void Manager::StopSharing()
     return;
   }
   int64_t const oldEpoch = m_sharer->StreamEpoch();
+  Grants const before = m_sharer->GetGrants();
   Rekey rekey = m_sharer->Stop(m_rng, Now());
   m_sharer.reset();
+  NoteShareEnds(before);
   m_resumable.clear();
-  Save();
-  PublishRekey(std::move(rekey), oldEpoch, m_shareRelays);
+  PublishRekey(std::move(rekey), oldEpoch, m_shareRelays);  // saves
   EndSharing();
 }
 
@@ -1470,16 +1767,44 @@ void Manager::DismissResume()
 {
   if (m_resumable.empty())
     return;
+  // The share ended when the process died: its recipients are told now, and once more on a later day.
+  int64_t const now = Now();
+  std::vector<std::pair<ContactPtr, nostr::Event>> states;
+  for (auto const & [id, until] : m_resumable)
+  {
+    if (Peer * peer = FindPeer(id))
+    {
+      peer->m_repeat = true;
+      states.emplace_back(peer->m_contact,
+                          StateEvent(*peer->m_contact, m_settings.m_homeRelays, std::nullopt, m_rng, now, Color()));
+    }
+  }
   m_resumable.clear();
-  Save();
+  Shuffle(states, m_rng);
+  PublishStates(states);  // saves
   NotifySharing();
+}
+
+void Manager::NoteShareEnds(Grants const & before)
+{
+  Grants const none;
+  Grants const & after = m_sharer && m_sharer->IsSharing() ? m_sharer->GetGrants() : none;
+  auto const granted = [&after](ContactPtr const & contact)
+  { return std::any_of(after.begin(), after.end(), [&](auto const & grant) { return grant.first == contact; }); };
+  for (auto const & grant : before)
+    if (Peer * peer = FindPeer(grant.first); peer != nullptr && !granted(grant.first))
+      peer->m_repeat = true;
+  for (auto const & grant : after)
+    if (Peer * peer = FindPeer(grant.first))
+      peer->m_repeat = false;
 }
 
 void Manager::PublishRekey(Rekey rekey, int64_t oldStreamEpoch, Relays endRelays)
 {
-  // States first; the old stream's end once each state has an OK, or after kOkWait (spec §9).
+  // States first; the old stream's end once each state has an OK, or after kOkWait (spec §9). The states are
+  // sent again until a relay accepts them; the end is not: a new grant, or a state without a share, ends the
+  // stream a recipient had too.
   auto end = std::make_shared<std::optional<nostr::Event>>(std::move(rekey.m_end));
-  auto pending = std::make_shared<size_t>(rekey.m_states.size());
   Relays const relays = std::move(endRelays);
   std::weak_ptr<int> alive = m_alive;
   auto const sendEnd = [this, alive, end, relays, oldStreamEpoch]
@@ -1490,17 +1815,8 @@ void Manager::PublishRekey(Rekey rekey, int64_t oldStreamEpoch, Relays endRelays
     end->reset();
     m_pool->Publish(relay::EpochScope(oldStreamEpoch), relays, event);
   };
-  for (auto const & [contact, event] : rekey.m_states)
-  {
-    PublishControl(contact, event, [pending, sendEnd](bool)
-    {
-      if (--*pending == 0)
-        sendEnd();
-    });
-  }
-  if (rekey.m_states.empty())
-    sendEnd();
-  else if (*end)
+  PublishStates(rekey.m_states, sendEnd);
+  if (!rekey.m_states.empty() && *end)
     Later(kOkWait * 1000, sendEnd);
 }
 
@@ -1632,7 +1948,7 @@ void Manager::ScheduleClock()
   });
 }
 
-void Manager::OnClock()
+void Manager::OnClock(bool deliver)
 {
   int64_t const now = Now();
   for (auto & peer : m_peers)
@@ -1655,10 +1971,11 @@ void Manager::OnClock()
   if (m_sharer && m_sharer->IsSharing())
   {
     int64_t const oldEpoch = m_sharer->StreamEpoch();
+    Grants const before = m_sharer->GetGrants();
     if (auto rekey = m_sharer->Tick(m_rng, now))
     {
-      Save();
-      PublishRekey(std::move(*rekey), oldEpoch, m_shareRelays);
+      NoteShareEnds(before);
+      PublishRekey(std::move(*rekey), oldEpoch, m_shareRelays);  // saves
       if (!m_sharer->IsSharing())
       {
         EndSharing();
@@ -1679,6 +1996,8 @@ void Manager::OnClock()
     NotifySharing();
   }
   SendConfirmations();
+  if (deliver)
+    Deliver();  // e.g. a share's end once more, on the day after
   Save();  // rotates the store's keys when chain keys were erased
   UpdateConnections();
   ScheduleClock();

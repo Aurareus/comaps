@@ -117,6 +117,23 @@ UNIT_TEST(RelayPool_PublishesWithRelaysDown)
   TEST(results == std::vector<bool>{true} && !h.m_pool.IsFailing(kR1) && !h.m_pool.IsFailing(kR2), ());
 }
 
+UNIT_TEST(RelayPool_SaysWhenAConnectionOpens)
+{
+  Harness h;
+  std::vector<std::string> opened;
+  h.m_pool.OnConnected([&](std::string const & url) { opened.push_back(url); });
+  h.Relay(kR1).SetDown(true);
+  h.m_pool.Publish(EpochScope(1), {kR1, kR2}, h.Event());
+  h.m_executor.RunFor(1000);
+  TEST(opened == std::vector<std::string>{kR2}, ("not a relay that could not be reached"));
+
+  // The relay is back (or the phone's network): a subscription that waited for it connects, which is said too.
+  h.m_pool.Subscribe(EpochScope(1), {kR1}, Placement::All, [&] { return h.Filters(); }, [](nostr::Event const &) {});
+  h.Relay(kR1).SetDown(false);
+  h.m_executor.RunFor(10'000);
+  TEST(opened == (std::vector<std::string>{kR2, kR1}), ());
+}
+
 UNIT_TEST(RelayPool_DeadConnectionIsDetectedByTheMissingOk)
 {
   Harness h;
