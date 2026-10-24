@@ -43,6 +43,7 @@ struct Recorder : public ManagerListener
   void OnLocationRequest(LocationRequest request) override { m_location = request; }
   void OnStoreError() override { ++m_storeErrors; }
   void OnWriteFailed() override { ++m_writeFailures; }
+  void OnDeliveryDue(int64_t at) override { m_due.push_back(at); }
 
   std::vector<ContactInfo> m_contacts;
   std::map<std::string, PairingInfo> m_pairings;
@@ -53,6 +54,7 @@ struct Recorder : public ManagerListener
   LocationRequest m_location = LocationRequest::Off;
   int m_storeErrors = 0;
   int m_writeFailures = 0;
+  std::vector<int64_t> m_due;  // as reported, in order
 };
 
 class World;
@@ -1783,7 +1785,7 @@ UNIT_TEST(Manager_AStateNoRelayAcceptedOutlivesTheProcess)
 
   // The app's job runs the core: the stop reaches Bob.
   alice.M().Deliver();
-  TEST_GREATER(alice.M().DeliveryDue(), world.m_executor.Now(), ("on its way: the app's job waits a minute"));
+  TEST_EQUAL(alice.M().DeliveryDue(), world.m_executor.Now(), ("made just now, and due until a relay accepts it"));
   world.Run(3'000);
   TEST(!bob.Contact("Alice")->m_sharesWithMeUntil && !bob.Position("Alice"), ());
   // Told once more on the next UTC day, for a phone that was offline until this one could no longer be read.
@@ -1801,6 +1803,75 @@ UNIT_TEST(Manager_AStateNoRelayAcceptedOutlivesTheProcess)
   TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
   world.Run(3'000);
   TEST_EQUAL(alice.M().DeliveryDue(), 0, ());
+}
+
+UNIT_TEST(Manager_WhatRelaysRefuseGoesAgainEveryFiveMinutes)
+{
+  // Bob's relays refuse Alice's events for over an hour, as one that limits writes may: the end of her share
+  // reaches Bob within five minutes of their accepting again, however long they refused. The attempts tell
+  // the app nothing: what is due, and when, does not change with them.
+  World world;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+  alice.M().SetForeground(false);
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+  alice.M().OnLocation(FixAt(world, 53.0, 7.0));
+  world.Run(3'000);
+  TEST(bob.Position("Alice"), ());
+  for (auto const & url : kDefaults)
+    world.Relay(std::string(url)).m_refuse = true;
+  alice.M().StopSharing();
+  world.Run(3'000);
+  TEST_NOT_EQUAL(alice.M().DeliveryDue(), 0, ());
+  size_t const reports = alice.Events().m_due.size();
+  world.Run(65 * 60'000);
+  TEST_EQUAL(alice.Events().m_due.size(), reports, ());
+  TEST(bob.Contact("Alice")->m_sharesWithMeUntil, ());
+  for (auto const & url : kDefaults)
+    world.Relay(std::string(url)).m_refuse = false;
+  world.Run(5 * 60'000 + 3'000);
+  TEST(!bob.Contact("Alice")->m_sharesWithMeUntil && !bob.Position("Alice"), ());
+}
+
+UNIT_TEST(Manager_OpeningTheAppSendsWhatNoRelayAcceptedAtOnce)
+{
+  // Bob moved to a relay of his own, which refuses Alice's events for a while; so do hers, which carried
+  // the share's live updates, and then they are down, so that no connection opens when her app does.
+  // Opening it sends the end of her share at once all the same, not at the next attempt, minutes away.
+  World world;
+  std::string const kOwn = "wss://own.example";
+  world.m_transport.Add(kOwn);
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+  TEST(bob.M().SetHomeRelays({kOwn}), ());
+  world.Run(3'000);
+  alice.M().SetConsent(kOwn, Consent::Allow, "Bob");
+  world.Run(3'000);
+  TEST(!bob.Contact("Alice")->m_notMoved, ("Alice sends to Bob's relay"));
+  alice.M().SetForeground(false);
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+  alice.M().OnLocation(FixAt(world, 54.0, 7.0));
+  world.Run(3'000);
+  TEST(bob.Position("Alice"), ());
+
+  world.Relay(kOwn).m_refuse = true;
+  for (auto const & url : kDefaults)
+    world.Relay(std::string(url)).m_refuse = true;
+  alice.M().StopSharing();
+  world.Run(20 * 60'000);  // the attempts are five minutes apart by now
+  SetDown(world, kDefaults, true);
+  size_t const sent = EventsReceived(world, kOwn);
+  for (int s = 0; s < 600 && EventsReceived(world, kOwn) == sent; ++s)
+    world.Run(1'000);
+  TEST_GREATER(EventsReceived(world, kOwn), sent, ("an attempt"));
+  world.Relay(kOwn).m_refuse = false;
+  world.Run(20'000);
+  TEST(bob.Contact("Alice")->m_sharesWithMeUntil, ("nothing sends it again by itself this soon ..."));
+  alice.M().SetForeground(true);
+  world.Run(10'000);
+  TEST(!bob.Contact("Alice")->m_sharesWithMeUntil && !bob.Position("Alice"), ("... but opening the app does"));
 }
 
 UNIT_TEST(Manager_NotResumingTellsTheRecipients)
@@ -1955,7 +2026,10 @@ UNIT_TEST(Manager_ADeletedContactIsToldItsShareEnded)
     world.Run(60'000);
     alice.Restart();
     alice.SetOffline(false);
+    int64_t const due = alice.M().DeliveryDue();
+    TEST(due != 0 && due <= world.m_executor.Now(), ());
     alice.M().Deliver();
+    TEST_EQUAL(alice.M().DeliveryDue(), due, ("on its way: unchanged until a relay accepts it"));
     world.Run(3'000);
     TEST(!bob.Contact("Alice")->m_sharesWithMeUntil, ());
   }

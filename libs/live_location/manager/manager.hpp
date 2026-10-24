@@ -111,8 +111,8 @@ public:
   /// does this by itself: when a relay connection opens, on a back-off after a failure, at midnight, and when
   /// the app comes to the foreground. Call it after Start() when the app runs the core for this.
   void Deliver();
-  /// When something is next to be sent (Unix seconds; at or before now: now), 0 for nothing. A state that
-  /// waits for its relays' answers counts from a minute after it left, in case the process ends first.
+  /// When something is next to be sent (Unix seconds; at or before now: now), 0 for nothing. It changes
+  /// with what is to be sent, not with each attempt to send it, nor while one waits for the relays' answers.
   int64_t DeliveryDue() const;
   /// For tests and diagnostics.
   relay::RelayPool const & Pool() const { return *m_pool; }

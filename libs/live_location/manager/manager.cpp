@@ -29,7 +29,6 @@ size_t constexpr kMaxPreviousRelays = 8;  // after several changes before everyo
 int64_t constexpr kMoveEpochs = 30;       // the previous home relays are read at most through epoch e_c + 30
 int64_t constexpr kDeliveryMinMs = 30'000;   // a state no relay accepted goes again after this, doubling ...
 int64_t constexpr kDeliveryMaxMs = 300'000;  // ... up to this, and whenever a relay connection opens
-int64_t constexpr kInFlight = 60;            // seconds: longer than any relay takes to answer (relay pool)
 int64_t constexpr kDepartedEpochs = 7;       // a deleted contact is told its share ended for at most this long
 
 bool Contains(Relays const & relays, std::string const & url)
@@ -1412,7 +1411,7 @@ int64_t Manager::DeliveryDue() const
     if (Allowed(contact.m_relays).empty() || Interrupted(*peer))
       continue;  // nothing can reach it until the user allows a relay, or decides
     if (peer->m_deliveredTo.empty())
-      due = std::min(due, contact.m_lastCreatedOut + (peer->m_sending ? kInFlight : 0));
+      due = std::min(due, contact.m_lastCreatedOut);
     else if (peer->m_repeat)
       due = std::min(due, EpochEnd(EpochOf(contact.m_lastCreatedOut)));
   }
@@ -1426,7 +1425,7 @@ int64_t Manager::DeliveryDue() const
     if (departed->m_acceptedEpoch != 0)
       due = std::min(due, EpochEnd(departed->m_acceptedEpoch));
     else
-      due = std::min(due, departed->m_states.front().m_createdAt + (departed->m_sending ? kInFlight : 0));
+      due = std::min(due, departed->m_states.front().m_createdAt);
   }
   return due == std::numeric_limits<int64_t>::max() ? 0 : due;
 }
