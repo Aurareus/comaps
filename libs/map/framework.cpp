@@ -6,6 +6,7 @@
 #include "map/gps_track.hpp"
 #include "map/gps_track_filter.hpp"
 #include "map/gps_tracker.hpp"
+#include "map/live_location_marks.hpp"  // Live location (NLL)
 #include "map/place_page_info.hpp"
 #include "map/power_management/power_management_schemas.hpp"
 #include "map/track_mark.hpp"
@@ -660,6 +661,13 @@ void Framework::FillUserMarkInfo(UserMark const * mark, place_page::Info & outIn
     auto const * tlMark = static_cast<TrafficLightMark const *>(mark);
     if (tlMark->GetFeatureID().IsValid())
       FillFeatureInfo(tlMark->GetFeatureID(), outInfo);
+    break;
+  }
+
+  case UserMark::Type::LIVE_LOCATION:
+  {
+    // Live location (NLL): a contact's dot, where no app has its own sheet for it (SetLiveLocationTapListener).
+    FillNotMatchedPlaceInfo(outInfo, mark->GetPivot(), static_cast<LiveLocationMark const *>(mark)->GetLabel());
     break;
   }
 
@@ -2134,6 +2142,17 @@ void Framework::DeactivateHotelSearchMark()
 
 void Framework::OnTapEvent(place_page::BuildInfo const & buildInfo)
 {
+  // Live location (NLL): a contact's dot opens the app's sheet for that contact (docs/LIVE_LOCATION.md §11.4).
+  if (m_onLiveLocationTap && !buildInfo.m_isLongTap)
+  {
+    if (auto const * mark = FindLiveLocationMark(buildInfo))
+    {
+      DeactivateMapSelection();
+      m_onLiveLocationTap(static_cast<LiveLocationMark const *>(mark)->GetContactId());
+      return;
+    }
+  }
+
   auto placePageInfo = BuildPlacePageInfo(buildInfo);
   bool isRoutePoint = placePageInfo.IsRoutePoint();
 
@@ -2390,6 +2409,20 @@ UserMark const * Framework::FindUserMarkInTapPosition(place_page::BuildInfo cons
     return df::TapInfo::GetDefaultTapRect(buildInfo.m_mercator, m_currentModelView);
   }, [](UserMark::Type type) { return type == UserMark::Type::TRACK_INFO || type == UserMark::Type::TRACK_SELECTION; });
   return mark;
+}
+
+// Live location (NLL): the dot a tap selects, found as BuildPlacePageInfo() finds a user mark.
+UserMark const * Framework::FindLiveLocationMark(place_page::BuildInfo const & buildInfo) const
+{
+  if (!buildInfo.IsUserMarkMatchingEnabled())
+    return nullptr;
+  auto const & bm = GetBookmarkManager();
+  UserMark const * mark = nullptr;
+  if (buildInfo.m_userMarkId != kml::kInvalidMarkId && !bm.IsBookmark(buildInfo.m_userMarkId))
+    mark = bm.GetUserMark(buildInfo.m_userMarkId);
+  if (mark == nullptr)
+    mark = FindUserMarkInTapPosition(buildInfo);
+  return mark != nullptr && mark->GetMarkType() == UserMark::Type::LIVE_LOCATION ? mark : nullptr;
 }
 
 void Framework::PredictLocation(double & lat, double & lon, double accuracy, double bearing, double speed,

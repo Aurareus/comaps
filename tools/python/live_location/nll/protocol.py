@@ -159,12 +159,17 @@ def is_number(x, lo: float = -math.inf, hi: float = math.inf) -> bool:
     return type(x) in (int, float) and math.isfinite(x) and lo <= x <= hi
 
 
-_RELAY_WSS = re.compile(r'wss://[\x21-\x7e]+')
-_RELAY_WS_LOOPBACK = re.compile(r'ws://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]{1,5})?(/[\x21-\x7e]*)?')
+_HEX64 = re.compile(r'[0-9a-f]{64}')
+_HEX128 = re.compile(r'[0-9a-f]{128}')
+# Printable ASCII but the quote and the backslash, which JSON writes as two bytes each: a relay URL then
+# takes as many bytes in a message as it has, and the largest messages fit their size (spec §5).
+_URL_TEXT = r'[\x21\x23-\x5b\x5d-\x7e]'
+_RELAY_WSS = re.compile(r'wss://' + _URL_TEXT + '+')
+_RELAY_WS_LOOPBACK = re.compile(r'ws://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]{1,5})?(/' + _URL_TEXT + '*)?')
 
 
 def check_relay_url(url) -> str:
-    """wss:// only, printable ASCII; ws:// only to a loopback host (a local test relay). Regular expressions
+    """wss:// only, URL text as above; ws:// only to a loopback host (a local test relay). Regular expressions
     rather than a URL parser, so that implementations agree byte for byte."""
     if not isinstance(url, str) or len(url.encode('utf-8')) > MAX_RELAY_URL:
         raise ValueError('bad relay url')
@@ -182,7 +187,9 @@ def check_relays(relays) -> list:
 
 
 def check_name(name) -> str:
-    if not isinstance(name, str) or not 1 <= len(name.encode('utf-8')) <= MAX_NAME:
+    # No control characters: JSON writes them as six bytes each, and they have no place in a name.
+    if (not isinstance(name, str) or not 1 <= len(name.encode('utf-8')) <= MAX_NAME
+            or any(ord(c) < 0x20 or ord(c) == 0x7f for c in name)):
         raise ValueError('bad name')
     return name
 
@@ -210,6 +217,18 @@ def check_state(body: dict):
     check_relays(body.get('relays'))
     if 'share' in body:
         check_share(body['share'])
+
+
+COLOR_MAX_BYTES = 32
+
+
+def state_color(state: dict) -> str | None:
+    """The sender's dot colour (§8): a name of 1 to 32 bytes, kept whatever it is (an app ignores names it
+    does not know). Anything else is ignored, not the state with its grant."""
+    color = state.get('color')
+    if isinstance(color, str) and 0 < len(color.encode()) <= COLOR_MAX_BYTES:
+        return color
+    return None
 
 
 def check_loc(body: dict):
@@ -261,11 +280,24 @@ def sign_event(sk: bytes, created_at: int, kind: int, tags: list, content: str, 
     return ev.sign(sk, rng(32))
 
 
+def well_typed(ev: Event) -> bool:
+    """NIP-01 field types (§12 item 1): id, pubkey and sig lowercase hex of 64, 64 and 128 characters,
+    tags an array of arrays of strings, content a string. Without this, Python would accept uppercase hex
+    in a signature, or a string in place of a tag (iterating its characters), which a typed parser refuses."""
+    return (isinstance(ev.id, str) and _HEX64.fullmatch(ev.id) is not None
+            and isinstance(ev.pubkey, str) and _HEX64.fullmatch(ev.pubkey) is not None
+            and isinstance(ev.sig, str) and _HEX128.fullmatch(ev.sig) is not None
+            and isinstance(ev.content, str) and isinstance(ev.tags, list)
+            and all(isinstance(t, list) and all(isinstance(x, str) for x in t) for t in ev.tags))
+
+
 def check_event(ev: Event, expected_pubkeys, kind: int, d: str | None, now: int, p_tag: str | None = None) -> bool:
     """Envelope checks every receiver applies before decrypting (§12, items 1-4). `expected_pubkeys` None
     means any author (pairing steps from joiners). A tag's value is the second element of the first tag
     with that name; other tags are ignored."""
     try:
+        if not well_typed(ev):
+            return False
         if type(ev.kind) is not int or type(ev.created_at) is not int or ev.created_at < 0:
             return False
         if ev.kind != kind or (expected_pubkeys is not None and ev.pubkey not in expected_pubkeys):
@@ -402,6 +434,10 @@ class Contact:
     # first state or signal that arrives from the joiner (§6.3). False is a label, not a block: sharing with
     # a joiner that never finished leaks nothing, since nobody else holds the channel keys.
     confirmed: bool = True
+    # In memory only: whether the state of last_seq_in['state'] was read in this run. What it granted is
+    # kept in memory only too (stream keys are never stored), so after a restart that state is read once
+    # more (§8).
+    last_state_read: bool = False
 
 
 def ratchet(contact: Contact, now: int):
@@ -732,16 +768,18 @@ def control_event(contact: Contact, body: dict, rng, now: int) -> Event:
                       seal(body, SIZE_CONTROL, d.conversation_key(), rng), rng)
 
 
-def state_body(seq: int, now: int, relays: list, share: dict | None = None) -> dict:
+def state_body(seq: int, now: int, relays: list, share: dict | None = None, color: str | None = None) -> dict:
     body = {'t': 'state', 'seq': seq, 'ts': now, 'relays': check_relays(relays)}
     if share is not None:
         body['share'] = share
+    if color is not None:
+        body['color'] = color
     return body
 
 
-def state_event(contact: Contact, relays: list, share: dict | None, rng, now: int) -> Event:
+def state_event(contact: Contact, relays: list, share: dict | None, rng, now: int, color: str | None = None) -> Event:
     contact.seq_out += 1
-    return control_event(contact, state_body(contact.seq_out, now, relays, share), rng, now)
+    return control_event(contact, state_body(contact.seq_out, now, relays, share, color), rng, now)
 
 
 def share_grant(until: int, stream_pk: str, stream_key: bytes) -> dict:
@@ -773,9 +811,13 @@ def read_control(contact: Contact, ev: Event, now: int) -> dict | None:
         check_state(body)
     except Exception:
         return None
-    if body['seq'] <= contact.last_seq_in.get('state', 0):
-        return None  # replay of an older state, e.g. a grant re-served after it was ended
+    last = contact.last_seq_in.get('state', 0)
+    if body['seq'] < last or (body['seq'] == last and contact.last_state_read):
+        # A replay of an older state, e.g. a grant re-served after it was ended, or of the latest one, except
+        # once after a restart: what it granted was kept in memory only.
+        return None
     contact.last_seq_in['state'] = body['seq']
+    contact.last_state_read = True
     contact.confirmed = True
     return body
 
@@ -913,17 +955,18 @@ class Sharer:
     """Sharer side of §9: one stream for all current recipients, replaced whenever anyone is added or
     removed (including by `until`) and at every new epoch. Nothing here is written to disk."""
 
-    def __init__(self, relays: list):
+    def __init__(self, relays: list, color: str | None = None):
         self.relays = check_relays(relays)
+        self.color = color       # the dot colour the states carry (§8), or None
         self.grants = {}         # Contact -> until (0 = until stopped)
         self.stream = None
         self.stream_epoch = None
         self.not_before = 0
 
     def _states(self, removed: list, rng, now: int) -> list:
-        evs = [state_event(c, self.relays, share_grant(u, self.stream.pubkey(), self.stream.key), rng, now)
-               for c, u in self.grants.items()]
-        evs += [state_event(c, self.relays, None, rng, now) for c in removed]
+        evs = [state_event(c, self.relays, share_grant(u, self.stream.pubkey(), self.stream.key), rng, now,
+                           self.color) for c, u in self.grants.items()]
+        evs += [state_event(c, self.relays, None, rng, now, self.color) for c in removed]
         return shuffle(evs, rng)
 
     def start(self, grants: dict, rng, now: int) -> Rekey:
@@ -961,7 +1004,7 @@ class Sharer:
         (§6.3). It carries the grant while `contact` is a recipient, so that sending it never ends a share."""
         until = self.grants.get(contact)
         share = None if until is None else share_grant(until, self.stream.pubkey(), self.stream.key)
-        return state_event(contact, self.relays, share, rng, now)
+        return state_event(contact, self.relays, share, rng, now, self.color)
 
     def stop(self, rng, now: int) -> Rekey:
         """Same shape as change() seen from a removed recipient: states (shuffled), then the end."""
@@ -999,8 +1042,10 @@ class Following:
         self.position = None
         self.stale = False
         self.ended_at = None
+        self.color = None
 
     def on_state(self, state: dict, now: int):
+        self.color = state_color(state)
         share = state.get('share')
         if share is None or (share['until'] and share['until'] <= now):
             self.stop()

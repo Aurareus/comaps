@@ -2829,7 +2829,7 @@ UserMark const * BookmarkManager::FindNearestUserMark(TTouchRectHolder const & h
   //  - look for the closest mark among the marks of the same type X.
   //  - if the mark has been found, stop looking for a closer one in the other types.
   if (finder(UserMark::Type::ROUTING) || finder(UserMark::Type::ROAD_WARNING) || finder(UserMark::Type::SEARCH) ||
-      finder(UserMark::Type::API))
+      finder(UserMark::Type::API) || finder(UserMark::Type::LIVE_LOCATION) /* Live location (NLL): contacts' dots */)
   {
     return finder.GetFoundMark();
   }

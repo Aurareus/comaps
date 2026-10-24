@@ -111,14 +111,19 @@ stream class, 772 for the control class) whatever their contents.
 Common field limits:
 
 - Relay lists contain 1–4 URLs of at most 64 bytes each.
-- Every URL is `wss://` followed by one or more printable ASCII characters (0x21–0x7E). The only
-  exception is `ws://` to a loopback host, for local test relays: `ws://` then `localhost`,
-  `127.0.0.1` or `[::1]`, an optional `:` with 1–5 digits, and an optional path of printable ASCII
-  starting with `/`. Senders MUST NOT send, and receivers MUST reject, any other URL: without TLS,
-  an on-path observer would see the event keys and contents that TLS hides (design doc, threat
-  T3). The rule is stated as a pattern rather than by reference to a URL parser, because parsers
-  differ.
-- Names are at most 64 bytes.
+- Every URL is `wss://` followed by one or more printable ASCII characters (0x21–0x7E) other than
+  `"` and `\`. The only exception is `ws://` to a loopback host, for local test relays: `ws://`
+  then `localhost`, `127.0.0.1` or `[::1]`, an optional `:` with 1–5 digits, and an optional path of
+  those characters starting with `/`. Senders MUST NOT send, and receivers MUST reject, any other
+  URL: without TLS, an on-path observer would see the event keys and contents that TLS hides
+  (design doc, threat T3). The rule is stated as a pattern rather than by reference to a URL
+  parser, because parsers differ.
+- Names are 1–64 bytes without control characters (U+0000–U+001F, U+007F).
+- JSON writes `"` and `\` as two bytes and control characters as six, which no URL or name may
+  hold for that reason: the largest messages a sender can then make fit their size. With four
+  URLs of 64 bytes, a sequence number at the largest JSON integer and times of ten digits, a state
+  with a grant and the colour `deeppurple` is 506 bytes, a `pair3` with a name of 64 quotes 465,
+  and a location with six numbers of 24 characters 253 (of 256).
 
 ## 6. Pairing
 
@@ -134,8 +139,9 @@ invite = u8(1)                      version
 link   = "comaps://live/pair#" || base64url(invite)
 ```
 
-The invite is shown as a QR code of `link` or sent as `link` over any channel. Example: a 123-byte
-invite with three relays, a 183-character link, QR version 10 at error correction M. Receivers
+The invite is shown as a QR code of `link` or sent as `link` over any channel. With the three
+default relays it is 122 bytes, a 182-character link, QR version 10 at error correction M (the
+vectors' example, whose third relay is longer, is 123 bytes and 183 characters). Receivers
 reject an invite with trailing bytes, an `ipk` that is not a valid x-only key, or relays that break
 §5. Each invite is **single-use** (§6.3).
 
@@ -198,6 +204,10 @@ Subscriptions on the invite's relays, kept until the invite expires:
 
 - the inviter: `{"kinds":[30484],"#p":[ipk]}`;
 - the joiner: `{"kinds":[30484],"authors":[ipk]}` and `{"kinds":[30484],"#p":[ipk]}`.
+
+A step that no relay has accepted yet is published again, as the same event, until one does or the
+invite expires; a client keeps it across a restart for that. Publishing it again is not a second step:
+it has the same id, and relays keep one event per step and author.
 
 **Definitions.**
 
@@ -371,22 +381,43 @@ Each direction has a single addressable slot (kind `30484`, `d = ""`, pubkey `ct
 ```json
 {"t":"state","seq":7,"ts":1760000200,
  "relays":["wss://nos.lol","wss://nostr.mom","wss://relay.primal.net"],
- "share":{"until":1760003800,"pk":"<stream pubkey, 64 hex>","key":"<stream key, base64 of 32 bytes>"}}
+ "share":{"until":1760003800,"pk":"<stream pubkey, 64 hex>","key":"<stream key, base64 of 32 bytes>"},
+ "color":"teal"}
 ```
 
 - `seq` is a per-direction counter, starting at 1 and strictly increasing across epochs.
   Receivers MUST ignore a state whose `seq` is not greater than the last one accepted from that
-  contact. This stops a relay replaying an old grant after the share ended.
+  contact. This stops a relay replaying an old grant after the share ended. One exception: after a
+  restart, a receiver reads the state of the last accepted `seq` once more, since what it granted
+  was kept in memory only (§12). A state older than that one is still ignored.
 - `relays` are the sender's current home relays, in its order (§11).
 - In the first week after pairing, the joiner's states also confirm the pairing to the inviter
   (§6.3). The first carries no `share`; each later one is the joiner's current state.
 - `share` is present while the sender shares with this recipient. `until` is when this
   recipient's access ends (0 = until stopped). A state without `share` ends any earlier grant.
+- `color`, optional, is the colour the sender asks viewers to draw its dot in: in this version one of
+  `red`, `pink`, `purple`, `deeppurple`, `blue`, `lightblue`, `cyan`, `teal`, `green`, `lime`,
+  `yellow`, `orange`, `deeporange` and `brown`. The latest state counts: one without `color` leaves
+  the colour to the viewer. A viewer draws a name it does not know as if there were none (§12).
 - Encryption: `content = NIP-44(ctl_ck(e), plaintext)`, control class.
 - `expiration = epoch_end(e) + 3600`.
 - Published to the **recipient's** home relays (its inbox, §11).
 - A sender with an active share republishes its state under the new epoch's key at the first
   opportunity after midnight UTC (the stream also rotates then, §9).
+- A state is **delivered** once a relay answers `OK true` (§11). Until one does, the sender SHOULD
+  send that contact its current state again: whenever a relay connection opens, after a failure on a
+  back-off, and after a restart, so it keeps across restarts which contacts wait for one. Within the
+  epoch of the state the same event goes again, after it a new state. Without this, a state sent
+  offline is lost: a share started then never reaches the recipient, a stop leaves it running, and
+  the grant of midnight leaves it on the old stream for a day.
+- After a share with a contact ends, once a state without `share` has been delivered to it, the
+  sender SHOULD send it its current state once more on a later UTC day. A state can be read only
+  until 01:00 UTC the next day, so a recipient offline until then would otherwise go on showing the
+  share.
+- A sender that deletes a contact erases its channel keys at once (design doc §8.5). If a share with
+  that contact ends then, or ended without both of those states having been delivered, it MAY keep
+  states without `share` made at that moment, one for each of the next 7 epochs, and send them as
+  above: the first until one is delivered, then one on a later day. Only the contact can read them.
 
 ## 9. Location stream
 
@@ -421,7 +452,8 @@ sharer's relays 30–120 s later (design doc, threat T4).
 The wait makes it likely that the remaining recipients have their grants before the `end` arrives,
 but it cannot guarantee it: states go to each recipient's inbox relays and the `end` to the sharer's
 relays. A recipient that sees the `end` first keeps the last position, marked stale, until a state
-arrives (§12).
+arrives (§12). States that no relay accepted go again (§8); the `end` does not need to, since a new
+grant, or a state without `share`, ends the stream a recipient had too.
 
 A sharer that has lost `stream_sk` (its process died) cannot publish the `end`. The old stream's
 last event then simply expires. Recipients treat a new grant, or a state without `share`, as the end
@@ -471,7 +503,15 @@ Every user has 1–4 **home relays**, user-configurable and in the user's order,
 list in the design doc. Every relay list a client sends (the invite, steps 2 and 3, states) keeps
 that order. A client that keeps a single connection open while idle, such as a sharer that nobody
 watches (design doc D17), keeps it to the first relay of its list that it can reach: its
-**listening relay**. Its inbox subscription then runs only there.
+**listening relay**. Its inbox subscription then runs only there. A sharer MAY add a filter for its own
+stream's key to that subscription, of the same epoch only (one epoch per connection, below): each event
+the relay accepts with `OK true` should then come back over the same connection. When one does not, the
+relay accepts events without delivering them, and the client SHOULD listen on the next relay, trying
+the first again later (design doc §10.3). An exact duplicate (`OK true` with `duplicate:`) is not
+delivered again, and a relay that has never sent an event back may simply not do so: neither proves
+anything. A client SHOULD remember which of its home relays have sent an event back, across runs and
+for as long as they stay among its home relays: one that stopped delivering before the client started
+would otherwise never be judged.
 
 | Message | Published to | Read from |
 |---|---|---|
@@ -481,6 +521,37 @@ watches (design doc D17), keeps it to the first relay of its list that it can re
 | watch signal B→A | A's home relays | A reads its own home relays |
 
 Publishing to another user's relays is limited to those that relay consent allows (below).
+
+**Changing home relays.** Contacts learn a user's home relays only from the `relays` of that user's
+states (§8). When the user changes them, the app:
+
+- sends every contact its current state naming the new list. A running share is re-keyed, as for a
+  change of recipients (§9), so that its grants, its stream and its listening relay all move to the
+  new list; every other contact gets a state without `share`;
+- counts each contact as **not moved** until something new from it (a state or a signal) arrives
+  through one of the new home relays. A relay in both lists counts: the contact reaches the user there;
+- until every contact has moved, and at most through epoch `e_c + 30`, where `e_c` is the epoch of the
+  change, also reads its inbox on the previous home relays, which stay allowed (relay consent, below),
+  so that what contacts still send there arrives. What arrives there tells nothing of a move;
+- sends each contact that has not moved its current state again on each UTC day it runs, unless it has
+  already sent that contact a state that day, for as long as the contact has not moved. A state can be
+  read only until 01:00 UTC the next day (§8): without the repeats, a contact that did not open its
+  app that day would never learn the new list.
+
+A contact that never finished connecting, whose confirmation week (§6.3) is over without one, is left
+out of the last three points: it gets no repeats, the previous relays are not read for it, and it is
+not shown as not moved (the app offers to remove it instead).
+
+A client that accepts a state naming relays other than those its last state to that contact was
+accepted on (the "answer") SHOULD send that contact its current state at once, through the relays now
+named and as relay consent allows; if no OK arrives, again as any state (§8), and when the user
+allows one of those relays. It sends no answer to a contact it hides. The answer tells the user's app
+that the contact has moved. Like any state, it lets the new relays see which of the user's inbox keys
+are real (T1).
+
+A contact that has not moved after the 30 days keeps publishing to the old relays, unread, until a
+state names the new ones and it answers; the user's app shows it as not moved, so that the user can ask
+them to open CoMaps.
 
 Subscriptions (NIP-01 `REQ`, at most 50 authors per filter; longer lists are split into several
 filters of the same `REQ`):
@@ -517,7 +588,10 @@ connection, whatever the IP address. Within one day, keys used over the same con
 linkable.
 
 Publishers send each event to all relevant relays and treat it as delivered when at least one relay
-answers `OK true`. Receivers deduplicate by event id.
+answers `OK true`. Receivers deduplicate by event id, counting an event as received only once its id
+and signature have been checked (§12 item 1) and it matches the filter it was sent for. Otherwise a
+relay that sends a broken or altered copy first would hide the intact copies that the other relays
+deliver.
 
 **Relay consent.** Every relay a phone connects to learns that phone's IP address, hence its rough
 location and provider, and when the connection happens. Contacts name relays: a sharer its home
@@ -527,13 +601,18 @@ contact. That happens when you view its share or send it watch signals, when you
 when you send it states, including when you stop sharing with it. So:
 
 - Implementations MUST NOT connect, to read or to publish, to a relay outside the user's own home
-  relays, the built-in default list, and relays the user has approved.
-- For any other relay a contact names, the app asks once, naming the contact: "Bob's location comes
+  relays (and the previous ones, until every contact has moved or for 30 days after a change), the
+  built-in default list, and relays the user has approved.
+- For any other relay a contact names, the app asks, naming the contact: "Bob's location comes
   through relay.example.org, which isn't one of yours. Its operator would see your internet address
-  whenever you view Bob." An approval is remembered per relay, and can be revoked in the settings.
+  whenever you view Bob." The user can allow the relay, which is remembered per relay and can be
+  revoked in the settings; refuse it, which is remembered too, and listed in the settings so that it
+  can be allowed later; or put the question off, and the app asks again the next time the relay is
+  needed, at most once each time it runs.
 - Until approved, a relay is skipped. The app reads, publishes and pairs through the contact's
   remaining relays, if any. Skipping a removed recipient's relay when sending it a state without
-  `share` costs nothing: revocation is cryptographic (§9).
+  `share` costs nothing: revocation is cryptographic (§9). While none of a contact's relays may be
+  used, nothing reaches that contact, and the app shows which relay it would need.
 - A viewer takes a sharer's listening relay to be the first of the list in its states. If the viewer
   may not use that relay, its signals cannot reach the sharer while nobody watches, so faster
   updates never start (§10). An app that sends signals MUST then say, when it asks for that relay,
@@ -547,8 +626,10 @@ when you send it states, including when you stop sharing with it. So:
 Every event must pass all of these checks. Cheap ones may run first, but the signature MUST be
 verified before anything is decrypted (as NIP-44 requires):
 
-1. `kind` and `created_at` are integers, `created_at ≥ 0`; the event id equals SHA256 of its
-   serialization, and the BIP-340 signature is valid;
+1. the envelope is well typed: `id` and `pubkey` are 64 and `sig` 128 lowercase hex characters,
+   `kind` and `created_at` are integers, `created_at ≥ 0`, `tags` is an array of arrays of strings
+   and `content` is a string; the event id equals SHA256 of its serialization, and the BIP-340
+   signature is valid;
 2. kind and pubkey are among those expected for the subscription, and the `d` tag (and, for the
    joiner's pairing steps, the `p` tag) is as expected. A tag's value is the second element of the
    first tag with that name; other tags are ignored;
@@ -566,12 +647,12 @@ defined in §5.
 
 | `t` | Required | Optional |
 |---|---|---|
-| `state` | `seq` integer ≥ 1; `ts` integer ≥ 0; `relays` per §5 | `share`: an object with `until` an integer ≥ 0, `pk` 64 lowercase hex characters that decode to a valid x-only key, and `key` base64 of exactly 32 bytes. An invalid `share` makes the whole state invalid |
+| `state` | `seq` integer ≥ 1; `ts` integer ≥ 0; `relays` per §5 | `share`: an object with `until` an integer ≥ 0, `pk` 64 lowercase hex characters that decode to a valid x-only key, and `key` base64 of exactly 32 bytes. An invalid `share` makes the whole state invalid. `color`: a string of 1–32 bytes; anything else is ignored, the state is not |
 | `loc` | `seq` integer ≥ 1; `ts` integer ≥ 0 (ms); `lat` number in [−90, 90]; `lon` number in [−180, 180]; `acc` number ≥ 0 | `spd` number ≥ 0; `brg` number in [0, 360); `alt` number; `low` boolean; `nav` object with `eta` integer ≥ 0, `dist` number ≥ 0 and `dest` string of at most 48 bytes, each optional |
 | `end` | `seq` integer ≥ 1; `ts` integer ≥ 0 | — |
 | `watch` | `ts` integer ≥ 0; `until` integer ≥ 0 | — |
 | `pair1` | — | — |
-| `pair2` | `name` string of 1–64 bytes; `relays` per §5 | — |
+| `pair2` | `name` per §5; `relays` per §5 | — |
 | `pair3` | `ok` boolean; when true: `name`, `relays` as in `pair2`, and `epoch` integer (§6.3) | — |
 
 **Stream keys and positions.**
@@ -579,7 +660,8 @@ defined in §5.
 - A recipient keeps a stream key only while its grant is current. It MUST erase the key when a new
   grant replaces it, when the stream's `end` arrives, and when the grant's `until` passes.
 - It also enforces `until` locally, whatever the sharer does.
-- Positions are kept in memory only (design doc §8.5).
+- Stream keys and positions are kept in memory only (design doc §8.5). After a restart, the
+  recipient learns its grants again from its contacts' latest states (§8).
 - On an `end`, the recipient keeps the last position, marked stale, for up to 120 s, or until a state
   arrives:
   - with a new grant, it shows the stale position until the new stream's first location;
@@ -613,9 +695,12 @@ Further obligations:
 - Rotate the stream on every membership change and every epoch, in the order of §9.
 - One epoch per connection, decoys in the inbox subscription (§11).
 - Never publish anything for a contact the user has not explicitly shared with. After the user
-  stops sharing, publish nothing but the final states and the `end`. The one exception is the
-  joiner's confirmation: a state right after pairing, then its current state on each UTC day it
-  runs, through epoch `e_p + 7` (§6.3).
+  stops sharing, publish nothing but the final states and the `end`; the final states go again
+  until delivered, and once more on a later day (§8). The one exception is the joiner's
+  confirmation: a state right after pairing, then its current state on each UTC day it runs,
+  through epoch `e_p + 7` (§6.3).
+- Send a state that no relay has accepted again until one does, also after a restart (§8); a pairing
+  step too, until the invite expires (§6.3).
 - Connect only to the user's own, the default and approved relays (relay consent, §11); when that
   leaves out a sharer's listening relay, say that live updates are off (§11).
 - Invites live at most 24 hours; joiners refuse longer ones (§6.1).
@@ -639,10 +724,14 @@ Further obligations:
 | pairing epoch | `e_p = epoch(now − 300)` at the inviter; the joiner accepts `epoch(now) − 1 ≤ e_p ≤ epoch(now)` |
 | joiner's confirmation | a state right after step 3, then one on each UTC day the joiner runs, through epoch `e_p + 7` |
 | removal offered for an unconfirmed contact | from `epoch_end(e_p + 7) + 3600` |
-| invite | 70 bytes plus the relay list (123 bytes with the three default relays) |
+| previous home relays read after a change | until every contact has moved (not counting those that never finished connecting), at most through epoch `e_c + 30` |
+| echo of an accepted event on the listening relay (optional) | within 15 s of its `OK` |
+| invite | 70 bytes plus the relay list (122 bytes with the three default relays) |
 | invite lifetime | at most 86400 s; joiners refuse `expires_at` more than 86400 + 300 s ahead |
 | JSON integers | within ±(2⁵³ − 1) |
-| relay lists | 1–4 `wss://` URLs of ≤ 64 bytes (`ws://` only to loopback) |
+| relay lists | 1–4 `wss://` URLs of ≤ 64 bytes, without `"` or `\` (`ws://` only to loopback) |
+| names | 1–64 bytes without control characters |
+| dot colour (`color`) | a name of 1–32 bytes, from 14 in this version (§8) |
 | authors per REQ filter | ≤ 50 |
 | inbox subscription | padded with decoys to a multiple of 8 |
 
@@ -669,9 +758,14 @@ The primitives are checked separately against the published NIP-44 v2, BIP-340, 
 `test_protocol.py`, and a second implementation should port them too:
 
 - conflicting pairing events, forged or junk steps, and a step 1 meant for another joiner;
+- mistyped envelopes whose id and signature still verify (a tag given as a string) and uppercase hex;
 - a low-order Noise key;
 - plaintexts that break the JSON profile, and states and locations that fail the field checks;
 - non-canonical base64;
 - a confirmation that expires before the inviter runs, the daily confirmations through epoch
   `e_p + 7`, and the exact moment removal is first offered;
 - a watch signal that cannot reach an unwatched sharer's listening relay.
+
+`vectors/profile_cases.json` (made by `make_profile_cases.py`) lists plaintexts with the verdict of
+§12 item 5: hand-written cases for each rule of the profile (§5), and mutations of valid plaintexts.
+Another implementation must reach the same verdict on every one.

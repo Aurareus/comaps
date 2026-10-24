@@ -17,6 +17,8 @@ import androidx.lifecycle.ProcessLifecycleOwner;
 import androidx.preference.PreferenceManager;
 import app.organicmaps.background.OsmUploadWork;
 import app.organicmaps.downloader.DownloaderNotifier;
+import app.organicmaps.livelocation.LiveLocationFeature;
+import app.organicmaps.livelocation.LiveLocationService;
 import app.organicmaps.location.LocationProviderFactoryImpl;
 import app.organicmaps.location.TrackRecordingService;
 import app.organicmaps.routing.NavigationService;
@@ -150,6 +152,7 @@ public class MwmApplication extends Application implements Application.ActivityL
     return mOrganicMaps.init(() -> {
       ThemeSwitcher.INSTANCE.initialize(this);
       ThemeSwitcher.INSTANCE.restart(false);
+      LiveLocationFeature.onCoreReady(this); // Live location (NLL): before the observer reports the foreground
       ProcessLifecycleOwner.get().getLifecycle().addObserver(mProcessLifecycleObserver);
       onComplete.run();
     });
@@ -213,6 +216,7 @@ public class MwmApplication extends Application implements Application.ActivityL
   {
     Logger.d(TAG);
 
+    LiveLocationFeature.onForeground(this); // Live location (NLL)
     getLocationHelper().resumeLocationInForeground();
   }
 
@@ -221,6 +225,7 @@ public class MwmApplication extends Application implements Application.ActivityL
     Logger.d(TAG);
 
     OsmUploadWork.startActionUploadOsmChanges(this);
+    LiveLocationFeature.onBackground(); // Live location (NLL)
 
     if (!mDisplayManager.isDeviceDisplayUsed())
       Logger.i(LOCATION_TAG, "Android Auto is active, keeping location in the background");
@@ -230,6 +235,11 @@ public class MwmApplication extends Application implements Application.ActivityL
       Logger.i(LOCATION_TAG, "PENDING_POSITION mode, keeping location in the background");
     else if (TrackRecorder.nativeIsTrackRecordingEnabled())
       Logger.i(LOCATION_TAG, "Track Recordr is active, keeping location in the background");
+    else if (LiveLocationService.isRunning()) // Live location (NLL): a share alone, at its own pace
+    {
+      Logger.i(LOCATION_TAG, "Live location is shared, keeping location in the background");
+      LiveLocationService.useSharingPace(this);
+    }
     else
     {
       Logger.i(LOCATION_TAG, "Stopping location in the background");

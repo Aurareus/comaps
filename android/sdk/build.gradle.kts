@@ -125,8 +125,10 @@ dependencies {
     implementation(libs.androidx.recyclerview)
     implementation(libs.androidx.documentfile)
     implementation(libs.androidx.lifecycle.process)
+    implementation(libs.okhttp) // Live location (NLL)
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
+    testImplementation(libs.org.json) // Live location (NLL): the model tests run on the plain JVM
     coreLibraryDesugaring(libs.android.tools.desugar)
 }
 

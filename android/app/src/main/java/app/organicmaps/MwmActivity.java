@@ -69,6 +69,11 @@ import app.organicmaps.intent.IntentProcessor;
 import app.organicmaps.leftbutton.LeftButton;
 import app.organicmaps.leftbutton.LeftButtonsHolder;
 import app.organicmaps.leftbutton.LeftToggleButton;
+import app.organicmaps.livelocation.LiveLocationActivity;
+import app.organicmaps.livelocation.LiveLocationFeature;
+import app.organicmaps.livelocation.LiveLocationInviteProcessor;
+import app.organicmaps.livelocation.LiveLocationLeftButton;
+import app.organicmaps.livelocation.LiveLocationMapUi;
 import app.organicmaps.location.TrackRecordingService;
 import app.organicmaps.maplayer.MapButtonsController;
 import app.organicmaps.maplayer.MapButtonsViewModel;
@@ -202,6 +207,9 @@ public class MwmActivity extends BaseMwmFragmentActivity
 
   private PlacePageViewModel mPlacePageViewModel;
   private MapButtonsViewModel mMapButtonsViewModel;
+  @Nullable
+  private LiveLocationMapUi mLiveLocationMapUi; // Live location (NLL)
+  private boolean mLiveLocationIndicator; // Live location (NLL): its indicator is shown
   private MapButtonsController.LayoutMode mPreviousMapLayoutMode;
 
   @Nullable
@@ -334,6 +342,7 @@ public class MwmActivity extends BaseMwmFragmentActivity
     }
 
     final IntentProcessor[] mIntentProcessors = {
+        new LiveLocationInviteProcessor(), // Live location (NLL): before the comaps:// short links
         new Factory.UrlProcessor(),
         new Factory.KmzKmlProcessor(),
     };
@@ -506,6 +515,8 @@ public class MwmActivity extends BaseMwmFragmentActivity
     // We don't need to manually handle removing the observers it follows the activity lifecycle
     mMapButtonsViewModel.getBottomButtonsHeight().observe(this, this::onMapBottomButtonsHeightChange);
     mMapButtonsViewModel.getLayoutMode().observe(this, this::initNavigationButtons);
+    mLiveLocationMapUi = new LiveLocationMapUi(this); // Live location (NLL)
+    mMapButtonsViewModel.getLiveLocationSharing().observe(this, this::onLiveLocationIndicator); // Live location (NLL)
 
     mSearchController = new FloatingSearchToolbarController(this, this);
     mSearchController.getToolbar().setBackground(ContextCompat.getDrawable(this, R.drawable.bg_search_radius));
@@ -586,7 +597,7 @@ public class MwmActivity extends BaseMwmFragmentActivity
       UiUtils.setViewInsetsPaddingBottom(mPointChooser, windowInsets);
       UiUtils.setViewInsetsPaddingNoBottom(mPointChooserToolbar, windowInsets);
       final int trackRecorderOffset =
-          TrackRecorder.nativeIsTrackRecordingEnabled() ? dimen(this, R.dimen.map_button_size) : 0;
+          topIndicatorsHeight(TrackRecorder.nativeIsTrackRecordingEnabled()); // Live location (NLL): and its own
       mNavBarHeight = isFullscreen() ? 0 : windowInsets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom;
       // For the first loading, set compass top margin to status bar size
       // The top inset will be then be updated by the routing controller
@@ -872,6 +883,7 @@ public class MwmActivity extends BaseMwmFragmentActivity
         drawIcon(left);
       }
     });
+    LiveLocationLeftButton.register(buttonsHolder, this); // Live location (NLL)
   }
 
   private void initNavigationButtons(MapButtonsController.LayoutMode layoutMode)
@@ -918,6 +930,7 @@ public class MwmActivity extends BaseMwmFragmentActivity
     }
     case help -> showHelp();
     case trackRecordingStatus -> showTrackSaveDialog();
+    case liveLocationStatus -> startActivity(LiveLocationActivity.manageIntent(this)); // Live location (NLL)
     }
   }
 
@@ -951,6 +964,12 @@ public class MwmActivity extends BaseMwmFragmentActivity
 
     mPlacePageViewModel.setMapObject(null);
     return true;
+  }
+
+  // Live location (NLL): the sheet of a contact's dot, closed where the place page is. False if it was not open.
+  private boolean closeLiveLocationSheet()
+  {
+    return mLiveLocationMapUi != null && mLiveLocationMapUi.closeSheet();
   }
 
   /**
@@ -1035,6 +1054,7 @@ public class MwmActivity extends BaseMwmFragmentActivity
     closeBottomSheet(LAYERS_MENU_ID);
     closeBottomSheet(MAIN_MENU_ID);
     closePlacePage();
+    closeLiveLocationSheet(); // Live location (NLL)
   }
 
   private void closeFloatingToolbars(boolean clearSearchText, boolean stopSearch)
@@ -1234,6 +1254,8 @@ public class MwmActivity extends BaseMwmFragmentActivity
     MwmApplication.from(this).getLocationHelper().addListener(this);
     mSearchController.attach(this);
     Utils.keepScreenOn(Config.isKeepScreenOnEnabled() || RoutingController.get().isNavigating(), getWindow());
+    if (mLiveLocationMapUi != null) // Live location (NLL)
+      mLiveLocationMapUi.onStart();
   }
 
   @Override
@@ -1243,6 +1265,8 @@ public class MwmActivity extends BaseMwmFragmentActivity
     Framework.nativeRemovePlacePageActivationListener(this);
     BookmarkManager.INSTANCE.removeLoadingListener(this);
     MwmApplication.from(this).getLocationHelper().removeListener(this);
+    if (mLiveLocationMapUi != null) // Live location (NLL)
+      mLiveLocationMapUi.onStop();
     if (mDisplayManager.isDeviceDisplayUsed() && !RoutingController.get().isNavigating())
     {
       LocationState.nativeRemoveListener();
@@ -1284,6 +1308,7 @@ public class MwmActivity extends BaseMwmFragmentActivity
   {
     final RoutingController routingController = RoutingController.get();
     if (!closeBottomSheet(MAIN_MENU_ID) && !closeBottomSheet(LAYERS_MENU_ID) && !collapseNavMenu() && !closePlacePage()
+        && !closeLiveLocationSheet() // Live location (NLL)
         && !closeSearchToolbar(true, true) && !closeSidePanel() && !closePositionChooser()
         && !routingController.resetToPlanningStateIfNavigating() && !routingController.cancel())
     {
@@ -1381,6 +1406,7 @@ public class MwmActivity extends BaseMwmFragmentActivity
       }
       setFullscreen(true);
       closePlacePage();
+      closeLiveLocationSheet(); // Live location (NLL)
     }
   }
 
@@ -1427,6 +1453,25 @@ public class MwmActivity extends BaseMwmFragmentActivity
   void updateCompassOffset(int offsetY)
   {
     updateCompassOffset(offsetY, -1);
+  }
+
+  // Live location (NLL): the indicators at the top right, track recording's and below it live location
+  // sharing's, are stacked. The compass goes below them.
+  private int topIndicatorsHeight(boolean recording)
+  {
+    final int count = (recording ? 1 : 0) + (mLiveLocationIndicator ? 1 : 0);
+    if (count == 0)
+      return 0;
+    return count * dimen(this, R.dimen.map_button_size) + (count - 1) * dimen(this, R.dimen.margin_half);
+  }
+
+  private void onLiveLocationIndicator(@Nullable Integer people)
+  {
+    final boolean shown = people != null && people > 0;
+    if (shown == mLiveLocationIndicator)
+      return;
+    mLiveLocationIndicator = shown;
+    onRoutingPlanStartAnimate(RoutingController.get().isPlanning());
   }
 
   void updateCompassOffset(int offsetY, int offsetX)
@@ -1592,18 +1637,20 @@ public class MwmActivity extends BaseMwmFragmentActivity
     }
     final int orientation = getResources().getConfiguration().orientation;
     final boolean isTrackRecordingEnabled = TrackRecorder.nativeIsTrackRecordingEnabled();
-    if (isTrackRecordingEnabled && (orientation != Configuration.ORIENTATION_LANDSCAPE))
-      offsetY += dimen(this, R.dimen.map_button_size);
+    // Live location (NLL): its indicator counts as the track recording one, and below it.
+    final boolean indicators = isTrackRecordingEnabled || mLiveLocationIndicator;
+    if (indicators && (orientation != Configuration.ORIENTATION_LANDSCAPE))
+      offsetY += topIndicatorsHeight(isTrackRecordingEnabled);
     if (orientation == Configuration.ORIENTATION_LANDSCAPE)
     {
       if (show)
       {
         final boolean isSmallScreen = UiUtils.getDisplayTotalHeight(this) < dimen(this, R.dimen.dp_400);
-        if (!isSmallScreen || TrackRecorder.nativeIsTrackRecordingEnabled())
+        if (!isSmallScreen || indicators)
           offsetX += dimen(this, R.dimen.map_button_size);
       }
-      else if (isTrackRecordingEnabled)
-        offsetY += dimen(this, R.dimen.map_button_size);
+      else if (indicators)
+        offsetY += topIndicatorsHeight(isTrackRecordingEnabled);
     }
     updateCompassOffset(offsetY, offsetX);
   }
@@ -2436,7 +2483,7 @@ public class MwmActivity extends BaseMwmFragmentActivity
     if (mCurrentWindowInsets != null)
     {
       final int offset = mCurrentWindowInsets.getInsets(WindowInsetsCompat.Type.systemBars()).top;
-      updateCompassOffset(offset + dimen(this, R.dimen.map_button_size));
+      updateCompassOffset(offset + topIndicatorsHeight(true)); // Live location (NLL): and its own
     }
     Toast.makeText(this, R.string.track_recording, Toast.LENGTH_SHORT).show();
     TrackRecordingService.startForegroundService(getApplicationContext());
@@ -2456,7 +2503,7 @@ public class MwmActivity extends BaseMwmFragmentActivity
         if (height != 0)
           offsetY = height;
       }
-      updateCompassOffset(offsetY, offsetX);
+      updateCompassOffset(offsetY + topIndicatorsHeight(false), offsetX); // Live location (NLL): its own stays
     }
     TrackRecordingService.stopService(getApplicationContext());
     mMapButtonsViewModel.setTrackRecorderState(false);
@@ -2510,6 +2557,11 @@ public class MwmActivity extends BaseMwmFragmentActivity
   public void onShareLocationOptionSelected()
   {
     closeFloatingPanels();
+    if (LiveLocationFeature.isEnabled(this)) // Live location (NLL): its screen, which also sends the location
+    {
+      startActivity(LiveLocationActivity.contactsIntent(this));
+      return;
+    }
     shareMyLocation();
   }
 
