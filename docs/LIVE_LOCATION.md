@@ -911,7 +911,8 @@ So:
   every connection made for that contact (its stream, its signals), not just the dot. The sheet's
   lines update in place as positions arrive. It behaves as the place page does: the map stays
   bright and can be moved and zoomed while it is open, the map buttons rise above it, and "Center"
-  puts the contact in the part of the map above it. A drag down closes it, as do back, the main
+  puts the contact in the part of the map above it, and stops the map following the user's own
+  position, as going to a bookmark does. A drag down closes it, as do back, the main
   menu, the search bar on the map (after a search), planning a route and full screen; a place
   tapped on the map, or a search result's, takes its place. The search button leaves it open, as
   it leaves the place page.
@@ -944,9 +945,9 @@ So:
   tap on the name), the labels (a flag, the offer to remove, not moved, "Messages to Bob need …",
   "Live updates from Bob need …"; a tap on either of the last two asks the relay question again),
   how long the user shares with them ("Change"), last update, accuracy and a low battery, "Hide on
-  the map" with what it does below the switch, "Show on the map", "Compare code", "Stop sharing with
-  Bob" and "Delete contact". A new position updates its lines in place. Deleting a contact also
-  stops any share with them.
+  the map" with what it does below the switch, "Show on the map" (which, as "Center" does, stops the
+  map following the user's position), "Compare code", "Stop sharing with Bob" and "Delete contact".
+  A new position updates its lines in place. Deleting a contact also stops any share with them.
 - After the user changes their relays, a contact whose app has not yet answered through the new
   ones (spec §11) shows "Hasn't picked up your new relays yet". Its screen explains: "Bob hasn't
   picked up your new relays yet. Until then, CoMaps also checks your previous relays, for up to 30
@@ -1297,8 +1298,8 @@ The Android app (`android/app/.../livelocation`, `android/sdk/.../livelocation`)
 | Background location pace | Only while a share alone keeps location running in the background: 2 s at high accuracy when someone watches, else 30 s at balanced accuracy (§10.3). Navigation, track recording, Android Auto and the "waiting for position" mode keep their own pace; in the foreground the map's 500 ms applies. | Balanced accuracy is a hint: the fused providers honour it, a plain GPS provider does not. |
 | Low battery | The service reports the battery level and whether the phone is plugged in. Plugged in, the share does not stop for the battery, and positions do not say `low` (above, core). | Stopping a share on a charging phone helps nobody. The service once reported 100 % while charging, which counted as the battery having been above the level (§25). |
 | A fix without accuracy | Dropped, as are fixes with values out of range; out-of-range optional fields are left out. | The protocol requires an accuracy, and receivers drop a message with a bad field. Fused and GPS fixes carry one. |
-| Turning the feature off | Stops any share, closes connections, and frees the core once the stop's messages have their relays' answers (at most 30 s). What no relay accepted then goes out later, by the delivery job (below). Deleting the data while it is off deletes the file and the Keystore keys without starting anything. | "No traffic when unused" includes the moment of deletion. Contacts must still learn that the share ended (§29). |
-| The delivery job | A one-time WorkManager job with a network constraint, scheduled for when the core says something is next due: a state no relay accepted (a minute after it left, in case the process ends while it is on its way), a share's end once more on the next day, a deleted contact's. It runs the core if none runs, waits up to 30 s for the relays' answers, and frees it again; then it schedules the next run, or retries with WorkManager's back-off from 30 s. Also while the feature is off; never without a store, which it does not create. | Your decision in the seventh review (§29): a stop made in a tunnel would otherwise reach contacts only when the user opened the app again. WorkManager runs it after a reboot too, and in Doze's maintenance windows. |
+| Turning the feature off | Stops any share, closes connections, and frees the core once the stop's messages have their relays' answers (at most 30 s). What no relay accepted then goes out later, by the delivery job (below), for a week at most. Deleting the data while it is off deletes the file and the Keystore keys without starting anything. | "No traffic when unused" includes the moment of deletion. Contacts must still learn that the share ended (§29), but not for ever: your fix in the eighth review (§30), the week a deleted contact is told for. |
+| The delivery job | A one-time WorkManager job with a network constraint, there only while the app is neither on screen nor sharing: on screen or sharing, the core runs and sends again by itself. It is scheduled for when the core says something is next due: a state no relay accepted (as soon as there is a network), a share's end once more on the next day, a deleted contact's. That time changes with what is due, not with each attempt to send it; each change takes the job's place, a run in progress too. The job runs the core if none runs, waits up to 30 s for the relays' answers, and frees it again; then it schedules the next run, or retries with WorkManager's back-off, from 30 s up to its cap of 5 hours. Also while the feature is off, for a week after it was turned off; never without a store, which it does not create. | Your decision in the seventh review (§29): a stop made in a tunnel would otherwise reach contacts only when the user opened the app again. WorkManager runs it after a reboot too, and in Doze's maintenance windows, when the core's own timers stand still. Your findings in the eighth review (§30): it repeated the core's attempts while the app was open, and with the feature off it never gave up. |
 | The sharing indicator | A round button like track recording's, at the top right of the map, where track recording's is, or below it when both show, in every layout that has track recording's; the compass moves below both. While a route is planned, both sit 72 dp from the top, clear of the planning header (64 dp). Its icon is a pin with arcs on both sides, as large as the recording ring, with the number of people cut out of the pin ("99+" from 100). It blinks between grey and blue, in step with track recording's: each blinking starts on a common clock, one line added to upstream's `animateIconBlinking()`. A tap opens Manage sharing. It hides with the other map buttons. Its blinking stops with its view, e.g. when the buttons are made again for navigation. | Your changes in the third review (§25): the badge was cut off on some phones, the indicator covered the compass, and it should blink like track recording's, in blue; below track recording's, kept in the fourth (§26), where both indicators touched the planning header (40 dp from the top on short screens, 64 on others). |
 | Adding a contact | The screen opens with a QR invite (10 min). "Share a link instead" cancels it and makes a link invite (24 h). "Paste invite" cancels the user's own open QR invite before joining. | One open invite per screen, so the two codes are never confused. |
 | Share durations | 15 min, 1 h (preselected), 8 h, until stopped, or until a time of day picked on a clock (tomorrow if it has passed). A contact's details change the end of a running share, earlier or later, without re-keying. | §11.3's list, and your changes in the third review (§25). |
@@ -1309,7 +1310,7 @@ The Android app (`android/app/.../livelocation`, `android/sdk/.../livelocation`)
 | Resuming after the process died | The map offers it in a dialog. "Resume" restarts the share with the same people and ends; without the permissions it needs, Manage sharing asks for them and then resumes. Manage sharing offers it too, at its top, until it is resumed or dismissed. Only the people whose end has not passed are offered; if every end passed after the offer, the app says so and forgets the share. "Don't resume" tells them that the share ended (core, above). | §8.5. Coming back from the notification settings resumed nothing, and a share whose ends had all passed was offered again and again (§25). |
 | Relay consent questions | Queued; whichever live location screen or the map is in front asks them, one at a time, with [Allow] / [Not now] / [Don't allow] (core, above). A question dismissed with the activity counts as "Not now". The labels of a contact (§11.5) and Settings → Relays for contacts ask again. | Questions arrive at any time, often while the user is on the map. |
 | A contact's dot | A circle, 20 dp across (16 until the third review), in the colour the sharer chose, or one derived from the contact's id (grey once old), with the name under it, in the layer of bookmarks' labels. A tap on either opens the sheet over the map (§11.4); "Center" zooms to the position at zoom 16. A long tap opens the usual place page of that point, titled with the name, from which one can route there. | Drape places no labels in the user mark layer. A tap on a name used to reach upstream code that aborts on an unknown mark type (§24). |
-| The dot's sheet | A bottom sheet in the map's layout, as the place page is, not a dialog: the map stays bright and can be moved, the map buttons rise above it, and "Center" puts the contact in the part of the map above it. A drag down closes it, and so does whatever closes the place page: back, the main menu, the search bar on the map, planning a route, full screen; the search button leaves both open. A place tapped on the map takes its place; another contact's dot replaces its lines. It stays open while the contact's details are open, and comes back after a rotation. Hooks in `MwmActivity`: back, `closeFloatingPanels()` and full screen. It gets the navigation bar's room itself, before its first layout, and tells the map buttons where it rests after each layout pass. It asks for a layout pass at each step of its movement. | Your change in the fourth review (§26): the dialog dimmed the map, covered the map buttons, and closed when the map was touched. The behaviour gave the bar's room only after the sheet had started to open, and a layout listener sees the sheet before the behaviour moves it down: it opened over the bar, and the buttons hid (§27). Over the map, a SurfaceView, the window tells the compositor which of its parts are transparent only at a layout pass, and the behaviour slides the sheet up without one: its sides and the part behind the navigation bar showed the map (§28). |
+| The dot's sheet | A bottom sheet in the map's layout, as the place page is, not a dialog: the map stays bright and can be moved, the map buttons rise above it, and "Center" puts the contact in the part of the map above it, after it stops the map following the user's position (`Framework::StopLocationFollow`, as for a bookmark; also "Show on the map" in the contact's details). A drag down closes it, and so does whatever closes the place page: back, the main menu, the search bar on the map, planning a route, full screen; the search button leaves both open. A place tapped on the map takes its place; another contact's dot replaces its lines. It stays open while the contact's details are open, and comes back after a rotation. Hooks in `MwmActivity`: back, `closeFloatingPanels()` and full screen. It gets the navigation bar's room itself, before its first layout, and tells the map buttons where it rests after each layout pass. It asks for a layout pass at each step of its movement. | Your change in the fourth review (§26): the dialog dimmed the map, covered the map buttons, and closed when the map was touched. The behaviour gave the bar's room only after the sheet had started to open, and a layout listener sees the sheet before the behaviour moves it down: it opened over the bar, and the buttons hid (§27). Over the map, a SurfaceView, the window tells the compositor which of its parts are transparent only at a layout pass, and the behaviour slides the sheet up without one: its sides and the part behind the navigation bar showed the map (§28). Your finding in the eighth review (§30): while the map followed the user's position, it went back there at the next fix. |
 | The left button | Settings → Interface → Left button setup offers "Share Live Location", from Android 7. It opens Manage sharing, where one picks whom to share with, as the indicator does; with no contacts yet, Share My Location, where one adds one; with the feature off, its explanation, where one turns it on. Its icon is that of the feature's settings. The main menu keeps "Share My Location", which opens the feature's first screen. | Your request in the fourth review (§26), its target kept in the fifth (§27). The label names the act of sharing, so the button goes where sharing starts. Share My Location stays in the menu because its screen (adding contacts, sending the current location once) has no other way in. |
 | A contact that has not moved | Labelled "Hasn't picked up your new relays yet", and after the 30 days "Hasn't picked up your new relays". Its screen explains and suggests asking the contact to open CoMaps. A contact that never finished connecting is not labelled. | Your change in the second review (§24), kept in the third (§25); §11.5. |
 | Opening an invite link | A link opened from outside the app asks "Connect with whoever created this invite? They will see your name, …" before anything is sent. A pasted invite opens directly. When the user refused or put off every relay the invite has, the screen names them, each with "Allow …", rather than calling the invite invalid. | Opening a link must not by itself send one's name or add a contact (§11.2). "Created", not "sent": in person nobody sent anything (§24). |
@@ -1328,19 +1329,19 @@ review, with your verdicts on the judgement calls, in §24; the third, after mor
 with the screens reworked, in §25; the fourth, which dropped compatibility with development builds
 and made the dot's sheet behave as the place page, in §26; the fifth, before the full runs on
 phones, in §27; the sixth, after a run on phones, in §28; the seventh, on updates sent while offline,
-in §29.
+in §29; the eighth, on the delivery job and the map following the user's position, in §30.
 
 ### What was built
 
 | Part | Where | Size |
 |---|---|---|
 | Core: crypto (BIP-340 through libsecp256k1, NIP-44 v2, Noise NNpsk0, HKDF), Nostr events and the strict JSON profile, NLL v1 (invites, pairing, channels, streams, signals, receiving rules), relay pool, encrypted store, manager | `libs/live_location` | 9,800 lines |
-| Tests of the core | `libs/live_location/live_location_tests` | 6,100 lines, 110 tests (71 at first, 79 after §23, 87 after §24, 95 after §25, 98 after §26, 100 after §27, 102 after §28) |
+| Tests of the core | `libs/live_location/live_location_tests` | 6,150 lines, 112 tests (71 at first, 79 after §23, 87 after §24, 95 after §25, 98 after §26, 100 after §27, 102 after §28, 110 after §29) |
 | Contacts' dots on the map, and a tap on them | `libs/map/live_location_marks.*`, `Framework`; a test in `map_tests` | |
 | Desktop test peer (the core driven by line commands, plain `ws://`) | `libs/live_location/peer` | 630 lines |
 | JNI host: the core's thread, OkHttp sockets, Keystore key wrapping | `android/sdk/src/main/cpp/.../livelocation` | 850 lines |
 | SDK: facade, OkHttp transport, Keystore wrapper, models; location pace | `android/sdk/src/main/java/.../livelocation`, `LocationHelper` | 1,260 lines |
-| App: foreground service, delivery and ratchet jobs, the switch and its settings, screens, the dot's sheet, the indicator's icon, the left button, hooks | `android/app/src/main/java/.../livelocation` | 4,200 lines |
+| App: foreground service, delivery and ratchet jobs, the switch and its settings, screens, the dot's sheet, the indicator's icon, the left button, hooks | `android/app/src/main/java/.../livelocation` | 4,300 lines |
 | Python reference implementation, test peer, cross test, fixtures | `tools/python/live_location` | 4,800 lines |
 
 ### How it was tested
@@ -1359,7 +1360,9 @@ in §29.
   fifth's hidden contacts and own dot colour (7 mutants, §27), the sixth's time limits of
   followed shares and reading the latest state again after a restart (7 mutants, §28), and the
   seventh's states sent again, the next day's repeat, deleted contacts, interrupted shares and
-  pairing steps (21 mutants, §29). The fake network also takes one phone offline.
+  pairing steps (21 mutants, §29), and the eighth's retries: their cap, the one when the app comes to
+  the foreground, and a due time that does not move with them (4 mutants, §30). The fake network
+  also takes one phone offline.
 - **Map**: a test taps a dot as drape reports it, on its name and on the dot itself, with and without
   the app's listener (`LiveLocationMarks_TapOnADot`). Without the fix it aborts, as the app did.
 - **Cross-implementation, over a real relay** (strfry): the C++ core and the Python reference pair
@@ -1399,14 +1402,16 @@ in §29.
 
 One row of §21 is marked **review**, from the sixth review (§28): after a restart, a contact's latest
 state is read once more, which amends the rule of spec §8 that ignores a state not newer than the
-last one accepted.
+last one accepted. And a question from the eighth review (§30): with the feature on, what no relay
+accepts still goes again without end, the job at most every 5 hours; it was left so.
 
 ### Known gaps
 
-- The changes of the sixth and seventh reviews (§28, §29) have not been on a phone yet: the dot's
-  sheet drawn whole, a hidden contact's share ending at its time limit, a share followed again after
-  a restart, and updates sent offline arriving once the network is back. The delivery job that sends
-  them while the app is closed has no test here.
+- The changes of the sixth to eighth reviews (§28 to §30) have not all been checked on a phone yet:
+  the dot's sheet drawn whole, a hidden contact's share ending at its time limit, a share followed
+  again after a restart, updates sent offline arriving once the network is back, and "Center" and
+  "Show on the map" while the map follows the user. The delivery job that sends updates while the app
+  is closed has no test here, nor has when it is there and when it gives up.
 - §11.5 once promised a test of whether each relay can be reached; none was built.
 - English only.
 - Phones whose makers kill background apps aggressively may stop the sharing service; only
@@ -1814,3 +1819,36 @@ and the Python reference's tests 309 of 309, unchanged: its test peer does not s
 never did. The JVM tests pass 9 of 9, lint finds no errors and nothing in the new code, and the APK
 builds with all 34 native methods exported. The delivery job has no test here, there being no phone or
 emulator; the checklist has it, with the other offline cases.
+
+## 30. Eighth review of Phase 2 (2026-10-24)
+
+A read of the seventh review's code found one problem and three nits, and a run on a phone a bug in
+the map. Each was checked before anything changed: all five hold, though the bug had another cause
+than the one you guessed. Each change in the core has a test that fails without it (4 mutants, all
+caught); the app's changes have none, there being no phone or emulator here, and are for the next
+run on phones.
+
+| # | Your finding | Verdict | Change | Test |
+|---|---|---|---|---|
+| 1 | Low: with the feature off, the delivery job never gives up | **Right.** The core counts a state as due until a relay accepts it, and the job retries whenever that time has passed, with WorkManager's back-off, which WorkManager caps at 5 hours (`WorkRequest.MAX_BACKOFF_MILLIS`, 18,000,000 ms in work-runtime 2.10.5, the version the app uses). Each run starts the core and connects to the contact's relays. With the feature on the same holds; see below | As you suggested: with the feature off, the job sends for a week after the feature was turned off, as long as a deleted contact is told; then it ends without starting the core. The time is kept with the switch; a feature turned off by an earlier build counts from the job's next run. Turned on again, the core sends what is due at once, as at every start | — |
+| 2 | While the app is open, the job repeats the core's attempts | **Right**, and the count too: 56 reports here in two hours of refusals, with the app open; you counted 57. The core added a minute to the due time while a state was on its way, so that a job would not start while the core still waited for an answer. Each attempt moved the time forward and back again, two reports, and each report replaced the job with one due at once | The due time no longer moves while a state is on its way: it changes with what is due, never with an attempt, and the job waits for the relays' answers anyway (30 s at most). The job is there only while the app is neither on screen nor sharing: then the core runs and sends again by itself. Once the app leaves the screen the job is scheduled for the due time, so that it also covers the process ending and the phone sleeping. The core's delays use a monotonic clock, which stands still while the phone sleeps, whereas WorkManager wakes it. On screen, or sharing, the job is cancelled, and so is a run in progress. Each report of the core takes the job's place, that of a run in progress too, which then schedules nothing: the guard that held reports back during a run went with the reports at each attempt | `Manager_WhatRelaysRefuseGoesAgainEveryFiveMinutes`: no report in an hour of refusals. Two other tests check that the time does not move while a state, and a deleted contact's state, is on its way |
+| 3 | Two retry triggers have no test: a 5-minute cap raised to an hour, and no retry when the app comes to the foreground, pass all 110 tests | **Right**: both mutants passed every test here too | Two tests. Relays that refuse for over an hour get the end of a share within five minutes of accepting again. And with the user's own relays down, so that no connection opens when the app comes to the foreground, coming to the foreground sends the end at once, not at the next attempt minutes away | `Manager_WhatRelaysRefuseGoesAgainEveryFiveMinutes`, `Manager_OpeningTheAppSendsWhatNoRelayAcceptedAtOnce` |
+| 4 | The spec's obligations: the joiner's confirmation sits under the new bullet on sending again | **Right**, a slip of the seventh review | Back in the bullet before it, as the exception to its rule | — |
+| 5 | "Center" on the dot's sheet and "Show on the map" in the contact's details do nothing while the map follows the user's position; the dots may reuse the position mark's code | **Right**, but not for that reason: the dots are user marks in a layer of their own (`libs/map/live_location_marks.*`), with nothing of the position mark. While the map follows the position ("locate me", or turning with the heading), drape moves the map back to it at every new position (`MyPositionController`). Upstream stops following before it moves the map to a bookmark, a track, a search result or a place from a link (`Framework::StopLocationFollow`); these two buttons did not. Of the feature's code, only they move the map: a tap on a dot opens the sheet where the map is, and the sheet only tells the map how much of it the sheet covers, as the place page does | Both stop following first, through one helper, then move the map. During navigation the map follows the position again after 20 s untouched, as after any move | Checklist |
+
+**With the feature on.** The job still never gives up then, for a contact whose relays are gone or
+refuse for good: one short run every 5 hours at most, for as long as no relay accepts. It was left
+so. With the feature on, the user has asked for work in the background, and a contact whose relays
+take nothing hears from no one through them until it moves to others, which its app announces; the
+state then goes there at once. Giving up could leave a contact's app showing a share that has ended,
+should its relays come back. And a week counted by the core needs to know since when a contact's
+states have gone unaccepted, which the store does not keep: a new format, and pairing again on both
+phones. Counted by the job alone, it would leave the core trying while the app is open. Your call.
+
+**Tests now.** 112 C++ tests of the core pass with clang 18 (unity and non-unity builds) and GCC 13.
+Two are new; two others check more. The 4 mutants of this review's rules are all caught: the
+5-minute cap raised to an hour, no retry when the app comes to the foreground, and the minute added
+while a state is on its way, for a contact and for a deleted one. The cross-implementation test
+passes 15 of 15 over strfry, and the Python reference's tests 309 of 309, unchanged. The JVM tests
+pass 9 of 9, lint finds no errors, and the APK builds. The store's format did not change: this build
+reads the seventh review's data.

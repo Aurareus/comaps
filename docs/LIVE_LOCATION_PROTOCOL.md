@@ -695,12 +695,12 @@ Further obligations:
 - Rotate the stream on every membership change and every epoch, in the order of §9.
 - One epoch per connection, decoys in the inbox subscription (§11).
 - Never publish anything for a contact the user has not explicitly shared with. After the user
-  stops sharing, publish nothing but the final states and the `end`. The final states go again until
-  delivered, and once more on a later day (§8).
+  stops sharing, publish nothing but the final states and the `end`; the final states go again
+  until delivered, and once more on a later day (§8). The one exception is the joiner's
+  confirmation: a state right after pairing, then its current state on each UTC day it runs,
+  through epoch `e_p + 7` (§6.3).
 - Send a state that no relay has accepted again until one does, also after a restart (§8); a pairing
-  step too, until the invite expires (§6.3). The one exception is the
-  joiner's confirmation: a state right after pairing, then its current state on each UTC day it
-  runs, through epoch `e_p + 7` (§6.3).
+  step too, until the invite expires (§6.3).
 - Connect only to the user's own, the default and approved relays (relay consent, §11); when that
   leaves out a sharer's listening relay, say that live updates are off (§11).
 - Invites live at most 24 hours; joiners refuse longer ones (§6.1).

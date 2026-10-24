@@ -176,9 +176,9 @@ screen on a phone, or nearly; it says what relays can and cannot see (§11.6).
 ## New code paths to check
 
 - **Installing over the previous build.** The store's format changed in the seventh review
-  (LIVE_LOCATION.md §29): installed over an earlier build, Share My Location says the data cannot be
-  read and offers "Delete all live location data". Delete it on every phone, then connect the phones
-  again.
+  (LIVE_LOCATION.md §29), and not since: installed over the seventh review's build, the contacts stay.
+  Installed over an earlier build, Share My Location says the data cannot be read and offers "Delete
+  all live location data". Delete it on every phone, then connect the phones again.
 - **Updates made offline** (§29). Airplane mode stands for a tunnel. Each should reach B within a
   few minutes of A's network coming back, rather than at the next midnight or never:
   - **Starting.** A in airplane mode: share with B. A minute later, airplane mode off: B's list says
@@ -196,11 +196,20 @@ screen on a phone, or nearly; it says what relays can and cannot see (§11.6).
     no longer says A shares.
   - **Turning the feature off.** While A shares with B: airplane mode, turn live location sharing
     off, airplane mode off, the feature still off: B's list no longer says A shares.
+  - **…and a week later** (§30). As before, but leave airplane mode on and set A's date 8 days
+    ahead (automatic date off). Airplane mode off: the delivery job runs (at once with `adb shell cmd
+    jobscheduler run -f app.comaps.fdroid.debug <id>`, the id from the dumpsys line above), connects
+    nowhere (PCAPdroid, or logcat), and is gone. B's list still says A shares. Set the date back.
   - **Pairing.** B opens A's link invite in airplane mode, then force-stops CoMaps (`adb shell am
     force-stop app.comaps.fdroid.debug`). Airplane mode off, open CoMaps on B and on A: the pairing
     goes on to the codes.
   - If convenient, **midnight UTC**: A in airplane mode from a few minutes before to a few minutes
     after, while sharing: B follows A again within minutes.
+- **The delivery job waits for CoMaps to leave the screen** (§30). On A, with CoMaps open and
+  nothing shared: airplane mode, then share with B and stop again at once. While CoMaps stays on
+  screen, the dumpsys line above lists only the daily job. Press home: the delivery job appears,
+  waiting for a network. Open CoMaps again: it goes. Airplane mode off with CoMaps open: within a few
+  minutes B's list no longer says A shares, and after midnight UTC A sends the end once more by itself.
 - **"Don't resume".** While A shares with B: `adb shell am force-stop app.comaps.fdroid.debug` on A,
   then open CoMaps: B still lists A as sharing, stale, until A decides. "Don't resume": within seconds
   B's list no longer says A shares.
@@ -254,6 +263,12 @@ screen on a phone, or nearly; it says what relays can and cannot see (§11.6).
   screen at once: the share includes it. "Until…" with a time that has already passed today means
   tomorrow; rotating the phone while its clock shows closes the clock, as it does the "For" list.
   "Stop all" stops everything; so does Share My Location → "Stop sharing location".
+- **Center and Show on the map while the map follows** (§30). On B, while A shares with B: tap the
+  my-position button until the map follows B's own position. Tap A's dot → "Center": the map goes to
+  A and stays there, and the my-position button shows that it no longer follows. Follow again, then
+  A's details → "Show on the map": the same. Both again with the map turning with B's heading (the
+  button's next state). During navigation the map follows B again after 20 s untouched, as after any
+  move of the map.
 - **Contact details.** Title "Contact details". While sharing with the contact: "Sharing your
   location with them", "Until …", "Change" (earlier, later, until stopped), above the last update,
   and "Stop sharing with …". "Hide on the map" has its explanation below the switch, above "Show on
