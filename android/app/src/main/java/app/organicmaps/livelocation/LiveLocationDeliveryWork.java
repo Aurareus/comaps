@@ -15,27 +15,27 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Live location (NLL): what no relay has accepted yet goes out once there is a network, also after the app
- * was closed or the phone restarted (docs/LIVE_LOCATION.md §29). E.g. a share stopped in a tunnel, which
- * contacts would otherwise see running until the user opens the app again; a deleted contact's end; a
+ * was closed or the phone restarted (docs/LIVE_LOCATION.md §29, §30). E.g. a share stopped in a tunnel,
+ * which contacts would otherwise see running until the user opens the app again; a deleted contact's end; a
  * share's end told once more on the next day. It runs the core for that if it does not run, which then
- * goes again, also while the feature is off: turning it off stops any share, and contacts are told so.
+ * goes again. Only while the app is neither on screen nor sharing (LiveLocationFeature); and while the
+ * feature is off, for a week after it was turned off: turning it off stops any share, and contacts are told.
  */
 public class LiveLocationDeliveryWork extends Worker
 {
   private static final String NAME = "LiveLocationDelivery";
-  // A run schedules the next one itself: until it ends, what the core reports is not scheduled.
-  private static volatile boolean sWorking;
 
   public LiveLocationDeliveryWork(@NonNull Context context, @NonNull WorkerParameters params)
   {
     super(context, params);
   }
 
-  /** Something is due at {@code at} (Unix seconds; at or before now: once there is a network), 0: nothing. */
+  /**
+   * Something is due at {@code at} (Unix seconds; at or before now: once there is a network), 0: nothing. It
+   * takes the place of the job there was, also of a run in progress, which then schedules nothing.
+   */
   static void schedule(@NonNull Context context, long at)
   {
-    if (sWorking)
-      return;
     final WorkManager manager = WorkManager.getInstance(context);
     if (at == 0)
       manager.cancelUniqueWork(NAME);
@@ -58,23 +58,18 @@ public class LiveLocationDeliveryWork extends Worker
   @Override
   public Result doWork()
   {
-    sWorking = true;
-    try
-    {
-      final long due = LiveLocation.deliver(getApplicationContext());
-      if (due == 0)
-        return Result.success();
-      // Not accepted yet, e.g. the relays are down: again later, backing off.
-      if (due * 1000 <= System.currentTimeMillis())
-        return Result.retry();
-      // Due later, e.g. a share's end once more on the next day: the next run, once this one has ended.
-      WorkManager.getInstance(getApplicationContext())
-          .enqueueUniqueWork(NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request(due));
+    if (!LiveLocationFeature.mayDeliver(getApplicationContext()))
+      return Result.success(); // turned off over a week ago: what is still unsent stays so
+    final long due = LiveLocation.deliver(getApplicationContext());
+    // Stopped: the app's core said meanwhile what is due, or came on screen and sends by itself.
+    if (due == 0 || isStopped())
       return Result.success();
-    }
-    finally
-    {
-      sWorking = false;
-    }
+    // Not accepted yet, e.g. the relays are down: again later, backing off.
+    if (due * 1000 <= System.currentTimeMillis())
+      return Result.retry();
+    // Due later, e.g. a share's end once more on the next day: the next run, once this one has ended.
+    WorkManager.getInstance(getApplicationContext())
+        .enqueueUniqueWork(NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request(due));
+    return Result.success();
   }
 }
