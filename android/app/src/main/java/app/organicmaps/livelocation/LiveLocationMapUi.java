@@ -7,8 +7,10 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.lifecycle.ViewModelProvider;
 import app.organicmaps.maplayer.MapButtonsViewModel;
+import app.organicmaps.sdk.Framework;
 import app.organicmaps.sdk.livelocation.LiveLocation;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.ConsentRequest;
+import app.organicmaps.sdk.livelocation.LiveLocationModels.Position;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Sharing;
 import app.organicmaps.sdk.util.LocationUtils;
 
@@ -83,6 +85,16 @@ public final class LiveLocationMapUi implements LiveLocation.Listener, LiveLocat
   public boolean closeSheet()
   {
     return mContactSheet.close(true);
+  }
+
+  /**
+   * Moves the map to a contact's position. Following the user's own position stops first, as it does for a
+   * bookmark or a search result: the map would otherwise go back to it at the next fix.
+   */
+  static void showOnMap(@NonNull Position position, int zoom)
+  {
+    Framework.nativeStopLocationFollow();
+    Framework.nativeZoomToPoint(position.lat, position.lon, zoom, true);
   }
 
   @Override

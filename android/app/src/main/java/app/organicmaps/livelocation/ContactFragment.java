@@ -7,7 +7,6 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import app.organicmaps.R;
-import app.organicmaps.sdk.Framework;
 import app.organicmaps.sdk.livelocation.LiveLocation;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.ConsentRequest;
 import app.organicmaps.sdk.livelocation.LiveLocationModels.Contact;
@@ -123,7 +122,7 @@ public class ContactFragment extends LiveLocationFragment
       final Position position = positionOf(contact.id);
       if (position == null)
         return;
-      Framework.nativeZoomToPoint(position.lat, position.lon, SHOW_ZOOM, true);
+      LiveLocationMapUi.showOnMap(position, SHOW_ZOOM);
       requireActivity().finish();
     });
     showPosition();

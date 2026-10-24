@@ -330,7 +330,7 @@ final class ContactSheet implements LiveLocation.Listener
       if (position == null || mSheet == null)
         return;
       setVisibleMap(mSheet.getTop());
-      Framework.nativeZoomToPoint(position.lat, position.lon, CENTER_ZOOM, true);
+      LiveLocationMapUi.showOnMap(position, CENTER_ZOOM);
     });
     views.outlinedButton(context.getString(R.string.live_location_contact_details),
                          v -> mActivity.startActivity(LiveLocationActivity.contactIntent(context, id)));
