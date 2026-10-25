@@ -1865,9 +1865,9 @@ reads the seventh review's data.
 You had the whole PR reviewed by a third party with relevant expertise. Each finding was checked
 against the code, against Android 12 to 14's own source and with running tests before anything
 changed. Most hold, but the ranking does not: the most serious live bug was filed as a latent one
-(R2), and five of the smaller items do not hold. Each change in the core has a test that fails
-without it (31 mutants, 30 caught; the one left is explained below). The app's changes have no
-test, there being no phone or emulator here, and are for the next run on phones.
+(R2), four of the smaller items do not hold, and one figure is wrong. Each change in the core has a
+test that fails without it (31 mutants, 30 caught; the one left is explained below). The app's
+changes have no test, there being no phone or emulator here, and are for the next run on phones.
 
 | # | The review's finding | Verdict | Change | Test |
 |---|---|---|---|---|
