@@ -59,6 +59,7 @@ public class LiveLocationService extends Service implements LocationListener, Li
 
   private static boolean sRunning;
   private boolean mForeground;
+  private int mLastStartId;
 
   private final BroadcastReceiver mBatteryReceiver = new BroadcastReceiver() {
     @Override
@@ -168,6 +169,8 @@ public class LiveLocationService extends Service implements LocationListener, Li
   @Override
   public int onStartCommand(@Nullable Intent intent, int flags, int startId)
   {
+    // Stopping with the latest start's id: a start that came meanwhile, for a new share, keeps the service.
+    mLastStartId = startId;
     final String action = intent != null ? intent.getAction() : null;
     if (ACTION_STOP.equals(action) || ACTION_REPOST.equals(action))
     {
@@ -181,31 +184,21 @@ public class LiveLocationService extends Service implements LocationListener, Li
         updateNotification();
       }
       if (!mForeground)
-        stopSelf(); // a stale notification's intent started it
+        stopSelf(startId); // a stale notification's intent started it
       return START_NOT_STICKY;
     }
 
-    if (!MwmApplication.from(this).getOrganicMaps().arePlatformAndCoreInitialized() || !LiveLocation.isRunning()
-        || !LiveLocation.getSharing().active)
-    {
-      Logger.w(TAG, "Nothing to share");
-      stopSelf();
-      return START_NOT_STICKY;
-    }
-    if (!LocationUtils.checkFineLocationPermission(this) || !canNotify(this))
-    {
-      Logger.w(TAG, "No location permission, or the notification cannot be seen: the share stops");
-      LiveLocation.stopSharing();
-      stopSelf();
-      return START_NOT_STICKY;
-    }
-
+    // Started by start(): Android requires the service to go foreground, also when it stops at once because the
+    // share ended meanwhile.
+    final boolean sharing = MwmApplication.from(this).getOrganicMaps().arePlatformAndCoreInitialized()
+                         && LiveLocation.isRunning() && LiveLocation.getSharing().active;
     try
     {
       int type = 0;
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
         type = ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION;
-      ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(), type);
+      createNotificationChannel(this);
+      ServiceCompat.startForeground(this, NOTIFICATION_ID, sharing ? buildNotification() : titleOnly(), type);
       mForeground = true;
     }
     catch (Exception e)
@@ -215,8 +208,22 @@ public class LiveLocationService extends Service implements LocationListener, Li
       else
         Logger.e(TAG, "Failed to promote the service to foreground", e);
       // Without the service, the share would run unseen.
+      if (sharing)
+        LiveLocation.stopSharing();
+      stopSelf(startId);
+      return START_NOT_STICKY;
+    }
+    if (!sharing)
+    {
+      Logger.w(TAG, "Nothing to share");
+      stopAsForeground(startId);
+      return START_NOT_STICKY;
+    }
+    if (!LocationUtils.checkFineLocationPermission(this) || !canNotify(this))
+    {
+      Logger.w(TAG, "No location permission, or the notification cannot be seen: the share stops");
       LiveLocation.stopSharing();
-      stopSelf();
+      stopAsForeground(startId);
       return START_NOT_STICKY;
     }
 
@@ -259,7 +266,7 @@ public class LiveLocationService extends Service implements LocationListener, Li
     if (!sharing.active)
     {
       Logger.i(TAG, "The share ended");
-      stopSelf();
+      stopAsForeground(mLastStartId);
       return;
     }
     updateNotification();
@@ -277,6 +284,13 @@ public class LiveLocationService extends Service implements LocationListener, Li
   {
     if (mode != LocationMode.Off && MwmApplication.from(this).getLocationHelper().hasSharingPace())
       useSharingPace(this);
+  }
+
+  private void stopAsForeground(int startId)
+  {
+    ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);
+    mForeground = false;
+    stopSelf(startId);
   }
 
   /** False after stopping the share, when its notification cannot be seen. */
@@ -313,26 +327,30 @@ public class LiveLocationService extends Service implements LocationListener, Li
         PendingIntent.getService(this, 2, new Intent(this, LiveLocationService.class).setAction(ACTION_REPOST),
                                  PendingIntent.FLAG_UPDATE_CURRENT | immutable);
 
-    final String title = getString(R.string.live_location_notification_title);
-    // On the lock screen, without the names.
-    final android.app.Notification lockScreen = new NotificationCompat.Builder(this, CHANNEL_ID)
-                                                    .setSmallIcon(R.drawable.ic_logo_small)
-                                                    .setContentTitle(title)
-                                                    .setColor(ContextCompat.getColor(this, R.color.notification))
-                                                    .build();
     return new NotificationCompat.Builder(this, CHANNEL_ID)
         .setCategory(NotificationCompat.CATEGORY_LOCATION_SHARING)
         .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-        .setPublicVersion(lockScreen)
+        .setPublicVersion(titleOnly()) // on the lock screen, without the names
         .setOngoing(true)
         .setOnlyAlertOnce(true)
         .setShowWhen(false)
         .setSmallIcon(R.drawable.ic_logo_small)
-        .setContentTitle(title)
+        .setContentTitle(getString(R.string.live_location_notification_title))
         .setContentText(describeSharing())
         .setContentIntent(open)
         .setDeleteIntent(repost)
         .addAction(0, getString(R.string.live_location_stop), stop)
+        .setColor(ContextCompat.getColor(this, R.color.notification))
+        .build();
+  }
+
+  /** The title alone: on the lock screen, and while a service with nothing to share goes foreground to stop. */
+  @NonNull
+  private android.app.Notification titleOnly()
+  {
+    return new NotificationCompat.Builder(this, CHANNEL_ID)
+        .setSmallIcon(R.drawable.ic_logo_small)
+        .setContentTitle(getString(R.string.live_location_notification_title))
         .setColor(ContextCompat.getColor(this, R.color.notification))
         .build();
   }
