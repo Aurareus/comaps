@@ -59,6 +59,9 @@ public class ManageSharingFragment extends LiveLocationFragment
   // What waits for the permissions.
   @Nullable
   private Runnable mAfterPermissions;
+  // What waits for the user to come back from the notification settings.
+  @Nullable
+  private Runnable mAfterSettings;
   private ActivityResultLauncher<String[]> mLocationPermission;
   private ActivityResultLauncher<String> mNotificationPermission;
 
@@ -107,6 +110,11 @@ public class ManageSharingFragment extends LiveLocationFragment
       mResume = false;
       resume(true);
     }
+    // Back from the notification settings: the share goes on if its notification can be seen now.
+    final Runnable then = mAfterSettings;
+    mAfterSettings = null;
+    if (then != null && LiveLocationService.canNotify(requireContext()))
+      withPermissions(then);
   }
 
   @Override
@@ -347,7 +355,11 @@ public class ManageSharingFragment extends LiveLocationFragment
       new MaterialAlertDialogBuilder(requireActivity())
           .setMessage(R.string.live_location_notifications_needed)
           .setNegativeButton(R.string.cancel, null)
-          .setPositiveButton(R.string.live_location_open_settings, (dialog, which) -> openNotificationSettings())
+          .setPositiveButton(R.string.live_location_open_settings,
+                             (dialog, which) -> {
+                               mAfterSettings = then;
+                               openNotificationSettings();
+                             })
           .show();
       return;
     }

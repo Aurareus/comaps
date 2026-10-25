@@ -49,6 +49,7 @@ final class LiveLocationText
                                                     names.get(0) + ", " + names.get(1), others);
   }
 
+  /** Without a contact just deleted, which the share leaves a moment later. */
   @NonNull
   static List<String> namesOf(@NonNull List<Recipient> recipients)
   {
@@ -56,7 +57,8 @@ final class LiveLocationText
     for (Recipient recipient : recipients)
     {
       final Contact contact = LiveLocation.getContact(recipient.contactId);
-      names.add(contact != null ? contact.name : "?");
+      if (contact != null)
+        names.add(contact.name);
     }
     return names;
   }
@@ -178,15 +180,15 @@ final class LiveLocationText
         .toString();
   }
 
-  /** "1 h 30 min", for the time an invite has left. */
+  /** "1 h 30 min", for the time an invite has left, in the units of route times. */
   @NonNull
-  static String duration(long seconds)
+  static String duration(@NonNull Context context, long seconds)
   {
     final long minutes = Math.max(0, (seconds + 59) / 60);
+    final String rest = minutes % 60 + "\u00A0" + context.getString(R.string.minute);
     if (minutes < 60)
-      return minutes + " min";
-    final long hours = minutes / 60;
-    final long rest = minutes % 60;
-    return rest == 0 ? hours + " h" : hours + " h " + rest + " min";
+      return rest;
+    final String hours = minutes / 60 + "\u00A0" + context.getString(R.string.hour);
+    return minutes % 60 == 0 ? hours : hours + " " + rest;
   }
 }

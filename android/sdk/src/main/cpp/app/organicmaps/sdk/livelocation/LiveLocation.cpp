@@ -92,6 +92,7 @@ std::string ToUtf8(JNIEnv * env, jstring str)
   return encoding::Utf16ToUtf8(utf16);
 }
 
+// nullptr when out of memory, with an exception pending: no call into Java may follow before it is handled.
 jstring ToJava(JNIEnv * env, std::string const & utf8)
 {
   std::u16string const utf16 = strings::ToUtf16(utf8);
@@ -148,7 +149,8 @@ public:
     m_listeners[id] = &listener;
     JNIEnv * env = jni::GetEnv();
     jni::TScopedLocalRef const jurl(env, ToJava(env, url));
-    env->CallStaticVoidMethod(g_transportClass, g_connect, static_cast<jlong>(id), jurl.get());
+    if (jurl.get() != nullptr)
+      env->CallStaticVoidMethod(g_transportClass, g_connect, static_cast<jlong>(id), jurl.get());
     if (jni::HandleJavaException(env))
       m_executor.Post([this, id] { OnClosed(id, "cannot connect"); });
     return std::make_unique<JavaSocket>(*this, id);
@@ -203,7 +205,8 @@ private:
       return;
     JNIEnv * env = jni::GetEnv();
     jni::TScopedLocalRef const jtext(env, ToJava(env, text));
-    env->CallStaticVoidMethod(g_transportClass, g_send, static_cast<jlong>(id), jtext.get());
+    if (jtext.get() != nullptr)  // else lost, as over a bad connection: the relay pool's timeouts see to it
+      env->CallStaticVoidMethod(g_transportClass, g_send, static_cast<jlong>(id), jtext.get());
     jni::HandleJavaException(env);
   }
 
@@ -256,6 +259,11 @@ public:
   {
     JNIEnv * env = jni::GetEnv();
     jni::TScopedLocalRef const alias(env, ToJava(env, wrapped.m_alias));
+    if (alias.get() == nullptr)
+    {
+      jni::HandleJavaException(env);
+      return {};
+    }
     jni::TScopedLocalByteArrayRef const blob(env, ToJavaBytes(env, wrapped.m_blob));
     if (blob.get() == nullptr)
     {
@@ -282,7 +290,8 @@ public:
   {
     JNIEnv * env = jni::GetEnv();
     jni::TScopedLocalRef const jkeep(env, ToJava(env, keep));
-    env->CallStaticVoidMethod(g_keysClass, g_deleteAllExcept, jkeep.get());
+    if (jkeep.get() != nullptr)  // never null to Java: that would keep nothing
+      env->CallStaticVoidMethod(g_keysClass, g_deleteAllExcept, jkeep.get());
     jni::HandleJavaException(env);
   }
 };
@@ -306,7 +315,8 @@ void ShowOnMap(std::vector<PositionInfo> positions)
       {
         JNIEnv * env = jni::GetEnv();
         jni::TScopedLocalRef const jid(env, ToJava(env, contactId));
-        env->CallStaticVoidMethod(g_liveLocationClass, g_onDotTapped, jid.get());
+        if (jid.get() != nullptr)
+          env->CallStaticVoidMethod(g_liveLocationClass, g_onDotTapped, jid.get());
         jni::HandleJavaException(env);
       });
     }
@@ -507,7 +517,8 @@ private:
   {
     JNIEnv * env = jni::GetEnv();
     jni::TScopedLocalRef const json(env, ToJava(env, event.Dump()));
-    env->CallStaticVoidMethod(g_liveLocationClass, g_onEvent, json.get());
+    if (json.get() != nullptr)
+      env->CallStaticVoidMethod(g_liveLocationClass, g_onEvent, json.get());
     jni::HandleJavaException(env);
   }
 

@@ -68,6 +68,8 @@
   <string name="live_location_name_too_long">This name is too long.</string>
   <string name="live_location_name_control">A name can\'t contain tabs or line breaks.</string>
   <string name="live_location_invite_hint">Let the other person scan this code with their camera.</string>
+  <!-- For screen readers: the invite's QR code -->
+  <string name="live_location_invite_code">Invite code to scan</string>
   <string name="live_location_share_link">Share a link instead</string>
   <string name="live_location_paste_invite">Paste invite</string>
   <string name="live_location_paste_invite_hint">comaps://live/pair#…</string>

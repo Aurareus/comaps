@@ -202,7 +202,7 @@ public class PairingFragment extends LiveLocationFragment implements OnBackPress
         {
           final int size = (int) (QR_SIZE_DP * getResources().getDisplayMetrics().density);
           final Bitmap qr = qrCode(pairing.link, size);
-          views.image(qr, qr.getWidth());
+          views.image(qr, qr.getWidth()).setContentDescription(getString(R.string.live_location_invite_code));
         }
         views.text(getString(R.string.live_location_invite_hint));
         views.text(expiresIn(pairing));
@@ -297,7 +297,7 @@ public class PairingFragment extends LiveLocationFragment implements OnBackPress
   private String expiresIn(@NonNull Pairing pairing)
   {
     final long left = pairing.expiresAt - System.currentTimeMillis() / 1000;
-    return getString(R.string.live_location_expires_in, LiveLocationText.duration(left));
+    return getString(R.string.live_location_expires_in, LiveLocationText.duration(requireContext(), left));
   }
 
   /** Pairing needs this user's name: asks for it first if there is none. */
@@ -424,7 +424,8 @@ public class PairingFragment extends LiveLocationFragment implements OnBackPress
         .setMessage(pairing.stage == Pairing.Stage.CompareCode
                         ? getString(R.string.live_location_leave_invite_deciding, pairing.peerName)
                         : getString(R.string.live_location_leave_invite_message,
-                                    LiveLocationText.duration(pairing.expiresAt - System.currentTimeMillis() / 1000)))
+                                    LiveLocationText.duration(requireContext(),
+                                                              pairing.expiresAt - System.currentTimeMillis() / 1000)))
         .setPositiveButton(R.string.live_location_leave_invite_waiting, (dialog, which) -> close())
         .setNegativeButton(R.string.live_location_cancel_invite,
                            (dialog, which) -> {
