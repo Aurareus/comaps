@@ -84,14 +84,20 @@ public:
   void CloseSubscriptions(std::string const & reason);
   /// Sends an event to every subscription, whether or not it matches: a misbehaving relay.
   void Push(live_location::nostr::Event const & event);
+  /// Sends a message as it is over every connection.
+  void Broadcast(std::string const & text);
 
   int64_t m_latencyMs = 40;
-  bool m_silent = false;     // accepts connections, then never answers: a dead connection
-  bool m_duplicate = false;  // sends every event to subscribers twice
-  bool m_refuse = false;     // answers every EVENT with OK false
-  bool m_forge = false;      // sends every event with a broken signature, as a dishonest relay could
-  bool m_deaf = false;       // accepts and keeps events, but delivers none as they arrive: its delivery broke
-  bool m_noEcho = false;     // delivers to every connection but the one that published the event
+  bool m_silent = false;          // accepts connections, then never answers: a dead connection
+  bool m_duplicate = false;       // sends every event to subscribers twice
+  bool m_refuse = false;          // answers every EVENT with OK false
+  bool m_forge = false;           // sends every event with a broken signature, as a dishonest relay could
+  bool m_deaf = false;            // accepts and keeps events, but delivers none as they arrive: its delivery broke
+  bool m_noEcho = false;          // delivers to every connection but the one that published the event
+  bool m_noEose = false;          // answers a REQ with the events it keeps, but never with EOSE
+  bool m_noOk = false;            // drops every EVENT unanswered
+  bool m_dropOnOpen = false;      // drops every connection as soon as it opens, as a relay in a restart loop would
+  bool m_plainDuplicate = false;  // accepts an event it already keeps with an empty message, as NIP-01 allows
 
   size_t OpenConnections() const;
   /// Every message received, per connection id, in order.

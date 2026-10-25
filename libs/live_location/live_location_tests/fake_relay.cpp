@@ -185,6 +185,16 @@ std::unique_ptr<relay::Socket> FakeRelay::Accept(relay::SocketListener & listene
     if (!link->m_clientClosed && !link->m_relayClosed)
       link->m_listener->OnOpen();
   });
+  if (m_dropOnOpen)
+  {
+    m_executor.PostDelayed(m_latencyMs + 1, [link]
+    {
+      if (link->m_clientClosed || link->m_relayClosed)
+        return;
+      link->m_relayClosed = true;
+      link->m_listener->OnClosed("dropped by the relay");
+    });
+  }
   return std::make_unique<FakeSocket>(m_executor, this, link);
 }
 
@@ -300,6 +310,13 @@ void FakeRelay::Push(nostr::Event const & event)
   }
 }
 
+void FakeRelay::Broadcast(std::string const & text)
+{
+  for (auto const & link : m_links)
+    if (!link->m_clientClosed && !link->m_relayClosed)
+      SendTo(link, text);
+}
+
 std::string FakeRelay::EventMessage(std::string const & subscriptionId, nostr::Event const & event) const
 {
   nostr::Event sent = event;
@@ -333,7 +350,11 @@ void FakeRelay::Receive(std::shared_ptr<Link> const & link, std::string const & 
     return;
   }
   std::string const type = json_string_value(json_array_get(root, 0));
-  if (type == "EVENT")
+  if (type == "EVENT" && m_noOk)
+  {
+    // Dropped unanswered.
+  }
+  else if (type == "EVENT")
   {
     auto const event = nostr::FromJson(json_array_get(root, 1));
     std::string const id = event ? event->m_id : std::string(64, '0');
@@ -344,7 +365,8 @@ void FakeRelay::Receive(std::shared_ptr<Link> const & link, std::string const & 
     else if (m_refuse)
       SendTo(link, "[\"OK\"," + Quoted(id) + ",false,\"blocked: test\"]");
     else if (std::any_of(m_events.begin(), m_events.end(), [&](auto const & e) { return e.m_id == id; }))
-      SendTo(link, "[\"OK\"," + Quoted(id) + ",true,\"duplicate: have this event\"]");
+      SendTo(link,
+             "[\"OK\"," + Quoted(id) + (m_plainDuplicate ? ",true,\"\"]" : ",true,\"duplicate: have this event\"]"));
     else
     {
       Store(*event);
@@ -364,7 +386,8 @@ void FakeRelay::Receive(std::shared_ptr<Link> const & link, std::string const & 
       if (!Expired(event) && std::any_of(filters.begin(), filters.end(),
                                          [&](auto const & f) { return live_location_tests::Matches(f, event); }))
         SendTo(link, EventMessage(id, event));
-    SendTo(link, "[\"EOSE\"," + Quoted(id) + "]");
+    if (!m_noEose)
+      SendTo(link, "[\"EOSE\"," + Quoted(id) + "]");
   }
   else if (type == "CLOSE" && json_is_string(json_array_get(root, 1)))
   {

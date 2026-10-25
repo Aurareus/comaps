@@ -13,7 +13,8 @@ namespace live_location::relay
 {
 namespace
 {
-size_t constexpr kPublishedKept = 64;  // per connection, for the echo check
+size_t constexpr kPublishedKept = 64;   // per connection, for the echo check
+size_t constexpr kClosedReqsKept = 16;  // per connection: events for them are not held against the relay
 }  // namespace
 
 Scope EpochScope(int64_t epoch)
@@ -53,12 +54,14 @@ struct RelayPool::Connection
     std::vector<nostr::Filter> m_filters;          // as last sent: the events the relay may deliver for it
     std::vector<nostr::Filter> m_previousFilters;  // sent before, and still delivered for until the EOSE
     bool m_live = false;                           // the EOSE for the REQ as last sent has arrived
+    Executor::TaskId m_eoseTimer = Executor::kNoTask;
   };
 
   bool m_open = false;
-  std::vector<std::string> m_queue;              // sent once open
-  std::map<std::string, Req> m_reqs;             // REQ id -> subscription
-  std::map<std::string, uint64_t> m_awaitingOk;  // event id -> publication
+  std::vector<std::string> m_queue;      // sent once open
+  std::map<std::string, Req> m_reqs;     // REQ id -> subscription
+  std::deque<std::string> m_closedReqs;  // the latest REQs closed here, whose events may still come
+  std::map<std::string, std::vector<uint64_t>> m_awaitingOk;  // event id -> publications waiting for its OK
   // Published events that a live REQ here asks for: event id -> echo timeout, set once the relay accepts.
   std::map<std::string, Executor::TaskId> m_echoes;
   std::deque<std::string> m_publishedOrder;  // the latest events published here, which may come back
@@ -300,6 +303,7 @@ void RelayPool::Place(SubscriptionId id)
     std::string text = nostr::ReqMessage(reqId, filters);
     connection.m_reqs.emplace(reqId, Connection::Req{id, std::move(filters), {}, false});
     Send(connection, std::move(text));
+    ArmEose(connection, reqId);
   }
 
   // A failing relay that the subscription should use (all of them, or an earlier one than the current
@@ -321,6 +325,30 @@ void RelayPool::PlaceAllUsing(std::string const & url)
     Place(id);
 }
 
+void RelayPool::ArmEose(Connection & connection, std::string const & reqId)
+{
+  auto const req = connection.m_reqs.find(reqId);
+  if (req == connection.m_reqs.end())
+    return;
+  Cancel(req->second.m_eoseTimer);
+  if (!connection.m_open)
+    return;  // from when it opens
+  uint64_t const connectionId = connection.m_id;
+  req->second.m_eoseTimer = Later(m_config.m_eoseTimeoutMs, [this, connectionId, reqId]
+  {
+    Connection * c = FindConnection(connectionId);
+    if (c == nullptr)
+      return;
+    auto const r = c->m_reqs.find(reqId);
+    if (r == c->m_reqs.end() || r->second.m_live)
+      return;
+    r->second.m_eoseTimer = Executor::kNoTask;
+    // A relay that does not finish answering a REQ may deliver nothing at all, and an echo check
+    // that waits for the EOSE would never judge it.
+    Fail(connectionId, "no EOSE", Unanswered::Req);
+  });
+}
+
 void RelayPool::Detach(Subscription & subscription, std::string const & url)
 {
   auto const active = subscription.m_active.find(url);
@@ -333,11 +361,26 @@ void RelayPool::Detach(Subscription & subscription, std::string const & url)
     Connection & connection = *entry.second;
     if (connection.m_url != url || connection.m_scope != subscription.m_scope)
       continue;
-    if (connection.m_reqs.erase(reqId) != 0)
+    auto const req = connection.m_reqs.find(reqId);
+    if (req != connection.m_reqs.end())
     {
+      Cancel(req->second.m_eoseTimer);
+      connection.m_reqs.erase(req);
       ForgetEchoes(connection);
       if (connection.m_open)
+      {
         connection.m_socket->Send(nostr::CloseMessage(reqId));
+        connection.m_closedReqs.push_back(reqId);
+        if (connection.m_closedReqs.size() > kClosedReqsKept)
+          connection.m_closedReqs.pop_front();
+      }
+      else
+      {
+        // Still queued: dropped, rather than sent once the connection opens without its CLOSE.
+        std::string prefix = nostr::ReqMessage(reqId, {});
+        prefix.pop_back();  // the "]"
+        std::erase_if(connection.m_queue, [&](std::string const & text) { return text.starts_with(prefix); });
+      }
       Linger(connection);
     }
   }
@@ -367,6 +410,7 @@ void RelayPool::Refresh(SubscriptionId id)
       req->second.m_live = false;
       ForgetEchoes(connection);
       Send(connection, nostr::ReqMessage(reqId, filters));
+      ArmEose(connection, reqId);
     }
   }
 }
@@ -400,8 +444,12 @@ void RelayPool::Publish(Scope const & scope, Relays const & urls, nostr::Event c
     if (!m_isAllowed(url) || IsFailing(url) || p.m_pending.count(url) != 0)
       continue;
     Connection & connection = GetConnection(url, scope);
-    connection.m_awaitingOk[event.m_id] = id;
-    if (connection.m_published.insert(event.m_id).second)
+    auto & waiting = connection.m_awaitingOk[event.m_id];
+    bool const onItsWay = !waiting.empty();  // sent here already: this publication waits for the same OK
+    waiting.push_back(id);
+    // The echo check waits for an event published here for the first time, and asked for by a listening
+    // REQ (see the class comment).
+    if (!onItsWay && connection.m_published.insert(event.m_id).second)
     {
       connection.m_publishedOrder.push_back(event.m_id);
       if (connection.m_publishedOrder.size() > kPublishedKept)
@@ -409,20 +457,27 @@ void RelayPool::Publish(Scope const & scope, Relays const & urls, nostr::Event c
         connection.m_published.erase(connection.m_publishedOrder.front());
         connection.m_publishedOrder.pop_front();
       }
+      for (auto const & req : connection.m_reqs)
+      {
+        auto const s = m_subscriptions.find(req.second.m_subscription);
+        if (req.second.m_live && s != m_subscriptions.end() && s->second->m_placement == Placement::FirstReachable &&
+            nostr::MatchesAny(req.second.m_filters, event))
+        {
+          connection.m_echoes.emplace(event.m_id, Executor::kNoTask);
+        }
+      }
     }
-    for (auto const & req : connection.m_reqs)
-      if (req.second.m_live && nostr::MatchesAny(req.second.m_filters, event))
-        connection.m_echoes.emplace(event.m_id, Executor::kNoTask);
     int64_t const timeout = m_config.m_okTimeoutMs + (connection.m_open ? 0 : m_config.m_connectTimeoutMs);
     uint64_t const connectionId = connection.m_id;
     p.m_pending[url] = Later(timeout, [this, id, url, connectionId]
     {
       if (FindConnection(connectionId) != nullptr)
-        Fail(connectionId, "no OK");  // a dead connection: this fails the publication there too
+        Fail(connectionId, "no OK", Unanswered::Publish);  // a dead connection: this fails the publication there too
       else
         OnPublishResult(id, url, false);
     });
-    Send(connection, text);
+    if (!onItsWay)
+      Send(connection, text);
   }
 
   if (p.m_pending.empty())
@@ -471,16 +526,29 @@ void RelayPool::OnEvent(Connection & connection, std::string const & reqId, nost
 {
   auto const req = connection.m_reqs.find(reqId);
   if (req == connection.m_reqs.end())
+  {
+    // Sent before the relay had the CLOSE, or junk.
+    auto const & closed = connection.m_closedReqs;
+    if (std::find(closed.begin(), closed.end(), reqId) == closed.end() &&
+        ++connection.m_invalidEvents > m_config.m_maxInvalidEvents)
+    {
+      Fail(connection.m_id, "invalid events");
+    }
     return;
+  }
   auto const it = m_subscriptions.find(req->second.m_subscription);
   if (it == m_subscriptions.end())
     return;
   Subscription & subscription = *it->second;
   // An event this connection published, delivered back as it arrived (after the EOSE, so not a stored
   // copy): the relay delivers what it accepts. Noted before the deduplication, since another relay's
-  // copy may have come first.
-  if (req->second.m_live && connection.m_published.count(event.m_id) != 0)
+  // copy may have come first; and only for an intact copy the REQ asked for, as no other would reach
+  // anyone either.
+  if (req->second.m_live && connection.m_published.count(event.m_id) != 0 &&
+      nostr::MatchesAny(req->second.m_filters, event) && nostr::Verify(event))
+  {
     OnEcho(connection, event.m_id);
+  }
   if (subscription.m_seen.count(event.m_id) != 0)
     return;  // already delivered by another relay
   // Only a verified event the REQ asked for counts as seen: a relay that sends a broken or altered
@@ -519,11 +587,15 @@ void RelayPool::OnOpen(uint64_t connectionId)
     return;
   Cancel(connection->m_connectTimer);
   connection->m_open = true;
-  m_health.erase(connection->m_url);
   std::vector<std::string> queue = std::move(connection->m_queue);
   connection->m_queue.clear();
   for (auto const & text : queue)
     connection->m_socket->Send(text);
+  std::vector<std::string> reqIds;
+  for (auto const & req : connection->m_reqs)
+    reqIds.push_back(req.first);
+  for (auto const & reqId : reqIds)
+    ArmEose(*connection, reqId);
   Linger(*connection);
   // The relay is reachable again: subscriptions that skipped it come back.
   std::string const url = connection->m_url;
@@ -537,7 +609,6 @@ void RelayPool::OnMessage(uint64_t connectionId, std::string const & text)
   Connection * connection = FindConnection(connectionId);
   if (connection == nullptr)
     return;
-  Touch(*connection);
   auto const message = nostr::ParseRelayMessage(text);
   if (!message)
     return;
@@ -570,11 +641,13 @@ void RelayPool::OnMessage(uint64_t connectionId, std::string const & text)
             Later(m_config.m_echoTimeoutMs, [this, connectionId, eventId] { OnEchoMissing(connectionId, eventId); });
       }
     }
-    uint64_t const publicationId = awaiting->second;
+    std::vector<uint64_t> const publications = awaiting->second;
     std::string const url = connection->m_url;
     connection->m_awaitingOk.erase(awaiting);
+    Answered(url, Unanswered::Publish);
     Linger(*connection);
-    OnPublishResult(publicationId, url, message->m_accepted);
+    for (auto const publicationId : publications)
+      OnPublishResult(publicationId, url, message->m_accepted);
     break;
   }
   case nostr::RelayMessage::Type::Eose:
@@ -584,6 +657,8 @@ void RelayPool::OnMessage(uint64_t connectionId, std::string const & text)
       break;
     req->second.m_live = true;
     req->second.m_previousFilters.clear();
+    Cancel(req->second.m_eoseTimer);
+    Answered(connection->m_url, Unanswered::Req);
     auto const subscription = m_subscriptions.find(req->second.m_subscription);
     if (subscription != m_subscriptions.end() && subscription->second->m_onEose)
     {
@@ -598,6 +673,7 @@ void RelayPool::OnMessage(uint64_t connectionId, std::string const & text)
     if (req == connection->m_reqs.end())
       break;
     SubscriptionId const id = req->second.m_subscription;
+    Cancel(req->second.m_eoseTimer);
     connection->m_reqs.erase(req);
     ForgetEchoes(*connection);
     LOG(LINFO, ("Relay closed a subscription:", connection->m_url, message->m_message));
@@ -671,7 +747,19 @@ void RelayPool::OnEchoMissing(uint64_t connectionId, std::string const & eventId
   PlaceAllUsing(url);  // a listening subscription moves to the next relay
 }
 
-void RelayPool::Fail(uint64_t connectionId, std::string const & reason)
+void RelayPool::Answered(std::string const & url, Unanswered kind)
+{
+  // Its back-off starts over, unless it still owes an answer of the other kind.
+  auto const it = m_health.find(url);
+  if (it == m_health.end())
+    return;
+  Health & health = it->second;
+  (kind == Unanswered::Publish ? health.m_owesOk : health.m_owesEose) = false;
+  if (!health.m_owesOk && !health.m_owesEose)
+    m_health.erase(it);
+}
+
+void RelayPool::Fail(uint64_t connectionId, std::string const & reason, Unanswered unanswered)
 {
   auto const it = m_connections.find(connectionId);
   if (it == m_connections.end())
@@ -682,6 +770,8 @@ void RelayPool::Fail(uint64_t connectionId, std::string const & reason)
   LOG(LINFO, ("Relay connection failed:", url, reason));
 
   Health & health = m_health[url];
+  health.m_owesOk = health.m_owesOk || unanswered == Unanswered::Publish;
+  health.m_owesEose = health.m_owesEose || unanswered == Unanswered::Req;
   health.m_failures = std::min(health.m_failures + 1, 30);
   int64_t backoff = m_config.m_backoffMinMs << std::min(health.m_failures - 1, 20);
   backoff = std::min(backoff, m_config.m_backoffMaxMs);
@@ -696,7 +786,7 @@ void RelayPool::Fail(uint64_t connectionId, std::string const & reason)
     subscriptions.push_back(req.second.m_subscription);
   std::vector<uint64_t> publications;
   for (auto const & awaiting : connection->m_awaitingOk)
-    publications.push_back(awaiting.second);
+    publications.insert(publications.end(), awaiting.second.begin(), awaiting.second.end());
   m_closed.push_back(std::move(connection));
   std::weak_ptr<int> alive = m_alive;
   m_executor.Post([this, alive]
@@ -753,5 +843,11 @@ void RelayPool::CloseAll()
     for (auto & pending : entry.second->m_pending)
       Cancel(pending.second);
   m_publications.clear();
+  std::weak_ptr<int> alive = m_alive;
+  m_executor.Post([this, alive]
+  {
+    if (!alive.expired())
+      m_closed.clear();
+  });
 }
 }  // namespace live_location::relay

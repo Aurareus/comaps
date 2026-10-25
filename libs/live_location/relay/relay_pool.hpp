@@ -32,6 +32,7 @@ Scope PairingScope(std::string const & pairingId);
 struct PoolConfig
 {
   int64_t m_okTimeoutMs = 10'000;       // no OK in this time: the publish failed there, and the connection is dead
+  int64_t m_eoseTimeoutMs = 15'000;     // no EOSE for a REQ sent in this time: the connection is no use either
   int64_t m_connectTimeoutMs = 15'000;  // not open in this time: the connection failed
   int64_t m_lingerMs = 60'000;          // a connection used only to publish closes after this long without traffic
   int64_t m_backoffMinMs = 1'000;       // a failing relay is retried after this, doubling up to the maximum
@@ -55,20 +56,25 @@ enum class Placement
 };
 
 /// All relay traffic, on the executor's thread. A relay that fails (it cannot be reached, drops the
-/// connection, or does not answer a publish within m_okTimeoutMs) backs off and is skipped until it
-/// has recovered or its back-off is over. Subscriptions move to other relays meanwhile and come back.
+/// connection, or does not answer a publish within m_okTimeoutMs or a REQ with its EOSE within
+/// m_eoseTimeoutMs) is skipped while it backs off. Subscriptions move to other relays meanwhile and come
+/// back. The back-off doubles with each failure until the relay has answered a publish or a REQ, so that
+/// one that drops every connection as it opens is not tried again every second; after one it left
+/// unanswered, until it has answered one of that kind. Such an answer also ends the back-off at once.
 /// Connections open when something needs them and close when nothing does: a connection without
 /// subscriptions closes after m_lingerMs without traffic. Nothing connects to a relay that `isAllowed`
 /// refuses (relay consent, spec §11).
 ///
-/// The echo check: when a REQ asks for the events that its own connection publishes, every event the
-/// relay accepts must come back over it, and is delivered like any other. One that has not within
-/// m_echoTimeoutMs of its OK shows that the relay accepts events without delivering them: it is then
-/// "deaf" (m_deafBackoff*), and a FirstReachable subscription moves to the next relay. When the back-off
-/// is over, the subscription runs on both until an event published comes back over the deaf relay or
-/// does not. Publishing to it goes on throughout. A relay that has never sent such an event back is not
-/// judged at all: some relays might never do so. Which relays have is the app's to remember across runs
-/// (SetEchoing(), OnEchoed()): a relay already deaf when the app starts would otherwise never be judged.
+/// The echo check: when a REQ of a FirstReachable subscription asks for the events that its own
+/// connection publishes, every event the relay accepts must come back over it, and is delivered like any
+/// other. One that has not within m_echoTimeoutMs of its OK shows that the relay accepts events without
+/// delivering them: it is then "deaf" (m_deafBackoff*), and the subscription moves to the next relay.
+/// When the back-off is over, the subscription runs on both until an event published comes back over the
+/// deaf relay or does not. Publishing to it goes on throughout. A relay that has never sent such an event
+/// back is not judged at all: some relays might never do so. Which relays have is the app's to remember
+/// across runs (SetEchoing(), OnEchoed()): a relay already deaf when the app starts would otherwise never
+/// be judged. Only an event published for the first time is judged: a relay does not deliver one it
+/// already has, whatever its OK says. So an event that a listening REQ asks for must not be sent again.
 class RelayPool
 {
 public:
@@ -98,7 +104,8 @@ public:
   void Unsubscribe(SubscriptionId id);
 
   /// Sends `event` to every relay of `urls` that is not failing. `done(true)` follows the first OK that
-  /// accepts it, `done(false)` the last refusal, failure or timeout when none accepted it.
+  /// accepts it, `done(false)` the last refusal, failure or timeout when none accepted it. An event still
+  /// waiting for its OK over a connection is not sent there again: this publication waits for that OK.
   void Publish(Scope const & scope, Relays const & urls, nostr::Event const & event, DoneFn done = {});
 
   /// Closes every connection and forgets every subscription and publication, without callbacks.
@@ -131,12 +138,22 @@ private:
   struct Subscription;
   struct Publication;
 
+  /// What a relay did not answer, when that is why it failed.
+  enum class Unanswered
+  {
+    Nothing,
+    Publish,
+    Req,
+  };
   struct Health
   {
     int m_failures = 0;
     int64_t m_retryAtMs = 0;
+    // Answers it owes: one that answers publishes and never a REQ, or the reverse, keeps backing off.
+    bool m_owesOk = false;
+    bool m_owesEose = false;
   };
-  /// Unlike a failure, not forgotten when the relay connects again: it connects fine.
+  /// Unlike a failure, not forgotten when the relay answers again: it answers fine.
   struct Deafness
   {
     int m_misses = 0;
@@ -148,8 +165,10 @@ private:
   void Send(Connection & connection, std::string text);
   void Place(SubscriptionId id);
   void PlaceAllUsing(std::string const & url);
+  void ArmEose(Connection & connection, std::string const & reqId);
   void Detach(Subscription & subscription, std::string const & url);
-  void Fail(uint64_t connectionId, std::string const & reason);
+  void Fail(uint64_t connectionId, std::string const & reason, Unanswered unanswered = Unanswered::Nothing);
+  void Answered(std::string const & url, Unanswered kind);
   void Drop(uint64_t connectionId);
   void Touch(Connection & connection);
   void Linger(Connection & connection);
