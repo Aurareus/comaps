@@ -443,6 +443,21 @@ public:
     return due;
   }
 
+  /// "Delete all data" while the feature is off: the store and its keys go, after what the core's thread is doing,
+  /// and so does a core still sending (a stop's ends, the delivery job's), without writing again. What it sent
+  /// may still reach the relays; nothing more goes, nor is retried.
+  void DeleteStore(std::string const & path)
+  {
+    m_executor.RunSync([&]
+    {
+      ++m_generation;  // nothing pending waits for the manager any more
+      m_manager.reset();
+      m_store.reset();
+      m_started = false;
+      store::Store(path, m_keys, crypto::SystemRng()).Erase();
+    });
+  }
+
   /// Also the way out of a store that cannot be read: the manager starts afresh.
   void DeleteAllData()
   {
@@ -609,6 +624,13 @@ JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_native
 {
   if (Host * host = g_host.load())
     host->DeleteAllData();
+}
+
+JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeDeleteStore(JNIEnv * env, jclass,
+                                                                                            jstring path)
+{
+  InitJni(env);
+  GetOrMakeHost()->DeleteStore(ToUtf8(env, path));
 }
 
 JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeSetForeground(JNIEnv *, jclass,

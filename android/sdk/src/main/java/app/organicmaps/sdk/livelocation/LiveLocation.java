@@ -121,7 +121,9 @@ public final class LiveLocation
 
   /**
    * "Delete all live location data": contacts, keys, settings. While the feature is off, without
-   * starting anything: the file and the Keystore keys go.
+   * starting anything: the file and the Keystore keys go, on the core's thread, which a background
+   * job may be using (docs/LIVE_LOCATION.md §31). A core still sending goes too, without writing
+   * again: contacts may not learn that a share just stopped has ended.
    */
   @MainThread
   public static void deleteAllData(@NonNull Context context)
@@ -131,13 +133,17 @@ public final class LiveLocation
       nativeDeleteAllData();
       return;
     }
+    if (isSupported())
+    {
+      nativeDeleteStore(storeFile(context).getAbsolutePath());
+      return;
+    }
+    // Below Android 7 nothing makes the store: only in case.
     final File file = storeFile(context);
     if (!file.delete() && file.exists())
       Logger.e(TAG, "Cannot delete " + file);
     // noinspection ResultOfMethodCallIgnored
     new File(file.getPath() + ".tmp").delete();
-    if (isSupported())
-      KeystoreKeyWrapper.deleteAllExcept("");
   }
 
   /**
@@ -546,6 +552,7 @@ public final class LiveLocation
 
   private static native long nativeDeliver(@NonNull String path);
   private static native void nativeDeleteAllData();
+  private static native void nativeDeleteStore(@NonNull String path);
   private static native void nativeSetForeground(boolean foreground);
   @NonNull
   private static native String nativeGetSettings();

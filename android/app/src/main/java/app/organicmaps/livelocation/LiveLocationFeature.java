@@ -178,6 +178,7 @@ public final class LiveLocationFeature
 
   public static void deleteAllData(@NonNull Context context)
   {
+    LiveLocationDeliveryWork.schedule(context, 0); // nothing left to send
     LiveLocation.deleteAllData(context);
     sStoreError = false;
   }
