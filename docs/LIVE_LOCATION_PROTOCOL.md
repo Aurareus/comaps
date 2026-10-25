@@ -409,7 +409,9 @@ Each direction has a single addressable slot (kind `30484`, `d = ""`, pubkey `ct
   back-off, and after a restart, so it keeps across restarts which contacts wait for one. Within the
   epoch of the state the same event goes again, after it a new state. Without this, a state sent
   offline is lost: a share started then never reaches the recipient, a stop leaves it running, and
-  the grant of midnight leaves it on the old stream for a day.
+  the grant of midnight leaves it on the old stream for a day. Once no relay has accepted any state to
+  a contact for 7 days, the sender MAY send them again only while the user has the app open; the 7
+  days start again when the contact names other relays, or the user allows one of its relays.
 - After a share with a contact ends, once a state without `share` has been delivered to it, the
   sender SHOULD send it its current state once more on a later UTC day. A state can be read only
   until 01:00 UTC the next day, so a recipient offline until then would otherwise go on showing the
@@ -507,11 +509,14 @@ watches (design doc D17), keeps it to the first relay of its list that it can re
 stream's key to that subscription, of the same epoch only (one epoch per connection, below): each event
 the relay accepts with `OK true` should then come back over the same connection. When one does not, the
 relay accepts events without delivering them, and the client SHOULD listen on the next relay, trying
-the first again later (design doc §10.3). An exact duplicate (`OK true` with `duplicate:`) is not
-delivered again, and a relay that has never sent an event back may simply not do so: neither proves
-anything. A client SHOULD remember which of its home relays have sent an event back, across runs and
-for as long as they stay among its home relays: one that stopped delivering before the client started
-would otherwise never be judged.
+the first again later (design doc §10.3). Only an event sent for the first time tells: a relay does not
+deliver again one it already has, whatever its `OK` says (NIP-01 asks for a prefix such as `duplicate:`
+only on a refusal), and a relay that has never sent an event back may simply not do so. Neither proves
+anything. A copy counts as come back only once its id and signature check and it matches the filter.
+Nor can a REQ the relay never ends with `EOSE` tell: a client SHOULD treat a relay that leaves a REQ
+without `EOSE` for long (15 s in the reference) as failing. A client SHOULD remember which of its home
+relays have sent an event back, across runs and for as long as they stay among its home relays: one that
+stopped delivering before the client started would otherwise never be judged.
 
 | Message | Published to | Read from |
 |---|---|---|
@@ -699,8 +704,9 @@ Further obligations:
   until delivered, and once more on a later day (§8). The one exception is the joiner's
   confirmation: a state right after pairing, then its current state on each UTC day it runs,
   through epoch `e_p + 7` (§6.3).
-- Send a state that no relay has accepted again until one does, also after a restart (§8); a pairing
-  step too, until the invite expires (§6.3).
+- Send a state that no relay has accepted again until one does, also after a restart; in the
+  background, for 7 days without an accepted state at most (§8). A pairing step too, until the invite
+  expires (§6.3).
 - Connect only to the user's own, the default and approved relays (relay consent, §11); when that
   leaves out a sharer's listening relay, say that live updates are off (§11).
 - Invites live at most 24 hours; joiners refuse longer ones (§6.1).

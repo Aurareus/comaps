@@ -175,10 +175,10 @@ screen on a phone, or nearly; it says what relays can and cannot see (§11.6).
 
 ## New code paths to check
 
-- **Installing over the previous build.** The store's format changed in the seventh review
-  (LIVE_LOCATION.md §29), and not since: installed over the seventh review's build, the contacts stay.
-  Installed over an earlier build, Share My Location says the data cannot be read and offers "Delete
-  all live location data". Delete it on every phone, then connect the phones again.
+- **Installing over the previous build.** The store's format changed in the ninth review
+  (LIVE_LOCATION.md §31): installed over any earlier build, Share My Location says the data cannot be
+  read and offers "Delete all live location data". Delete it on every phone, then connect the phones
+  again.
 - **Updates made offline** (§29). Airplane mode stands for a tunnel. Each should reach B within a
   few minutes of A's network coming back, rather than at the next midnight or never:
   - **Starting.** A in airplane mode: share with B. A minute later, airplane mode off: B's list says
@@ -200,6 +200,10 @@ screen on a phone, or nearly; it says what relays can and cannot see (§11.6).
     ahead (automatic date off). Airplane mode off: the delivery job runs (at once with `adb shell cmd
     jobscheduler run -f app.comaps.fdroid.debug <id>`, the id from the dumpsys line above), connects
     nowhere (PCAPdroid, or logcat), and is gone. B's list still says A shares. Set the date back.
+  - **…and a week later, the feature on** (§31). While A shares with B: airplane mode on A, stop
+    from the notification, swipe CoMaps away from the recent apps, and set A's date 8 days ahead.
+    Airplane mode off: the delivery job runs once, connects nowhere, and is gone; B's list still says
+    A shares. Set the date back and open CoMaps on A: B's list no longer says A shares.
   - **Pairing.** B opens A's link invite in airplane mode, then force-stops CoMaps (`adb shell am
     force-stop app.comaps.fdroid.debug`). Airplane mode off, open CoMaps on B and on A: the pairing
     goes on to the codes.
@@ -322,7 +326,9 @@ screen on a phone, or nearly; it says what relays can and cannot see (§11.6).
   share stops at once on Android 9+ (the system announces the block), otherwise at the next fix
   (2–30 s); the next live location screen or the map says why.
   Swipe the notification away (Android 13+) → it comes back at once. On Android 13+, deny the
-  notification permission → sharing does not start, and Manage sharing explains.
+  notification permission → sharing does not start, and Manage sharing explains. With CoMaps'
+  notifications turned off in Android settings, tick a contact in Manage sharing → "Open settings" →
+  turn them on → back: the share starts with that contact (§31).
 - **Resume after the process died.** While sharing: `adb shell am kill app.comaps.fdroid.debug`
   does not stop a foreground service, so use `adb shell am force-stop app.comaps.fdroid.debug`,
   then open CoMaps: the map offers "Resume sharing?" with the same people and end time. With
@@ -337,7 +343,13 @@ screen on a phone, or nearly; it says what relays can and cannot see (§11.6).
   delivering them" for a relay that works: each one would be a false alarm, costing a move to the
   next relay.
 - **Deleting.** Settings → Live location sharing → "Delete all live location data" → contacts gone.
-  Also with the feature off.
+  Also with the feature off, and at once after turning it off while sharing (§31): turn the switch
+  off, "Delete all live location data" straight away, wait a minute, then turn the feature on again:
+  no contacts, nothing to resume, and no "data cannot be read".
+- **The sharing service** (§31). Over all the checks, CoMaps never closes by itself as a share starts
+  or stops: `adb logcat | grep -i startForeground` shows nothing.
+- **Invite texts.** The QR screen's "Expires in …" uses the units of route times, in the phone's
+  language. With TalkBack, the QR code reads "Invite code to scan".
 - **Turning it off while sharing.** Settings → Live location sharing → turn the switch off → the
   share stops (B sees the end), the notification goes.
 
