@@ -20,7 +20,7 @@ namespace
 // Stores of other versions are not read, like stores that cannot be read: the app offers to delete them.
 // While the feature is in development each change of the format takes the next number; it goes back to 1
 // for the first release.
-uint8_t constexpr kStateVersion = 6;
+uint8_t constexpr kStateVersion = 7;
 int64_t constexpr kQrLifetime = 600;      // design doc §11.2
 int64_t constexpr kLinkLifetime = 86400;  // spec §6.1: at most a day
 int64_t constexpr kCatchUpMs = 30'000;    // how long the previous epoch's states are read for
@@ -30,6 +30,10 @@ int64_t constexpr kMoveEpochs = 30;       // the previous home relays are read a
 int64_t constexpr kDeliveryMinMs = 30'000;   // a state no relay accepted goes again after this, doubling ...
 int64_t constexpr kDeliveryMaxMs = 300'000;  // ... up to this, and whenever a relay connection opens
 int64_t constexpr kDepartedEpochs = 7;       // a deleted contact is told its share ended for at most this long
+// A contact whose relays have accepted none of this user's states for this long gets them again only while the
+// app is on screen (spec §8): a share's end still arrives once they accept again and the app is opened, and the
+// background job no longer runs for it.
+int64_t constexpr kBackgroundRetrySeconds = 7 * 86400;
 
 bool Contains(Relays const & relays, std::string const & url)
 {
@@ -84,7 +88,10 @@ struct Manager::Peer
   bool m_repeat = false;
   bool m_sending = false;                    // in memory: the latest state waits for its relays' answers
   std::optional<nostr::Event> m_unaccepted;  // in memory: the latest state, while no relay has accepted it
-  std::string m_color;                       // the dot colour the contact chose, from its last state; "" if none
+  // When the first of the states that no relay has accepted since was made; 0 when a relay accepted the latest.
+  // Also when the contact last moved, or one of its relays was allowed: those may accept what the others did not.
+  int64_t m_unacceptedSince = 0;
+  std::string m_color;  // the dot colour the contact chose, from its last state; "" if none
   // The viewer's side of the contact's share, in memory only.
   Following m_following;
   int64_t m_streamEpoch = 0;  // of the grant: the stream travels in that epoch's scope
@@ -107,6 +114,7 @@ struct Manager::Session
   relay::RelayPool::SubscriptionId m_subscription = 0;
   std::vector<nostr::Event> m_held;    // out of order: offered again after the next step
   std::vector<nostr::Event> m_unsent;  // steps no relay has accepted yet, also after a restart
+  std::set<std::string> m_sending;     // in memory: the ids of steps waiting for their relays' answers
 
   Invite const & GetInvite() const { return m_inviter ? m_inviter->GetInvite() : m_joiner->GetInvite(); }
   bool Watching() const { return m_inviter ? !m_inviter->IsAborted() : !m_joiner->IsAborted(); }
@@ -217,6 +225,7 @@ SecretBytes Manager::Encode(std::set<ByteArray<32>> & digests) const
     writer.Bool(!peer->m_deliveredTo.empty());  // empty while no relay has accepted the latest state
     if (!peer->m_deliveredTo.empty())
       persist::WriteRelays(writer, peer->m_deliveredTo);
+    writer.I64(peer->m_unacceptedSince);
     writer.Bool(peer->m_repeat);
     writer.String(peer->m_color);
   }
@@ -329,6 +338,7 @@ void Manager::Decode(ByteSpan data)
     peer->m_notMoved = reader.Bool();
     if (reader.Bool())
       peer->m_deliveredTo = persist::ReadRelays(reader);
+    peer->m_unacceptedSince = reader.I64();
     peer->m_repeat = reader.Bool();
     peer->m_color = reader.String();
     m_peers.push_back(std::move(peer));
@@ -713,6 +723,9 @@ void Manager::SetConsent(std::string const & url, Consent consent, std::string c
   case Consent::Allow:
     m_settings.m_approved[url] = forContact;
     m_settings.m_declined.erase(url);
+    for (auto & peer : m_peers)
+      if (peer->m_unacceptedSince != 0 && Contains(peer->m_contact->m_relays, url))
+        peer->m_unacceptedSince = Now();
     break;
   case Consent::NotNow:
     // Kept for this run only: asked again the next time the relay is needed in another one.
@@ -901,6 +914,8 @@ void Manager::PublishPairing(std::string const & sessionId, nostr::Event const &
   auto & unsent = session->m_unsent;
   if (std::none_of(unsent.begin(), unsent.end(), [&](auto const & e) { return e.m_id == event.m_id; }))
     unsent.push_back(event);
+  if (!session->m_sending.insert(event.m_id).second)
+    return;  // on its way: its relays' answers decide
   std::string const eventId = event.m_id;
   m_pool->Publish(relay::PairingScope(sessionId), Allowed(session->GetInvite().m_relays), event,
                   [this, sessionId, eventId](bool delivered)
@@ -908,6 +923,7 @@ void Manager::PublishPairing(std::string const & sessionId, nostr::Event const &
     Session * s = FindSession(sessionId);
     if (s == nullptr)
       return;
+    s->m_sending.erase(eventId);
     if (delivered)
     {
       std::erase_if(s->m_unsent, [&](auto const & e) { return e.m_id == eventId; });
@@ -1213,6 +1229,8 @@ void Manager::PublishStates(std::vector<std::pair<ContactPtr, nostr::Event>> con
     {
       peer->m_deliveredTo.clear();
       peer->m_unaccepted = event;
+      if (peer->m_unacceptedSince == 0)
+        peer->m_unacceptedSince = Now();
     }
   }
   Save();
@@ -1260,6 +1278,7 @@ void Manager::OnStateAnswered(std::string const & id, nostr::Event const & event
     {
       peer->m_deliveredTo = relays;
       peer->m_unaccepted.reset();
+      peer->m_unacceptedSince = 0;
       m_deliveryFailures = 0;
       Save();
       if (Owed(*peer))
@@ -1302,9 +1321,14 @@ bool Manager::Interrupted(Peer const & peer) const
 
 bool Manager::Owed(Peer const & peer) const
 {
-  if (peer.m_sending || peer.m_contact->m_relays == peer.m_deliveredTo)
+  if (peer.m_sending || peer.m_contact->m_relays == peer.m_deliveredTo || (!m_foreground && Overdue(peer)))
     return false;
   return peer.m_deliveredTo.empty() || !peer.m_hidden;
+}
+
+bool Manager::Overdue(Peer const & peer) const
+{
+  return peer.m_unacceptedSince != 0 && Now() >= peer.m_unacceptedSince + kBackgroundRetrySeconds;
 }
 
 void Manager::Deliver()
@@ -1408,8 +1432,8 @@ int64_t Manager::DeliveryDue() const
   for (auto const & peer : m_peers)
   {
     Contact const & contact = *peer->m_contact;
-    if (Allowed(contact.m_relays).empty() || Interrupted(*peer))
-      continue;  // nothing can reach it until the user allows a relay, or decides
+    if (Allowed(contact.m_relays).empty() || Interrupted(*peer) || Overdue(*peer))
+      continue;  // nothing can reach it until the user allows a relay, or decides; or only with the app on screen
     if (peer->m_deliveredTo.empty())
       due = std::min(due, contact.m_lastCreatedOut);
     else if (peer->m_repeat)
@@ -1505,6 +1529,8 @@ void Manager::OnInboxEvent(nostr::Event const & event, bool viaHome)
 
 void Manager::OnState(Peer & peer, State const & state, int64_t createdAt)
 {
+  if (peer.m_unacceptedSince != 0 && state.m_relays != peer.m_contact->m_relays)
+    peer.m_unacceptedSince = Now();           // its new relays may accept what the others did not
   peer.m_contact->m_relays = state.m_relays;  // the contact's current relays, in its order
   peer.m_color = state.m_color && DotColorRgba(*state.m_color) ? *state.m_color : std::string();
   Deliver();  // the answer, if it moved

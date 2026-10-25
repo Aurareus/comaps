@@ -1874,6 +1874,113 @@ UNIT_TEST(Manager_OpeningTheAppSendsWhatNoRelayAcceptedAtOnce)
   TEST(!bob.Contact("Alice")->m_sharesWithMeUntil && !bob.Position("Alice"), ("... but opening the app does"));
 }
 
+UNIT_TEST(Manager_AfterAWeekWithoutAnAcceptedStateOnlyTheOpenAppSendsAgain)
+{
+  // Bob moved to a relay of his own, which accepts none of Alice's events for over a week, and nor do hers.
+  // Through the week the end of her share goes again in the background. After it, only her open app sends it,
+  // also after a restart, and the job no longer runs for it; it arrives once the relay accepts again and she
+  // opens the app.
+  World world;
+  std::string const kOwn = "wss://own.example";
+  world.m_transport.Add(kOwn);
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+  TEST(bob.M().SetHomeRelays({kOwn}), ());
+  world.Run(3'000);
+  alice.M().SetConsent(kOwn, Consent::Allow, "Bob");
+  world.Run(3'000);
+  alice.M().SetForeground(false);
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+  alice.M().OnLocation(FixAt(world, 53.0, 7.0));
+  world.Run(3'000);
+  TEST(bob.Position("Alice"), ());
+
+  world.Relay(kOwn).m_refuse = true;
+  for (auto const & url : kDefaults)
+    world.Relay(std::string(url)).m_refuse = true;
+  alice.M().StopSharing();
+  world.Run(3'000);
+  bob.M().SetForeground(false);
+  size_t const first = EventsReceived(world, kOwn);
+  world.Run((7 * 86'400 - 3'600) * 1000LL);
+  TEST_NOT_EQUAL(alice.M().DeliveryDue(), 0, ());
+  TEST_GREATER(EventsReceived(world, kOwn), first + 1000, ("sent again through the week"));
+  world.Run(2 * 3'600'000LL);
+  TEST_EQUAL(alice.M().DeliveryDue(), 0, ("the job does not run for it"));
+  size_t const sent = EventsReceived(world, kOwn);
+  world.Run(6 * 3'600'000LL);
+  TEST_EQUAL(EventsReceived(world, kOwn), sent, ("nor does the core send it"));
+  alice.Restart();
+  TEST_EQUAL(alice.M().DeliveryDue(), 0, ("also after a restart"));
+  alice.M().Deliver();
+  world.Run(60'000);
+  TEST_EQUAL(EventsReceived(world, kOwn), sent, ());
+
+  world.Relay(kOwn).m_refuse = false;
+  for (auto const & url : kDefaults)
+    world.Relay(std::string(url)).m_refuse = false;
+  bob.M().SetForeground(true);
+  world.Run(3'600'000);
+  TEST(bob.Contact("Alice")->m_sharesWithMeUntil, ("nothing sends it in the background ..."));
+  alice.M().SetForeground(true);
+  world.Run(10'000);
+  TEST(!bob.Contact("Alice")->m_sharesWithMeUntil && !bob.Position("Alice"), ("... but the open app does"));
+  // Accepted, it is told once more on the next UTC day as usual, also in the background.
+  TEST_EQUAL(alice.M().DeliveryDue(), EpochEnd(EpochOf(world.m_executor.Now())), ());
+}
+
+UNIT_TEST(Manager_AContactThatMovesOrARelayAllowedForItGetsAnotherWeek)
+{
+  // Bob's relays are a relay of his own, which Alice does not allow for now, and nostr.mom, which accepts none
+  // of her events for over a week: the end of her share is then sent only while her app is open.
+  World world;
+  std::string const kOwn = "wss://own.example";
+  world.m_transport.Add(kOwn);
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+  TEST(bob.M().SetHomeRelays({kOwn, "wss://nostr.mom"}), ());
+  world.Run(3'000);
+  alice.M().SetConsent(kOwn, Consent::NotNow, "Bob");
+  alice.M().SetForeground(false);
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+  world.Run(3'000);
+  world.Relay("wss://nostr.mom").m_refuse = true;
+  world.Relay(kOwn).m_refuse = true;
+  alice.M().StopSharing();
+  bob.M().SetForeground(false);
+  world.Run((7 * 86'400 + 3'600) * 1000LL);
+  TEST_EQUAL(alice.M().DeliveryDue(), 0, ());
+
+  // Alice allows Bob's relay, which still refuses: the end gets another week in the background.
+  alice.M().SetForeground(true);
+  alice.M().SetConsent(kOwn, Consent::Allow, "Bob");
+  world.Run(10'000);
+  alice.M().SetForeground(false);
+  world.Run(10'000);
+  TEST_NOT_EQUAL(alice.M().DeliveryDue(), 0, ());
+  world.Run((7 * 86'400 + 3'600) * 1000LL);
+  TEST_EQUAL(alice.M().DeliveryDue(), 0, ());
+
+  // Bob leaves nostr.mom, and Alice's open app learns it: another week again.
+  TEST(bob.M().SetHomeRelays({kOwn}), ());
+  world.Run(3'000);
+  alice.M().SetForeground(true);
+  world.Run(10'000);
+  alice.M().SetForeground(false);
+  world.Run(10'000);
+  TEST_NOT_EQUAL(alice.M().DeliveryDue(), 0, ());
+
+  // His relay accepts again: the end arrives through it, in the background.
+  world.Relay(kOwn).m_refuse = false;
+  world.Run(6 * 60'000);
+  TEST_EQUAL(alice.M().DeliveryDue(), EpochEnd(EpochOf(world.m_executor.Now())), ("only the repeat is due"));
+  bob.M().SetForeground(true);
+  world.Run(10'000);
+  TEST(!bob.Contact("Alice")->m_sharesWithMeUntil, ());
+}
+
 UNIT_TEST(Manager_NotResumingTellsTheRecipients)
 {
   World world;
@@ -2052,6 +2159,31 @@ UNIT_TEST(Manager_ADeletedContactIsToldItsShareEnded)
     alice.Restart();
     TEST_EQUAL(alice.M().DeliveryDue(), 0, ("a week is over"));
   }
+}
+
+UNIT_TEST(Manager_APairingStepNoRelayAcceptedGoesAgain)
+{
+  // Every relay refuses Alice's step 1 for a while: it goes again 30 s later, and the pairing goes on.
+  World world;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  alice.M().SetForeground(true);
+  auto const invite = alice.M().CreateInvite(true);
+  alice.M().SetForeground(false);
+  bob.M().SetForeground(true);
+  auto const opened = bob.M().OpenInvite(invite->m_link);
+  TEST(opened && opened->m_stage == PairingInfo::Stage::Waiting, ());
+  world.Run(5'000);
+  for (auto const & url : kDefaults)
+    world.Relay(std::string(url)).m_refuse = true;
+  alice.M().SetForeground(true);
+  world.Run(5'000);
+  TEST(bob.Events().m_pairings[opened->m_id].m_stage == PairingInfo::Stage::Waiting, ());
+  for (auto const & url : kDefaults)
+    world.Relay(std::string(url)).m_refuse = false;
+  world.Run(30'000);
+  TEST(alice.Events().m_pairings[invite->m_id].m_stage == PairingInfo::Stage::CompareCode, ());
+  TEST(bob.Events().m_pairings[opened->m_id].m_stage == PairingInfo::Stage::CompareCode, ());
 }
 
 UNIT_TEST(Manager_APairingStepNoRelayAcceptedOutlivesTheProcess)

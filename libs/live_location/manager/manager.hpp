@@ -106,13 +106,16 @@ public:
   /// Whether something sent still waits for relays' answers, e.g. the ends of a share just stopped.
   /// An app that stops keeps the manager until it has none, so that a stop reaches the relays.
   bool HasPendingPublications() const { return m_pool->HasPendingPublications(); }
-  /// Sends what is due (spec §8): contacts' latest states that no relay has accepted yet, again until one does;
-  /// a share's end once more on a later UTC day; the ends of shares with deleted contacts. The manager also
+  /// Sends what is due (spec §8): contacts' latest states that no relay has accepted yet, again until one does
+  /// (with the app off screen, for a week at most); a share's end once more on a later UTC day; the ends of
+  /// shares with deleted contacts. The manager also
   /// does this by itself: when a relay connection opens, on a back-off after a failure, at midnight, and when
   /// the app comes to the foreground. Call it after Start() when the app runs the core for this.
   void Deliver();
-  /// When something is next to be sent (Unix seconds; at or before now: now), 0 for nothing. It changes
-  /// with what is to be sent, not with each attempt to send it, nor while one waits for the relays' answers.
+  /// When something is next to be sent (Unix seconds; at or before now: now), 0 for nothing; with the app off
+  /// screen, so nothing for a contact whose relays have accepted none of the user's states for a week. It
+  /// changes with what is to be sent, not with each attempt to send it, nor while one waits for the relays'
+  /// answers.
   int64_t DeliveryDue() const;
   /// For tests and diagnostics.
   relay::RelayPool const & Pool() const { return *m_pool; }
@@ -182,7 +185,10 @@ private:
   void OnStateAnswered(std::string const & id, nostr::Event const & event, Relays const & relays, bool delivered);
   /// Whether the contact is owed the current state: its relays do not hold this user's latest state, because
   /// no relay accepted that yet, or because the contact moved (the answer, spec §11, never to a hidden one).
+  /// With the app off screen, not once they have accepted nothing for a week (Overdue()).
   bool Owed(Peer const & peer) const;
+  /// Whether the contact's relays have accepted none of the user's states for a week (kBackgroundRetrySeconds).
+  bool Overdue(Peer const & peer) const;
   /// A recipient of a share that the process's death interrupted: until the user resumes it or not, the contact
   /// sees it as it was, and nothing goes to it.
   bool Interrupted(Peer const & peer) const;
