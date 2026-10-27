@@ -181,6 +181,9 @@ public class NavigationService extends Service implements LocationListener
     mNotificationBuilder = null;
     mCarNotificationExtender = null;
     MwmApplication.from(this).getLocationHelper().removeListener(this);
+    // Live location (NLL): however navigation ended, a share in the background sets the pace again
+    if (MwmApplication.from(this).getLocationHelper().hasSharingPace() && LocationUtils.checkLocationPermission(this))
+      MwmApplication.from(this).getLocationHelper().restartWithNewMode();
     TtsPlayer.INSTANCE.stop();
 
     // The notification is cancelled automatically by the system.

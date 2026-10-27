@@ -244,7 +244,13 @@ public class LiveLocationService extends Service implements LocationListener, Li
     final LocationHelper locationHelper = MwmApplication.from(this).getLocationHelper();
     locationHelper.removeListener(this);
     if (locationHelper.hasSharingPace())
-      locationHelper.stopSharingPace(); // the share alone kept location running in the background
+    {
+      // The share's end in the background: location runs on only for what else needs it, at its pace.
+      locationHelper.clearSharingPace();
+      MwmApplication.from(this).keepLocationInBackground();
+      if (locationHelper.isActive() && LocationUtils.checkLocationPermission(this))
+        locationHelper.restartWithNewMode();
+    }
     super.onDestroy();
   }
 
