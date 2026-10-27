@@ -182,7 +182,8 @@
   <string name="live_location_relays_summary">Your phone listens on the first one that works. Only wss:// addresses are accepted.</string>
   <string name="live_location_add_relay">Add relay</string>
   <string name="live_location_relay_hint">wss://relay.example.org</string>
-  <string name="live_location_relay_invalid">A relay address starts with wss://</string>
+  <string name="live_location_relay_invalid">A relay address starts with wss:// and has at most 64 characters, without spaces, quotes or backslashes.</string>
+  <string name="live_location_relay_listed">This relay is already in the list.</string>
   <string name="live_location_relays_first_not_default">Contacts get live updates from you only if they use or allow %s too.</string>
   <string name="live_location_relays_few">With fewer than two relays, sharing stops working whenever that relay is down.</string>
   <string name="live_location_move_up">Move up</string>

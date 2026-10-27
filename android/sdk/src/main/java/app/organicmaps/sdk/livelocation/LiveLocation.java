@@ -211,6 +211,12 @@ public final class LiveLocation
     return sRunning && nativeSetName(name);
   }
 
+  /** Whether the core takes `url` as a home relay (docs/LIVE_LOCATION_PROTOCOL.md §5): before it is added. */
+  public static boolean isValidRelayUrl(@NonNull String url)
+  {
+    return nativeIsValidRelayUrl(url);
+  }
+
   public static boolean setHomeRelays(@NonNull List<String> relays)
   {
     return sRunning && nativeSetHomeRelays(relays.toArray(new String[0]));
@@ -556,6 +562,7 @@ public final class LiveLocation
   private static native void nativeSetForeground(boolean foreground);
   @NonNull
   private static native String nativeGetSettings();
+  private static native boolean nativeIsValidRelayUrl(@NonNull String url);
   private static native boolean nativeSetName(@NonNull String name);
   private static native boolean nativeSetHomeRelays(@NonNull String[] relays);
   private static native void nativeSetConsent(@NonNull String url, int consent, @NonNull String forContact);

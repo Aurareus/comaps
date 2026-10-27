@@ -24,6 +24,7 @@ import app.organicmaps.util.WindowInsetUtils.ScrollableContentInsetsListener;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Live location (NLL): Settings → Live location sharing (docs/LIVE_LOCATION.md §11.5), laid out like the
@@ -302,19 +303,34 @@ public class LiveLocationSettingsFragment extends PreferenceFragmentCompat
   {
     LiveLocationDialogs.showText(requireActivity(), R.string.live_location_add_relay, null, "wss://",
                                  getString(R.string.live_location_relay_hint), InputType.TYPE_TEXT_VARIATION_URI,
-                                 text
-                                 -> text.startsWith("wss://") && text.length() > 6 && !relays.contains(text)
-                                        ? null
-                                        : getString(R.string.live_location_relay_invalid),
-                                 url -> {
+                                 text -> {
+                                   if (!LiveLocation.isValidRelayUrl(relayUrl(text)))
+                                     return getString(R.string.live_location_relay_invalid);
+                                   return relays.contains(relayUrl(text)) ? getString(R.string.live_location_relay_listed)
+                                                                          : null;
+                                 },
+                                 text -> {
                                    final List<String> changed = new ArrayList<>(relays);
-                                   changed.add(url);
+                                   changed.add(relayUrl(text));
                                    if (!LiveLocation.setHomeRelays(changed))
                                      LiveLocationDialogs.showMessage(requireActivity(), null,
                                                                      getString(R.string.live_location_relay_invalid));
                                    refresh.run();
                                    build();
                                  });
+  }
+
+  /** "WSS://Relay.Example/x" as "wss://relay.example/x": the scheme and the host do not depend on case. */
+  @NonNull
+  private static String relayUrl(@NonNull String text)
+  {
+    final int host = text.indexOf("://");
+    if (host < 0)
+      return text;
+    int end = host + 3;
+    while (end < text.length() && "/?#".indexOf(text.charAt(end)) < 0)
+      ++end;
+    return text.substring(0, end).toLowerCase(Locale.ROOT) + text.substring(end);
   }
 
   /** The relays contacts use that the user answered about: allowed ones to revoke, refused ones to allow. */

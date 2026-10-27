@@ -13,6 +13,7 @@
 #include "live_location/encoding/utf16.hpp"
 #include "live_location/manager/manager.hpp"
 #include "live_location/manager/views_json.hpp"
+#include "live_location/protocol/messages.hpp"
 #include "live_location/store/store.hpp"
 #include "live_location/thread_executor.hpp"
 
@@ -648,6 +649,12 @@ JNIEXPORT void JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_native
                                                                                               jboolean foreground)
 {
   Post([foreground](Manager & manager) { manager.SetForeground(foreground); });
+}
+
+JNIEXPORT jboolean JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeIsValidRelayUrl(JNIEnv * env,
+                                                                                                    jclass, jstring url)
+{
+  return IsValidRelayUrl(ToUtf8(env, url));
 }
 
 JNIEXPORT jstring JNICALL Java_app_organicmaps_sdk_livelocation_LiveLocation_nativeGetSettings(JNIEnv * env, jclass)
