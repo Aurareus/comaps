@@ -19,6 +19,7 @@
 
 #include "platform/platform.hpp"
 
+#include "base/logging.hpp"
 #include "base/string_utils.hpp"
 
 #include <atomic>
@@ -41,6 +42,13 @@ using namespace live_location;
 int64_t constexpr kRetireCheckMs = 500;
 int64_t constexpr kRetireWaitMs = 30'000;  // at most, for the relays' answers to a stop
 int64_t constexpr kDeliverWaitMs = 30'000;  // at most, for the relays' answers to what a delivery job sent
+int64_t constexpr kLongWaitMs = 100;        // a call that waits this long for the core's thread is logged
+
+int64_t MillisecondsSince(std::chrono::steady_clock::time_point start)
+{
+  return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+}
+
 // Messages of one relay connection waiting for the core's thread. Normal traffic stays far below; a
 // relay that floods the app loses the excess, and the relay pool fails it for the junk it reads.
 size_t constexpr kMaxPendingMessages = 256;
@@ -339,11 +347,17 @@ public:
   template <typename Fn>
   void Run(Fn && fn)
   {
+    auto const start = std::chrono::steady_clock::now();
     m_executor.RunSync([&]
     {
       if (m_manager)
         fn(*m_manager);
     });
+    // The screens call from the main thread: a long wait there is a frame or more lost, which phones should
+    // measure before anything is made asynchronous.
+    auto const waited = MillisecondsSince(start);
+    if (waited >= kLongWaitMs)
+      LOG(LWARNING, ("Live location: a call waited", waited, "ms for the core's thread"));
   }
 
   /// Runs `fn` with the manager on its thread, after what is queued already, without waiting.
@@ -359,6 +373,7 @@ public:
 
   bool Start(std::string const & path)
   {
+    auto const start = std::chrono::steady_clock::now();
     bool ok = false;
     m_executor.RunSync([&]
     {
@@ -380,6 +395,7 @@ public:
       OnDeliveryDue(m_manager->DeliveryDue());
       m_manager->Deliver();  // what no relay accepted before the app last ended
     });
+    LOG(LINFO, ("Live location: started in", MillisecondsSince(start), "ms"));  // on the main thread, at launch
     return ok;
   }
 
