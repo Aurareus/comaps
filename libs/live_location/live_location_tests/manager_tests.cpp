@@ -338,6 +338,55 @@ UNIT_TEST(Manager_SharesWithLiveUpdates)
   TEST(alice.Events().m_location == LocationRequest::Idle, ("the lease ran out"));
 }
 
+// Live, a fix goes out once it is 3 m from the last one sent, at most every 3 s, and every 15 s
+// while the phone lies still: Bob's map shows that Alice is still there.
+UNIT_TEST(Manager_LiveUpdatesComeAtMostEveryThreeSecondsAndAtLeastEveryFifteen)
+{
+  World world;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+  alice.M().SetForeground(false);
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+  double constexpr kMetre = 1.0 / 111'195;  // in degrees of latitude
+  double north = 0;
+  alice.M().OnLocation(FixAt(world, 52.52, 13.405));
+  world.Run(5'000);
+  TEST(bob.Position("Alice") && alice.Events().m_location == LocationRequest::Live, ());
+
+  // When Bob receives a new fix, while Alice's phone gives one every second, each `stepM` further north.
+  auto const received = [&](double stepM, int64_t ms)
+  {
+    std::vector<int64_t> times;
+    int64_t last = bob.Position("Alice")->m_location.m_ts;
+    for (int64_t t = 0; t < ms; t += 100)
+    {
+      if (t % 1'000 == 0)
+      {
+        north += stepM;
+        alice.M().OnLocation(FixAt(world, 52.52 + north * kMetre, 13.405));
+      }
+      world.Run(100);
+      if (bob.Position("Alice")->m_location.m_ts != last)
+      {
+        last = bob.Position("Alice")->m_location.m_ts;
+        times.push_back(world.m_executor.NowMs());
+      }
+    }
+    return times;
+  };
+
+  auto const walking = received(10, 30'000);
+  TEST_GREATER_OR_EQUAL(walking.size(), 9, ());
+  for (size_t i = 1; i < walking.size(); ++i)
+    TEST(walking[i] - walking[i - 1] >= 3'000 && walking[i] - walking[i - 1] < 4'000, (i, walking));
+
+  auto const still = received(0, 60'000);
+  TEST_GREATER_OR_EQUAL(still.size(), 3, ());
+  for (size_t i = 1; i < still.size(); ++i)
+    TEST(still[i] - still[i - 1] >= 15'000 && still[i] - still[i - 1] < 16'000, (i, still));
+}
+
 UNIT_TEST(Manager_WorksWithTwoOfThreeRelaysDown)
 {
   World world;
@@ -2077,6 +2126,31 @@ UNIT_TEST(Manager_AViewerOfflineUntilAnEndExpiredLearnsItTheNextDay)
   bob.SetOffline(false);
   double lat = 0;
   TEST(WalkUntil(world, bob, lat, [&] { return !bob.Contact("Alice")->m_sharesWithMeUntil; }, kBackOnlineMs), ());
+}
+
+// In the first hour of a day, an app opened reads the states its contacts sent the day before, signed with
+// the day's keys, that they have not replaced yet (spec §11).
+UNIT_TEST(Manager_InTheFirstHourOfADayYesterdaysStatesAreRead)
+{
+  World world;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+  alice.M().SetForeground(false);
+  bob.M().SetForeground(false);
+  int64_t const midnight = EpochEnd(EpochOf(world.m_executor.Now()));
+  world.Run((midnight - 2 * 3600 - world.m_executor.Now()) * 1000);
+  // At 22:00 UTC Alice shares with Bob, whose app is closed, and loses the network before midnight: her state
+  // of the new day does not go out.
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), 0}}), ());
+  alice.M().OnLocation(FixAt(world, 41.9, 12.5));
+  world.Run(60'000);
+  alice.SetOffline(true);
+  world.Run((midnight + 1800 - world.m_executor.Now()) * 1000);
+  TEST(!bob.Contact("Alice")->m_sharesWithMeUntil, ());
+  bob.M().SetForeground(true);
+  world.Run(10'000);
+  TEST(bob.Contact("Alice")->m_sharesWithMeUntil == std::optional<int64_t>(0), ("Bob opened the app at 00:30"));
 }
 
 UNIT_TEST(Manager_ADeletedContactIsToldItsShareEnded)
