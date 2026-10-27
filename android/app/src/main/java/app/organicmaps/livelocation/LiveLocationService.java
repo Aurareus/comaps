@@ -124,7 +124,22 @@ public class LiveLocationService extends Service implements LocationListener, Li
   /** Once a share has started, from the foreground: Android 12 allows no other time. */
   public static void start(@NonNull Context context)
   {
-    ContextCompat.startForegroundService(context, new Intent(context, LiveLocationService.class));
+    try
+    {
+      ContextCompat.startForegroundService(context, new Intent(context, LiveLocationService.class));
+    }
+    catch (IllegalStateException e) // from Android 12, ForegroundServiceStartNotAllowedException
+    {
+      Logger.e(TAG, "Not allowed to start the sharing service", e);
+      stopUnstarted();
+    }
+  }
+
+  /** Without its service the share would run unseen: it stops, and the screen in front, or the next one, says so. */
+  private static void stopUnstarted()
+  {
+    LiveLocation.stopSharing();
+    LiveLocationFeature.onStartFailed();
   }
 
   public static void stop(@NonNull Context context)
@@ -207,9 +222,8 @@ public class LiveLocationService extends Service implements LocationListener, Li
         Logger.e(TAG, "Not in a valid state to start a foreground service", e);
       else
         Logger.e(TAG, "Failed to promote the service to foreground", e);
-      // Without the service, the share would run unseen.
       if (sharing)
-        LiveLocation.stopSharing();
+        stopUnstarted();
       stopSelf(startId);
       return START_NOT_STICKY;
     }
@@ -219,10 +233,16 @@ public class LiveLocationService extends Service implements LocationListener, Li
       stopAsForeground(startId);
       return START_NOT_STICKY;
     }
-    if (!LocationUtils.checkFineLocationPermission(this) || !canNotify(this))
+    if (!canNotify(this))
     {
-      Logger.w(TAG, "No location permission, or the notification cannot be seen: the share stops");
-      LiveLocation.stopSharing();
+      checkNotifications(); // stops the share, and says why
+      stopAsForeground(startId);
+      return START_NOT_STICKY;
+    }
+    if (!LocationUtils.checkFineLocationPermission(this))
+    {
+      Logger.w(TAG, "No location permission: the share stops");
+      stopUnstarted();
       stopAsForeground(startId);
       return START_NOT_STICKY;
     }

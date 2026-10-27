@@ -189,6 +189,12 @@ public final class LiveLocationFeature
     tell(R.string.live_location_stopped_unseen);
   }
 
+  /** The share stopped as it started, because Android did not run its service: the same. */
+  static void onStartFailed()
+  {
+    tell(R.string.live_location_share_failed);
+  }
+
   public static void attachPresenter(@NonNull Presenter presenter)
   {
     sPresenter = presenter;
