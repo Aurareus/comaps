@@ -352,6 +352,22 @@ screen on a phone, or nearly; it says what relays can and cannot see (§11.6).
   language. With TalkBack, the QR code reads "Invite code to scan".
 - **Turning it off while sharing.** Settings → Live location sharing → turn the switch off → the
   share stops (B sees the end), the notification goes.
+- **Android Auto and navigation while sharing** (§32). Start a share "Until I stop" and lock the
+  phone, then connect Android Auto, or the Desktop Head Unit (`desktop-head-unit` from the Android
+  SDK's extras): the car's position moves as smoothly as without a share, also once navigation
+  starts on the car's screen. `adb logcat | grep -i "update refresh interval"` shows 500 as the car's
+  map opens, and the share's 2000 or 30000 once the car is gone. The same on the phone alone: start
+  navigation, lock the phone, end navigation from its notification: the share's pace comes back.
+  Stop the share while the car shows the map: the car's position keeps moving.
+- **Back from the notification settings, still off** (§32). With CoMaps' notifications off, tick a
+  contact in Manage sharing → "Open settings" → leave them off → back: the same question again.
+- **Adding a relay** (§32). Settings → Live location sharing → Relays → Add relay:
+  `WSS://Relay.Example.org` is added as `wss://relay.example.org`. One with a space, or longer than
+  64 characters, shows the error under the field and the dialog stays open, with what was typed; one
+  already in the list says so.
+- **Waits on the main thread** (§32). After a cold start, `adb logcat | grep "Live location: started
+  in"` gives the start's time: send it back for each phone. Over the whole checklist, note any line
+  "Live location: a call waited … ms for the core's thread".
 
 ## What to send back
 
