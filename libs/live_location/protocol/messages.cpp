@@ -262,7 +262,9 @@ json::Value ToJson(Pair3 const & pair3)
 SecretBytes EncodePlaintext(json::Value const & message, size_t size)
 {
   std::string text;
-  // Reserved up front, so that the buffer never moves and leaves an unwiped copy behind.
+  // Reserved up front, so that the buffer does not move and leave an unwiped copy behind: every message this
+  // version makes fits its size (spec §5), and only one larger than twice the largest could. Hygiene rather
+  // than a guarantee: the json::Value written here holds the same text, and nothing wipes it.
   text.reserve(2 * kSizeControl);
   message.DumpTo(text);
   if (text.size() > size)
