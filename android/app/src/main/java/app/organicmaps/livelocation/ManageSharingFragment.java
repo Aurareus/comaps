@@ -110,10 +110,11 @@ public class ManageSharingFragment extends LiveLocationFragment
       mResume = false;
       resume(true);
     }
-    // Back from the notification settings: the share goes on if its notification can be seen now.
+    // Back from the notification settings: the share goes on if its notification can be seen now, and if
+    // not, the same question again.
     final Runnable then = mAfterSettings;
     mAfterSettings = null;
-    if (then != null && LiveLocationService.canNotify(requireContext()))
+    if (then != null)
       withPermissions(then);
   }
 

@@ -48,6 +48,11 @@ public class PairingFragment extends LiveLocationFragment implements OnBackPress
   private List<String> mNotAllowed = List.of();
   @Nullable
   private String mNotAllowedLink;
+  // The invite's QR code, made once: the screen is built again every 30 s, for the time left.
+  @Nullable
+  private String mQrLink;
+  @Nullable
+  private Bitmap mQr;
   private final Handler mHandler = new Handler(Looper.getMainLooper());
   private final Runnable mTick = new Runnable() {
     @Override
@@ -200,9 +205,12 @@ public class PairingFragment extends LiveLocationFragment implements OnBackPress
       {
         if (!pairing.link.isEmpty())
         {
-          final int size = (int) (QR_SIZE_DP * getResources().getDisplayMetrics().density);
-          final Bitmap qr = qrCode(pairing.link, size);
-          views.image(qr, qr.getWidth()).setContentDescription(getString(R.string.live_location_invite_code));
+          if (mQr == null || !pairing.link.equals(mQrLink))
+          {
+            mQrLink = pairing.link;
+            mQr = qrCode(pairing.link, (int) (QR_SIZE_DP * getResources().getDisplayMetrics().density));
+          }
+          views.image(mQr, mQr.getWidth()).setContentDescription(getString(R.string.live_location_invite_code));
         }
         views.text(getString(R.string.live_location_invite_hint));
         views.text(expiresIn(pairing));

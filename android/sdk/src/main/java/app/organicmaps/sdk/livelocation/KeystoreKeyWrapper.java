@@ -105,24 +105,38 @@ public final class KeystoreKeyWrapper
     }
   }
 
-  /** Deletes every live location Keystore key but {@code keep}; all of them when it is empty. */
+  /**
+   * Deletes every live location Keystore key but {@code keep}; all of them when it is empty. A key that cannot be
+   * deleted now does not keep the others: the core asks again at its next start and at each rotation.
+   */
   @SuppressWarnings("unused")
   public static void deleteAllExcept(@NonNull String keep)
   {
+    final KeyStore store;
+    final List<String> aliases;
     try
     {
-      final KeyStore store = KeyStore.getInstance(KEYSTORE);
+      store = KeyStore.getInstance(KEYSTORE);
       store.load(null);
-      final List<String> aliases = new ArrayList<>(Collections.list(store.aliases()));
-      for (String alias : aliases)
-      {
-        if (alias.startsWith(PREFIX) && !alias.equals(keep))
-          store.deleteEntry(alias);
-      }
+      aliases = new ArrayList<>(Collections.list(store.aliases()));
     }
     catch (Exception e)
     {
-      Logger.e(TAG, "Cannot delete old live location keys", e);
+      Logger.e(TAG, "Cannot list the live location keys", e);
+      return;
+    }
+    for (String alias : aliases)
+    {
+      if (!alias.startsWith(PREFIX) || alias.equals(keep))
+        continue;
+      try
+      {
+        store.deleteEntry(alias);
+      }
+      catch (Exception e)
+      {
+        Logger.e(TAG, "Cannot delete the old live location key " + alias, e);
+      }
     }
   }
 
