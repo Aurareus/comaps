@@ -60,6 +60,7 @@
 "type.leisure.bowling_alley" = "Bowling Alley";
 "type.amenity.clinic" = "Clinic";
 "type.amenity.college" = "College";
+"type.amenity.research_institute" = "Research Institute";
 "type.amenity.community_centre" = "Community Centre";
 "type.amenity.community_centre.youth_centre" = "Youth Centre";
 "type.amenity.compressed_air" = "Compressed Air";
@@ -73,6 +74,7 @@
 "type.amenity.exhibition_centre" = "Exhibition Center";
 "type.amenity.money_transfer" = "Money Transfer";
 "type.amenity.music_school" = "Music School";
+"type.amenity.music_venue" = "Music Venue";
 "type.amenity.sailing_school" = "Sailing School";
 "type.amenity.flight_school" = "Flight School";
 "type.amenity.prep_school" = "Tutorial School";
@@ -82,6 +84,8 @@
 "type.building.guardhouse" = "Security Booth";
 "type.power.portal" = "Power Portal";
 "type.amenity.fast_food" = "Fast Food";
+/* Cafeteria or canteen where you can quickly have a full meal without table service. */
+"type.amenity.fast_food.cafeteria" = "Cafeteria";
 "type.amenity.ferry_terminal" = "Ferry";
 "type.amenity.fire_station" = "Fire Station";
 "type.amenity.food_court" = "Food Court";
@@ -1382,6 +1386,7 @@
 "type.shop.perfumery" = "Perfume Shop";
 "type.shop.sewing" = "Sewing Supplies Shop";
 "type.shop.storage_rental" = "Storage Rental";
+"type.shop.swimming_pool" = "Swimming Pool Shop";
 "type.shop.tobacco" = "Smoke Shop";
 "type.shop.trade" = "Trade Supplies";
 "type.shop.watches" = "Watch Store";

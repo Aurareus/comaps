@@ -407,6 +407,7 @@ amenity-restaurant                                  # icon z15- (also has captio
 === 4100
 
 amenity-fast_food                                   # icon z15- (also has caption(optional) z15-)
+amenity-fast_food-cafeteria                         # icon z15- (also has caption(optional) z15-)
 amenity-food_court                                  # icon z15- (also has caption(optional) z15-)
 === 4050
 
@@ -826,6 +827,7 @@ amenity-motorcycle_rental                           # icon z17- (also has captio
 
 amenity-cinema                                      # icon z17- (also has caption(optional) z17-)
 amenity-fountain                                    # icon z16- (also has caption(optional) z16-, area z16-)
+amenity-music_venue                                 # icon z16- (also has caption(optional) z16-)
 amenity-nightclub                                   # icon z16- (also has caption(optional) z16-)
 amenity-post_office                                 # icon z17- (also has caption(optional) z17-)
 attraction                                          # icon z16- (also has caption(optional) z16-)
@@ -935,6 +937,7 @@ amenity-clinic                                      # icon z17- (also has captio
 amenity-college                                     # icon z16- (also has caption(optional) z16-, area z13-)
 amenity-courthouse                                  # icon z17- (also has caption(optional) z17-, area z15-)
 amenity-dentist                                     # icon z17- (also has caption(optional) z17-)
+amenity-research_institute                          # icon z16- (also has caption(optional) z16-)
 landuse-military                                    # icon z16- (also has caption(optional) z17-, area z12-)
 landuse-military-danger_area                        # icon z16- (also has caption(optional) z17-, area z10-)
 === 2000
@@ -1283,6 +1286,7 @@ shop-medical_supply                                 # icon z18- (also has captio
 shop-outpost                                        # icon z18- (also has caption(optional) z18-)
 shop-pet_grooming                                   # icon z18- (also has caption(optional) z18-)
 shop-storage_rental                                 # icon z18- (also has caption(optional) z18-)
+shop-swimming_pool                                  # icon z18- (also has caption(optional) z18-)
 shop-tool_hire                                      # icon z16- (also has caption(optional) z16-)
 shop-trade                                          # icon z16- (also has caption(optional) z16-)
 shop-watches                                        # icon z18- (also has caption(optional) z18-)
@@ -1725,6 +1729,7 @@ natural-tree                                        # icon z17- (also has captio
 # === -5900
 
 # amenity-fast_food                                 # caption(optional) z15- (also has icon z15-)
+# amenity-fast_food-cafeteria                       # caption(optional) z15- (also has icon z15-)
 # amenity-food_court                                # caption(optional) z15- (also has icon z15-)
 # === -5950
 
@@ -1968,6 +1973,7 @@ natural-tree                                        # icon z17- (also has captio
 
 # amenity-cinema                                    # caption(optional) z17- (also has icon z17-)
 # amenity-fountain                                  # caption(optional) z16- (also has icon z16-, area z16-)
+# amenity-music_venue                               # caption(optional) z16- (also has icon z16-)
 # amenity-nightclub                                 # caption(optional) z16- (also has icon z16-)
 # amenity-post_office                               # caption(optional) z17- (also has icon z17-)
 # attraction                                        # caption(optional) z16- (also has icon z16-)
@@ -2052,6 +2058,7 @@ natural-tree                                        # icon z17- (also has captio
 # amenity-college                                   # caption(optional) z16- (also has icon z16-, area z13-)
 # amenity-courthouse                                # caption(optional) z17- (also has icon z17-, area z15-)
 # amenity-dentist                                   # caption(optional) z17- (also has icon z17-)
+# amenity-research_institute                        # caption(optional) z16- (also has icon z16-)
 # landuse-military                                  # caption(optional) z17- (also has icon z16-, area z12-)
 # landuse-military-danger_area                      # caption(optional) z17- (also has icon z16-, area z10-)
 # === -8000
@@ -2363,6 +2370,7 @@ natural-tree                                        # icon z17- (also has captio
 # shop-outpost                                      # caption(optional) z18- (also has icon z18-)
 # shop-pet_grooming                                 # caption(optional) z18- (also has icon z18-)
 # shop-storage_rental                               # caption(optional) z18- (also has icon z18-)
+# shop-swimming_pool                                # caption(optional) z18- (also has icon z18-)
 # shop-tool_hire                                    # caption(optional) z16- (also has icon z16-)
 # shop-trade                                        # caption(optional) z16- (also has icon z16-)
 # shop-watches                                      # caption(optional) z18- (also has icon z18-)

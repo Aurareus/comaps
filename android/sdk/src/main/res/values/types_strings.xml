@@ -63,6 +63,7 @@
     <string name="type.leisure.bowling_alley">Bowling Alley</string>
     <string name="type.amenity.clinic">Clinic</string>
     <string name="type.amenity.college">College</string>
+    <string name="type.amenity.research_institute">Research Institute</string>
     <string name="type.amenity.community_centre">Community Centre</string>
     <string name="type.amenity.community_centre.youth_centre">Youth Centre</string>
     <string name="type.amenity.compressed_air">Compressed Air</string>
@@ -76,6 +77,7 @@
     <string name="type.amenity.exhibition_centre">Exhibition Center</string>
     <string name="type.amenity.money_transfer">Money Transfer</string>
     <string name="type.amenity.music_school">Music School</string>
+    <string name="type.amenity.music_venue">Music Venue</string>
     <string name="type.amenity.sailing_school">Sailing School</string>
     <string name="type.amenity.flight_school">Flight School</string>
     <string name="type.amenity.prep_school">Tutorial School</string>
@@ -85,6 +87,8 @@
     <string name="type.building.guardhouse">Security Booth</string>
     <string name="type.power.portal">Power Portal</string>
     <string name="type.amenity.fast_food">Fast Food</string>
+    <!-- Cafeteria or canteen where you can quickly have a full meal without table service. -->
+    <string name="type.amenity.fast_food.cafeteria">Cafeteria</string>
     <string name="type.amenity.ferry_terminal">Ferry</string>
     <string name="type.amenity.fire_station">Fire Station</string>
     <string name="type.amenity.food_court">Food Court</string>
@@ -1390,6 +1394,7 @@
     <string name="type.shop.perfumery">Perfume Shop</string>
     <string name="type.shop.sewing">Sewing Supplies Shop</string>
     <string name="type.shop.storage_rental">Storage Rental</string>
+    <string name="type.shop.swimming_pool">Swimming Pool Shop</string>
     <string name="type.shop.tobacco">Smoke Shop</string>
     <string name="type.shop.trade">Trade Supplies</string>
     <string name="type.shop.watches">Watch Store</string>
@@ -1418,7 +1423,7 @@
     <string name="type.sport.diving">High Diving</string>
     <string name="type.sport.equestrian">Equestrian Sports</string>
     <string name="type.sport.field_hockey">Field Hockey</string>
-    <string name="type.sport.four_square">Four Square</string>    
+    <string name="type.sport.four_square">Four Square</string>
     <string name="type.sport.futsal">Futsal</string>
     <string name="type.sport.golf">Golf</string>
     <string name="type.sport.gymnastics">Gymnastics</string>

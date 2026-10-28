@@ -71,6 +71,9 @@
     "amenity-fast_food|@category_eat": {
         "defaultMessage": "4Fast Food|takeaway|U+1F354|U+1F355|U+1F35F|U+1F363|U+1F366|U+1F367|U+1F368|U+1F369|U+1F370|U+1F372|U+1F374|food to go|junk food"
     },
+    "amenity-fast_food-cafeteria|@category_eat": {
+        "defaultMessage": "4Cafeteria|Canteen"
+    },
     "amenity-restaurant|@category_eat": {
         "defaultMessage": "3Restaurant|U+1F356|U+1F357|U+1F35A|U+1F35B|U+1F35C|U+1F35D|U+1F363|U+1F366|U+1F367|U+1F368|U+1F369|U+1F370|U+1F372|U+1F374|U+1F377|U+1F60B"
     },
@@ -193,6 +196,9 @@
     },
     "shop-laundry": {
         "defaultMessage": "4Laundry|Laundrette|laundromat|5washateria|coin laundry"
+    },
+    "shop-swimming_pool|@shop": {
+        "defaultMessage": "Swimming Pool|pool supplies|hot tub|sauna"
     },
     "shop-tool_hire|@shop": {
         "defaultMessage": "Tool Hire|tools|U+1F529|U+1F528"
@@ -446,6 +452,9 @@
     "amenity-nightclub|@category_entertainment|@category_nightlife": {
         "defaultMessage": "3Nightclub|night club|4disco|dance|U+1F378|U+1F379|U+1F46F|U+1F483|club|nightspot|night bar"
     },
+    "amenity-music_venue|@category_entertainment|@category_nightlife": {
+        "defaultMessage": "4Music venue|live music|4concert|concert hall|gig"
+    },
     "amenity-brothel": {
         "defaultMessage": "Brothel|whorehouse|bordello|U+1F3E9"
     },
@@ -469,6 +478,9 @@
     },
     "amenity-college": {
         "defaultMessage": "4College|U+1F3EB"
+    },
+    "amenity-research_institute": {
+        "defaultMessage": "4Research institute|research centre|research center|4laboratory|lab|U+1F52C|U+1F9EA"
     },
     "amenity-fire_station": {
         "defaultMessage": "4Fire Station|U+1F692"
