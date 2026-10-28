@@ -368,6 +368,15 @@ screen on a phone, or nearly; it says what relays can and cannot see (§11.6).
 - **Waits on the main thread** (§32). After a cold start, `adb logcat | grep "Live location: started
   in"` gives the start's time: send it back for each phone. Over the whole checklist, note any line
   "Live location: a call waited … ms for the core's thread".
+- **Screen reader** (§33). With TalkBack on, in Manage sharing, each contact is one stop: a checkbox
+  read with the contact's name, the line below it and whether it is ticked, which a double tap changes.
+  In a contact's details, "Hide" is read as a switch, with its state. While sharing with two people, the
+  map's indicator reads "Sharing with 2 people" and offers "Double-tap to manage sharing".
+- **A share started as CoMaps leaves the screen** (§33). Tick a contact in Manage sharing and press Home
+  at once: `adb logcat | grep -i "update refresh interval"` shows the share's 2000 or 30000, not the
+  map's 500.
+- **A contact deleted while sharing** (§33). While sharing with B and C, delete C from its details,
+  then open Manage sharing at once: C is not listed, and no row shows "?".
 
 ## What to send back
 

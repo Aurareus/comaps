@@ -96,7 +96,7 @@ reference implementation, test vectors and the relay test harness are in
 | Network | Initially many hosts were blocked by the sandbox egress policy (`dl.google.com`, Codeberg, all relays). You lifted it at ~17:35 UTC. Before that I used hash-identical GitHub mirrors for three submodules; all submodule URLs are now canonical again. |
 | Configure | Unmodified `./configure.sh` succeeds: submodules, boost, World map (`261004`), strings, symbols, drules. |
 | APK | Unmodified `./gradlew assembleFdroidDebug -Parm64` builds in 11.5 min → `CoMaps-26100802-fdroid-debug.apk` (149 MB: debug symbols and HWASan). Maven Central answers HTTP 429 to this cloud IP under Gradle's parallel requests; it works with `-Dorg.gradle.internal.repository.max.tentatives=12 -Dorg.gradle.internal.repository.initial.backoff=3000` (command line only, no repo change). Note: debug builds enable HWASan on arm64, which needs Android 14+. Device builds for you will use `-PdisableHWAsan` or the `beta` type. |
-| Desktop tests (clang 18, Debug) | `base_tests`, `coding_tests`, `geometry_tests`: all pass. `platform_tests` 63/68, `map_tests` 95/101, `kml_tests` 46/53. Every failure is environmental and pre-existing: downloader tests need the local HTTP test server; others are offscreen rendering, World-map/`countries.txt` version, and GPX/KML text formatting. Upstream CI excludes all three binaries from its Linux run. I recorded this baseline so that later hooks are diffed against it. A locale variable must be set, whatever its value (`LANG=C` will do): with none of `LANGUAGE`, `LC_ALL`, `LC_MESSAGES` and `LANG`, `map_tests` segfaults in `GetMapLanguageCode()`, and with an empty `LANG` it aborts in search (§32). |
+| Desktop tests (clang 18, Debug) | `base_tests`, `coding_tests`, `geometry_tests`: all pass. `platform_tests` 63/68, `map_tests` 95/101, `kml_tests` 46/53. Every failure is environmental and pre-existing: downloader tests need the local HTTP test server; others are offscreen rendering, World-map/`countries.txt` version, and GPX/KML text formatting. Upstream CI excludes all three binaries from its Linux run (it has run `map_tests` again since 2026-10-12, §33). I recorded this baseline so that later hooks are diffed against it. A locale variable must be set, whatever its value (`LANG=C` will do): with none of `LANGUAGE`, `LC_ALL`, `LC_MESSAGES` and `LANG`, `map_tests` segfaults in `GetMapLanguageCode()`, and with an empty `LANG` it aborts in search (§32). |
 | PR #2269 | Read from the GitHub mirror branch `zy-live-location` and the Codeberg API, see [§15 Q7](#q7-comaps-poc-pr-2269). |
 
 Code paths traced (all verified in source):
@@ -1983,3 +1983,101 @@ over a run of the checklist, the change is not worth its code.
 cross-implementation test passes 15 of 15 over strfry, and the Python reference's tests 309 and 200,
 unchanged. The APK builds; all 36 native methods are exported, one of them new. The JVM tests pass
 9 of 9, and lint finds no errors. The store's format is unchanged: no need to pair again.
+
+## 33. Eleventh review of Phase 2: your second read of the code (2026-10-28)
+
+You sent 21 findings, expecting some not to hold. Each was checked against the code, NIP-01, the default
+relays, the OkHttp and AndroidX classes the app ships, and running tests before anything changed. Two do
+not hold. Seven hold as described, but I would leave them as they are: the table says why, and the
+decision is yours (below). The rest are fixed, #10 in part, along with one more found on the way. Each
+change in the core has a test that fails without it: of 32 mutants, 29 are caught, and the 3 left are
+named below. The Python reference's rules: 6 of 6. The app's changes have no test, there being no phone
+or emulator here, and are for the next run on phones.
+
+| # | Your finding | Verdict | Change | Test |
+|---|---|---|---|---|
+| 1 | No exception barrier on the core's thread | **Holds.** A task that throws reaches upstream's `DelayedThreadPool::ProcessTasks`, which calls it bare: `std::terminate` closes the app. Callers waiting in `RunSync` would not hang, as the whole process goes first | Each task posted to the core's thread runs behind a barrier: what it throws is logged as an error, and the thread goes on with the next one. As with upstream's `LOG(LERROR)`, the error stops debug builds, so the APK you test still closes on one, on purpose; a release build goes on. A call that waits for its task (`RunSync()`) gets what the task threw instead, so a call from the app still closes it, as before, rather than act on made-up answers: a start that returned false would read as a store that cannot be read, with the offer to delete it | `ThreadExecutor_ATaskThatThrowsStopsNothing` |
+| 2 | §12 items 2–4 untested; the fake relay's `std::stoll` | **Holds.** No test of either implementation refused a wrong `d` or `p` tag, a malformed, missing or past `expiration`, or a `created_at` more than 300 s ahead. And the fake relay would have thrown on a malformed `expiration` | Tests in both. The fake relay treats an `expiration` it cannot read as none and delivers the event, so that the receiver's rules are what refuses it | `Events_ReceivingRulesTwoToFour`; 25 checks in `test_protocol.py` |
+| 3 | Epochs and seqs read from the store unchecked | **Holds.** A negative epoch would make the next ratchet derive about 10¹² keys, and a time near the integer's limit would overflow. Only a bug could write one: the store's authenticated encryption keeps damage out | Each epoch, seq and time read from the store is checked against its range: times up to 9,999,999,999 (the spec's ten digits, the year 2286) and the epochs of those times, seqs up to I-JSON's 2⁵³ − 1. One outside its range makes the store unreadable, as damage does, and the app offers to delete it | `Binary_AContactWithValuesNoVersionWritesIsRefused`, `Binary_AnInviteThatExpiresOutsideTheStoresTimesIsRefused`, `Binary_AnEventFromOutsideTheStoresTimesIsRefused`, `Manager_ALowBatteryLevelOrTimeLimitNoVersionWritesIsRefused` |
+| 4 | "?" for a contact in Manage sharing | **Holds**, for a recipient whose contact was just deleted, until the share's change arrives | Left out, as in the names | Checklist |
+| 5 | The QR code is made on the main thread | **Holds as described.** Measured on this machine's JVM, the longest invite (459 characters) at 720 px takes 34 ms the first time, 5 ms after, and 56 ms with the JIT off. A slow phone may take a few times that, once per invite and again after a rotation: a late frame or a few as the screen opens, far from an ANR, which takes 5 s of input not handled | — (your decision) | — |
+| 6 | One publish without an OK fails the whole connection | **Holds as described, by design.** With no pings of the app's own (§10.3), the OK deadline is how the pool finds a dead connection; while idle, the 5-minute heartbeat's. N strikes would leave a dead listening connection unnoticed for N heartbeats, and the watch signals sent meanwhile lost. A live relay rarely takes 10 s to answer, and the cost is one reconnection and the same events sent again, which relays take as duplicates | — (your decision) | — |
+| 7 | A burst of writes at midnight | **Holds as described.** Each save writes the whole store, with two `fsync`s (the file, then its directory). Measured with five contacts: the store was written 6 times in the hour around midnight, and 12 times while sharing with all five. That is about one save per contact, or two while sharing. They run on the core's thread, not the main one: a screen waits only for a call made meanwhile, which the log line of §32 reports | — (your decision) | — |
+| 8 | A listener that answers at once can end a session under the clock's loop | **Holds**, for a listener that calls back into the core as it hears of an end. Neither frontend does: Android hands events to its main thread, and the desktop peer only prints them | The loop skips a session already gone | `Manager_InvitesThatExpireTogetherSurviveAListenerThatAnswersAtOnce` |
+| 9 | A REQ sent again under the same id; the EOSE deadline set again each time | **Does not hold.** NIP-01: a REQ under an id in use replaces that subscription. The three default relays do so: after a second REQ with other filters under the same id, only the new kind arrived, with an EOSE 0.13–0.30 s later. The deadline is for the latest REQ's EOSE, so it starts again with each, and a relay that never sends one fails one deadline after the last change. The earlier filters, kept for what was already on its way, go at the EOSE, or with the connection at the deadline | — | — |
+| 10 | Seven smaller ones | (a) The count of invalid events never resets: **holds, by design.** It is per connection, and a relay that works sends none: it delivers only what a REQ asks for, and checks signatures as events arrive. (b) Only 16 closed REQs are remembered: **holds**, but an innocent relay would be failed only after more than 16 REQs closed on one connection within a round trip, and more than 32 events still on their way for them. (c) A recipient listed twice: **holds**: two grants, two states, and only the first one's end counted. (d) `DeliveryDue()` counts states on their way: **holds, by design**: the process can die before the answer, and the job is then what sends them again. When an answer comes, the due time moves, and the job with it. (e) The low battery level is not checked as it is read: **holds**; with #3. (f) `Sharer::Change()` while not sharing: **holds**: it would use the missing stream, though the manager never calls it so. (g) `alive.expired()`, then the work: **holds as described, and is safe**: every call, the destructor's included, runs on the executor's thread between tasks, so nothing ends the object between the check and the work. The rule was not written down | (c) Refused. (e) As #3. (f) Throws `std::logic_error`, like its siblings. (g) Written where the token is declared | (c) `Manager_TheSameContactTwiceIsRefused`. (e) As #3. (f) `Sharing_TimeLimitsAndEpochs` |
+| 11 | Every contact's keys derived for each inbox event | **Holds as described.** Measured on this machine, it costs 0.05 ms per contact in a release build, and 0.23 ms in the debug build you test. An event that matches none of 50 contacts therefore costs 2.4 ms and 12 ms, and a phone takes a few times that. Inbox events are few: a state when a contact changes something, and a watch signal a minute from each viewer | — (your decision) | — |
+| 12 | §4's rule on `created_at` asks more than either implementation does | **Holds**: pairing steps and signals do not follow it, and need not | The rule is per address (pubkey, kind `30484` and `d`): channel states and location streams, which both implementations follow. A pairing step is one event at an address of its own, and relays keep no signals | — |
+| 13 | §6.3's "and nothing else" against §12's "unknown members are ignored" | **Not a contradiction in effect**: both implementations ignore other members. But the wording read like one | §6.3 says that a sender adds nothing else and a receiver ignores other members, as everywhere (§12) | — |
+| 14 | The comment on the JSON depth limit | **Holds**: a valid document of at most 512 bytes nests at most 256 levels, but 512 `[` reach 512 before the parser fails, and that is the bound that matters | Comment corrected | — |
+| 15 | A relay connection's backlog can reach 16 MiB | **Holds**: up to 256 messages of up to 64 KiB each, per socket, while the core's thread is busy | A byte limit too, 1 MiB per socket. Beyond either limit, messages are dropped, as before | — |
+| 16 | The delivery job polls for 30 s | **Holds as described.** The job's thread sleeps 500 ms between checks, for 30 s at most, and each check is one short call on the core's thread. A callback would need the core to say when its publications have settled: more code than the polling costs | — (your decision) | — |
+| 17 | OkHttp sockets closed without `cancel()`, no read timeout, no pings | **Does not hold**, as a leak. `close()` is graceful, and OkHttp cancels the socket itself 60 s later if the relay never answers (`RealWebSocket.CANCEL_AFTER_CLOSE_MILLIS`); the pool ignores what a closed socket still reports. No read timeout and no pings of the app's own are by choice (§10.3): a dead connection is found by the 10 s OK deadline of the next publish, or by the EOSE deadline | — | — |
+| 18 | Unchecked casts of Java arrays in JNI | **Holds as described, for one array**: `KeystoreKeyWrapper.wrap()`'s `Object[]` of a `String` and a `byte[]`. The others read `String[]` parameters, whose elements Java guarantees to be strings (or null, read as empty). Upstream's JNI code casts the same way, and a change to that one array would fail the first start of any run, not go unnoticed | — (your decision) | — |
+| 19 | A share started as the app leaves keeps the map's pace | **Holds.** Android reports the app in the background 700 ms after its last screen stopped (`ProcessLifecycleOwner.TIMEOUT_MS`). A sharing service that started only after that kept the map's pace, as `MwmApplication` had found no share to slow down | The service takes the share's pace as it starts, if the app is in the background already | Checklist |
+| 20 | Two or three binder calls before each fix | **Holds as described**: every 2 s in live mode, every 30 s otherwise. Each call takes tens of microseconds, and wakes nothing the fix did not. Below Android 9 there is no broadcast for blocked notifications, so this check is the only one there; from Android 9 on, it backs up the broadcast receiver, for the rule that a share is never invisible (§11.3) | — (your decision) | — |
+| 21 | Accessibility: a checkbox without its label; an indicator that does not say its count | **Holds**, on both counts: a checkbox row was two stops, the box read without its title, and the indicator always said "Manage sharing" | Each checkbox or switch row is one stop, read as a checkbox or switch with its title and state. The indicator says "Sharing with N people", and TalkBack offers "Double-tap to manage sharing" | Checklist |
+
+**Found on the way.** The store now refuses a share's time limit past 9,999,999,999 as it reads it (#3),
+but `StartSharing()`, `ChangeSharing()` and `ExtendSharing()` took any time to come. A caller passing a
+later one would have written a store that the next start could not read. The app cannot (its choices
+are 15 minutes, an hour, 8 hours and a time of day), but the three now refuse what the store would.
+Test: `Manager_ATimeLimitTheStoreCannotHoldIsRefused`.
+
+**The mutants left.** Three of the new checks on reading the store have no test: the epoch the relays
+last changed in, the time since which a state has waited for a relay, and the epoch in which a deleted
+contact's state was accepted. Each is set from the app's own clock, and a test would have to write the
+store's layout out byte by byte. Mutation also showed that two cases of the new tests could not fail as
+first written: a ten-character `expiration` with a letter in it still made a time in the past, and the
+Python reference's Arabic-Indic digits made 123. They are now `999999999x` and ten Arabic-Indic nines,
+which `int()` reads as 9,999,999,999.
+
+**Your decisions from §32.** The calls on the main thread (#5 there): held off, as you decided. The two
+log lines stay, for the next run on phones. The relay dialog's two texts: approved.
+
+**Your decision now: the seven left as they are** (#5, #6, #7, #11, #16, #18, #20). I recommend leaving
+all seven. Each costs little or nothing measurable, and a change would cost more code than it saves or,
+for #6, lose what the current behaviour is for. Name any you would rather have changed.
+
+**Upstream, as of 2026-10-28.** Codeberg's main is at 63a53413 (2026-10-27), 32 commits after this
+branch's base.
+
+- One conflict is coming. When the fork's main next takes upstream, `android/gradle/libs.versions.toml`
+  will conflict with this branch: upstream commented the line after which this branch adds the versions
+  of its three libraries (OkHttp, qrcodegen, org.json), and added a version of its own there (746a2f17,
+  a7b75b40). Once you have synced the fork, I would merge main into this branch and keep both sides. The
+  other two files changed on both sides, `.gitmodules` and `android/app/build.gradle.kts`, merge cleanly.
+- Upstream runs `map_tests` in its Linux CI again since 2026-10-12 (58269d91), and fixed the failures it
+  had. §1's baseline (95 of 101) and its note that CI leaves the binary out are of this branch's base.
+  The crash with no locale variable set (§32) is still there.
+- Two open pull requests touch files this branch hooks into, both for Android Auto:
+  [#5456](https://codeberg.org/comaps/comaps/pulls/5456) (the black map, the handoff between phone and
+  car) and [#4984](https://codeberg.org/comaps/comaps/pulls/4984) (a new UI, with a line in
+  `CarAppSession.onStop()` beside this branch's). Each merges cleanly with this branch, tried file by
+  file.
+- Nothing else concerns us. The live-location PoC ([#2269](https://codeberg.org/comaps/comaps/pulls/2269))
+  is as it was: open, last updated 2026-07-07. AI_USAGE.md has not changed since 2026-09-16.
+
+**The submodule URLs.** Upstream made the URLs of `tools/kothic`, `3party/protobuf/protobuf` and
+`3party/just_gtfs` relative (`../kothic.git`) on 2026-10-13, so that a fork can carry copies of its own.
+In a clone of the GitHub fork they point at `github.com/Aurareus/kothic.git` and the like, which do not
+exist, so `git submodule update --init` fails for those three. This branch predates the change; the
+fork's main has it. My recommendation: leave `.gitmodules` as upstream has it, and point the three at
+Codeberg wherever the fork is cloned, once:
+
+```bash
+for r in kothic protobuf just_gtfs; do
+  git config --global url."https://codeberg.org/comaps/$r.git".insteadOf "https://github.com/Aurareus/$r.git"
+done
+```
+
+For Claude's cloud sessions, the same lines go in the environment's setup script. Tried here,
+`git ls-remote` reaches all three through the rewrite, and fails without it. Copying the three
+repositories to GitHub, as upstream intends forks to do, would mean keeping them in step whenever
+upstream moves a submodule. Absolute URLs committed to the fork's main would work with no setup, at
+the price of a difference from upstream that every sync carries.
+
+**Tests now.** 136 C++ tests of the core pass with clang 18 (unity and non-unity builds) and GCC 13;
+9 are new. The cross-implementation test passes 15 of 15 over strfry, and the Python reference's tests
+334 (25 new) and 200. The APK builds, and all 36 native methods are exported. The JVM tests pass 9 of 9,
+and lint finds no errors. The store's format is unchanged: no need to pair again.

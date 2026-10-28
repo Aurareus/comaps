@@ -71,9 +71,12 @@ signature). Additional rules:
   joiner's pairing steps only, `["p", <ipk>]` (§6.3); and `["expiration", <decimal>]` (NIP-40). The
   `d` value is `""` except for pairing messages (§6).
 - Kind `20484` events carry no tags.
-- A sender MUST make `created_at` strictly increase per event pubkey: relays keep only the addressable
-  event with the highest `created_at` (lowest id on ties), so two updates in the same second could
-  otherwise lose the newer one. Senders use `max(now, previous_created_at + 1)`.
+- A sender MUST make `created_at` strictly increase among its events at the same address (pubkey,
+  kind `30484` and `d`): relays keep only the addressable event with the highest `created_at` (lowest
+  id on ties), so two updates in the same second could otherwise lose the newer one. Senders use
+  `max(now, previous_created_at + 1)`. This concerns channel states (§8) and location streams (§9).
+  A pairing step is one event at its own address (§6.3), and relays keep no signals, so neither needs
+  it.
 - No other tags are used. The one `p` tag points at the inviter's one-time pairing key, never at
   anything derived from a user's identity.
 
@@ -196,7 +199,7 @@ relays:
 | Step | Author | Tags | Content |
 |---|---|---|---|
 | 0 | joiner, `jsk` | `["d","0"]`, `["p",ipk]` | `base64(c \|\| HMAC-SHA256(mac_key, jpk \|\| c))` |
-| 1 | inviter, `isk` | `["d","1"]` | `base64(` Noise message 1 (`psk, e`) `)`, payload `{"t":"pair1"}` and nothing else |
+| 1 | inviter, `isk` | `["d","1"]` | `base64(` Noise message 1 (`psk, e`) `)`, payload `{"t":"pair1"}`. A sender adds nothing else; a receiver ignores other members, as everywhere (§12) |
 | 2 | joiner, `jsk` | `["d","2"]`, `["p",ipk]` | `base64(` Noise message 2 (`e, ee`) `)` with `e = e_J`, payload `{"t":"pair2","name":…,"relays":[…]}` (the joiner's) |
 | 3 | inviter, `isk` | `["d","3"]` | `NIP-44(confirm_key, …)`, control class. Accept: `{"t":"pair3","ok":true,"name":…,"relays":[…],"epoch":e_p}` with the inviter's name and home relays. Decline: `{"t":"pair3","ok":false}` |
 
