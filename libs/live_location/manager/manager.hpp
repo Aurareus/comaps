@@ -84,7 +84,7 @@ public:
   /// Hiding stops every connection made for the contact's share (design doc §11.4).
   void SetHidden(std::string const & id, bool hidden);
 
-  /// False if a recipient is unknown, flagged or named twice, or a time limit is in the past.
+  /// False if a recipient is unknown, flagged or named twice, or a time limit is past or beyond persist::kMaxTime.
   bool StartSharing(Recipients const & recipients);
   /// A new set of recipients (re-keys the stream). Empty stops sharing.
   bool ChangeSharing(Recipients const & recipients);

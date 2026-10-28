@@ -35,6 +35,13 @@ int64_t constexpr kDepartedEpochs = 7;       // a deleted contact is told its sh
 // app is on screen (spec §8): a share's end still arrives once they accept again and the app is opened, and the
 // background job no longer runs for it.
 int64_t constexpr kBackgroundRetrySeconds = 7 * 86400;
+int constexpr kMaxLowBatteryStop = 50;  // percent: Settings offers Never and 5-30
+
+// A share's time limit: none (0), or a time to come that the store can hold.
+bool ValidUntil(int64_t until, int64_t now)
+{
+  return until == 0 || (until > now && until <= persist::kMaxTime);
+}
 
 // The same contact twice would get two grants: two states, of which only the first counts for its end.
 bool HasDuplicates(Manager::Recipients const & recipients)
@@ -321,7 +328,7 @@ void Manager::Decode(ByteSpan data)
       throw binary::FormatError("relay");
     m_settings.m_previousRelays.push_back(std::move(url));
   }
-  m_settings.m_relaysChanged = reader.I64();
+  m_settings.m_relaysChanged = persist::ReadI64(reader, 0, persist::kMaxEpoch, "relays changed");
   for (uint32_t i = 0, n = reader.Count(8); i < n; ++i)
   {
     std::string url = reader.String();
@@ -335,6 +342,8 @@ void Manager::Decode(ByteSpan data)
   m_settings.m_requestLive = reader.Bool();
   m_settings.m_allowLive = reader.Bool();
   m_settings.m_lowBatteryStop = reader.U8();
+  if (m_settings.m_lowBatteryStop > kMaxLowBatteryStop)
+    throw binary::FormatError("low battery stop");
   m_echoed.clear();
   for (uint32_t i = 0, n = reader.Count(4); i < n; ++i)
     m_echoed.insert(reader.String());
@@ -349,7 +358,7 @@ void Manager::Decode(ByteSpan data)
     peer->m_notMoved = reader.Bool();
     if (reader.Bool())
       peer->m_deliveredTo = persist::ReadRelays(reader);
-    peer->m_unacceptedSince = reader.I64();
+    peer->m_unacceptedSince = persist::ReadI64(reader, 0, persist::kMaxTime, "unaccepted since");
     peer->m_repeat = reader.Bool();
     peer->m_color = reader.String();
     m_peers.push_back(std::move(peer));
@@ -392,7 +401,7 @@ void Manager::Decode(ByteSpan data)
     departed->m_relays = persist::ReadRelays(reader);
     for (uint32_t j = 0, states = reader.Count(32); j < states; ++j)
       departed->m_states.push_back(persist::ReadEvent(reader));
-    departed->m_acceptedEpoch = reader.I64();
+    departed->m_acceptedEpoch = persist::ReadI64(reader, 0, persist::kMaxEpoch, "accepted epoch");
     m_departed.push_back(std::move(departed));
   }
 
@@ -400,7 +409,7 @@ void Manager::Decode(ByteSpan data)
   for (uint32_t i = 0, n = reader.Count(12); i < n; ++i)
   {
     std::string id = reader.String();
-    int64_t const until = reader.I64();
+    int64_t const until = persist::ReadI64(reader, 0, persist::kMaxTime, "until");
     if (FindPeer(id) != nullptr)
       m_resumable.emplace_back(std::move(id), until);
   }
@@ -778,7 +787,7 @@ bool Manager::SetColor(std::string color)
 
 bool Manager::SetLowBatteryStop(int percent)
 {
-  if (!m_started || percent < 0 || percent > 50)
+  if (!m_started || percent < 0 || percent > kMaxLowBatteryStop)
     return false;
   if (percent == m_settings.m_lowBatteryStop)
     return true;  // picked again: a share started at or below it runs on
@@ -1688,7 +1697,7 @@ bool Manager::StartSharing(Recipients const & recipients)
   for (auto const & [id, until] : recipients)
   {
     Peer const * peer = FindPeer(id);
-    if (peer == nullptr || peer->m_contact->m_flagged || (until != 0 && until <= now))
+    if (peer == nullptr || peer->m_contact->m_flagged || !ValidUntil(until, now))
       return false;
   }
   m_shareRelays = m_settings.m_homeRelays;
@@ -1727,7 +1736,7 @@ bool Manager::ChangeSharing(Recipients const & recipients)
   for (auto const & [id, until] : recipients)
   {
     Peer const * peer = FindPeer(id);
-    if (peer == nullptr || (until != 0 && until <= now))
+    if (peer == nullptr || !ValidUntil(until, now))
       return false;
     bool const current = std::any_of(m_sharer->GetGrants().begin(), m_sharer->GetGrants().end(),
                                      [&](auto const & g) { return g.first == peer->m_contact; });
@@ -1751,7 +1760,7 @@ bool Manager::ChangeSharing(Recipients const & recipients)
 bool Manager::ExtendSharing(std::string const & id, int64_t until)
 {
   Peer * peer = FindPeer(id);
-  if (peer == nullptr || !m_sharer || !m_sharer->IsSharing())
+  if (peer == nullptr || !m_sharer || !m_sharer->IsSharing() || !ValidUntil(until, Now()))
     return false;
   nostr::Event event;
   try

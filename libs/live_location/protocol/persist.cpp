@@ -4,6 +4,14 @@
 
 namespace live_location::persist
 {
+int64_t ReadI64(binary::Reader & reader, int64_t lo, int64_t hi, char const * what)
+{
+  int64_t const value = reader.I64();
+  if (value < lo || value > hi)
+    throw binary::FormatError(what);
+  return value;
+}
+
 void WriteRelays(binary::Writer & writer, Relays const & relays)
 {
   writer.U32(static_cast<uint32_t>(relays.size()));
@@ -30,7 +38,7 @@ void WriteDirection(binary::Writer & writer, Direction const & direction)
 
 Direction ReadDirection(binary::Reader & reader)
 {
-  int64_t const epoch = reader.I64();
+  int64_t const epoch = ReadI64(reader, 0, kMaxEpoch, "chain epoch");
   Key const chainKey = reader.Secret();
   return Direction(epoch, chainKey);
 }
@@ -61,11 +69,11 @@ ContactPtr ReadContact(binary::Reader & reader)
   std::string sas = reader.String();
   auto contact = std::make_shared<Contact>(std::move(name), std::move(relays), std::move(outgoing), std::move(incoming),
                                            std::move(sas));
-  contact->m_pairingEpoch = reader.I64();
+  contact->m_pairingEpoch = ReadI64(reader, 0, kMaxEpoch, "pairing epoch");
   contact->m_joiner = reader.Bool();
-  contact->m_lastSeqIn = reader.I64();
-  contact->m_seqOut = reader.I64();
-  contact->m_lastCreatedOut = reader.I64();
+  contact->m_lastSeqIn = ReadI64(reader, 0, kMaxJsonInt, "seq");
+  contact->m_seqOut = ReadI64(reader, 0, kMaxJsonInt, "seq");
+  contact->m_lastCreatedOut = ReadI64(reader, 0, kMaxTime, "created_at");
   contact->m_verified = reader.Bool();
   contact->m_flagged = reader.Bool();
   contact->m_confirmed = reader.Bool();
@@ -85,7 +93,7 @@ Invite ReadInvite(binary::Reader & reader)
   Invite invite;
   invite.m_psk = reader.OptionalSecret();
   invite.m_ipk = reader.Array<32>();
-  invite.m_expiresAt = reader.I64();
+  invite.m_expiresAt = ReadI64(reader, 0, kMaxTime, "invite expiry");
   invite.m_relays = ReadRelays(reader);
   if (!crypto::IsValidXOnlyPublicKey(invite.m_ipk))
     throw binary::FormatError("invite key");
@@ -114,7 +122,7 @@ nostr::Event ReadEvent(binary::Reader & reader)
   nostr::Event event;
   event.m_id = reader.String();
   event.m_pubkey = reader.String();
-  event.m_createdAt = reader.I64();
+  event.m_createdAt = ReadI64(reader, 0, kMaxTime, "created_at");
   event.m_kind = reader.I64();
   uint32_t const tags = reader.Count(4);
   for (uint32_t i = 0; i < tags; ++i)

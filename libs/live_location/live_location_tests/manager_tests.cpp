@@ -7,6 +7,7 @@
 #include "live_location/manager/marks.hpp"
 #include "live_location/protocol/common.hpp"
 #include "live_location/protocol/constants.hpp"
+#include "live_location/protocol/persist.hpp"
 #include "live_location/store/store.hpp"
 
 #include <algorithm>
@@ -15,6 +16,7 @@
 #include <cstring>
 #include <filesystem>
 #include <functional>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -408,6 +410,26 @@ UNIT_TEST(Manager_TheSameContactTwiceIsRefused)
   TEST(alice.Events().m_sharing.m_recipients.size() == 1 && alice.Events().m_sharing.m_recipients[0].second == 0, ());
 }
 
+UNIT_TEST(Manager_ATimeLimitTheStoreCannotHoldIsRefused)
+{
+  // Read back, such a time would make the whole store unreadable (persist::ReadI64).
+  World world;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+  std::string const id = alice.Id("Bob");
+  TEST(!alice.M().StartSharing({{id, persist::kMaxTime + 1}}), ());
+  TEST(alice.M().StartSharing({{id, persist::kMaxTime}}), ());
+  TEST(!alice.M().ChangeSharing({{id, std::numeric_limits<int64_t>::max()}}), ());
+  TEST(!alice.M().ExtendSharing(id, persist::kMaxTime + 1), ());
+  TEST(alice.M().ExtendSharing(id, 0), ());
+  TEST(alice.M().ExtendSharing(id, persist::kMaxTime), ());
+  world.Run(2'000);
+  TEST(alice.Restart(), ());
+  auto const resumable = alice.Events().m_sharing.m_resumable;
+  TEST(resumable.size() == 1 && resumable[0].second == persist::kMaxTime, (resumable));
+}
+
 UNIT_TEST(Manager_InvitesThatExpireTogetherSurviveAListenerThatAnswersAtOnce)
 {
   // Two invites expire at the same clock tick, and the frontend cancels the other as soon as it hears of the
@@ -624,6 +646,67 @@ UNIT_TEST(Manager_AStoreOfAnotherVersionCannotBeRead)
   TEST_EQUAL(alice.Events().m_storeErrors, 2, ());
   alice.M().DeleteAllData();
   TEST(alice.M().SetName("Alice") && alice.M().CreateInvite(false), ("a fresh start"));
+}
+
+UNIT_TEST(Manager_ALowBatteryLevelOrTimeLimitNoVersionWritesIsRefused)
+{
+  // As for contacts (store_tests.cpp): out of range in the store, such a value makes it unreadable rather than
+  // being used.
+  World world;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+  store::Store store(alice.Path(), alice.Keys(), ScenarioRng());
+  auto const load = [&]
+  {
+    SecretBytes contents;
+    TEST(store.Load(contents) == store::Store::Result::Loaded, ());
+    return contents;
+  };
+  auto const readable = [&](SecretBytes const & contents)
+  {
+    TEST(store.Save(contents, {}), ());
+    return alice.Restart(false /* expectReadable */);
+  };
+
+  // The low battery level is the one byte in which these two stores differ.
+  TEST(alice.M().SetLowBatteryStop(5), ());
+  SecretBytes const five = load();
+  TEST(alice.M().SetLowBatteryStop(30), ());
+  SecretBytes stored = load();
+  std::vector<size_t> differ;
+  for (size_t i = 0; i < stored.size() && stored.size() == five.size(); ++i)
+    if (stored[i] != five[i])
+      differ.push_back(i);
+  TEST(differ.size() == 1 && five[differ[0]] == 5 && stored[differ[0]] == 30, (differ));
+  stored[differ[0]] = 51;
+  TEST(!readable(stored), ());
+  stored[differ[0]] = 50;
+  TEST(readable(stored), ());
+
+  // A share's time limit is the store's last 8 bytes, big-endian.
+  TEST(alice.M().StartSharing({{alice.Id("Bob"), persist::kMaxTime}}), ());
+  stored = load();
+  auto const until = [&]
+  {
+    int64_t value = 0;
+    for (size_t i = stored.size() - 8; i < stored.size(); ++i)
+      value = (value << 8) | stored[i];
+    return value;
+  };
+  auto const setUntil = [&](int64_t value)
+  {
+    for (size_t i = 0; i < 8; ++i)
+      stored[stored.size() - 1 - i] = static_cast<uint8_t>(value >> (8 * i));
+  };
+  TEST_EQUAL(until(), persist::kMaxTime, ());
+  setUntil(persist::kMaxTime + 1);
+  TEST(!readable(stored), ());
+  setUntil(-1);
+  TEST(!readable(stored), ());
+  setUntil(persist::kMaxTime);
+  TEST(readable(stored), ());
+  TEST_EQUAL(alice.Events().m_storeErrors, 3, ());
 }
 
 UNIT_TEST(Manager_AnOwnColourThisBuildDoesNotKnowIsAutomatic)

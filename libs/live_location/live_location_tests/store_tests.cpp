@@ -5,12 +5,14 @@
 
 #include "live_location/crypto/noise.hpp"
 #include "live_location/encoding/binary.hpp"
+#include "live_location/protocol/common.hpp"
 #include "live_location/protocol/constants.hpp"
 #include "live_location/protocol/persist.hpp"
 #include "live_location/store/store.hpp"
 
 #include <cstdio>
 #include <filesystem>
+#include <limits>
 #include <map>
 #include <memory>
 #include <string>
@@ -163,6 +165,100 @@ UNIT_TEST(Binary_ContactRoundTrip)
            copy->m_incoming.Epoch() == original.m_incoming.Epoch(),
        ());
   TEST_EQUAL(writer.SecretDigests().size(), 2, ("both chain keys count as secrets, also after Finish()"));
+}
+
+UNIT_TEST(Binary_AContactWithValuesNoVersionWritesIsRefused)
+{
+  // A stored epoch below 0 would make the next ratchet derive ~10^12 keys, and times or seqs near the integer's
+  // limit would overflow: refused as damage, like any store that cannot be read.
+  Paired const p = Pair("Alice", kRelaysA, "Bob", kRelaysB, kT0, false);
+  auto const read = [](Contact const & contact)
+  {
+    binary::Writer writer;
+    persist::WriteContact(writer, contact);
+    SecretBytes const saved = writer.Finish();
+    binary::Reader reader(saved);
+    try
+    {
+      persist::ReadContact(reader);
+      return true;
+    }
+    catch (binary::FormatError const &)
+    {
+      return false;
+    }
+  };
+  Contact const & good = *p.m_joinerSide;
+  TEST(read(good), ());
+  auto const changed = [&](auto && change)
+  {
+    Contact contact = good;
+    change(contact);
+    return read(contact);
+  };
+  TEST(!changed([](Contact & c) { c.m_incoming = Direction(-1, c.m_incoming.ChainKey()); }), ("epoch < 0"));
+  TEST(!changed([](Contact & c) { c.m_outgoing = Direction(persist::kMaxEpoch + 1, c.m_outgoing.ChainKey()); }),
+       ("an epoch after the year 2286"));
+  TEST(changed([](Contact & c) { c.m_outgoing = Direction(persist::kMaxEpoch, c.m_outgoing.ChainKey()); }), ());
+  TEST(!changed([](Contact & c) { c.m_pairingEpoch = -3; }), ());
+  TEST(!changed([](Contact & c) { c.m_seqOut = kMaxJsonInt + 1; }), ());
+  TEST(!changed([](Contact & c) { c.m_lastSeqIn = -1; }), ());
+  TEST(!changed([](Contact & c) { c.m_lastCreatedOut = std::numeric_limits<int64_t>::max(); }), ());
+  TEST(changed([](Contact & c) { c.m_lastCreatedOut = persist::kMaxTime; }), ());
+}
+
+UNIT_TEST(Binary_AnInviteThatExpiresOutsideTheStoresTimesIsRefused)
+{
+  Inviter const inviter(kRelaysA, ScenarioRng(), kT0, 86400);
+  auto const read = [&](int64_t expiresAt)
+  {
+    Invite invite = inviter.GetInvite();
+    invite.m_expiresAt = expiresAt;
+    binary::Writer writer;
+    persist::WriteInvite(writer, invite);
+    SecretBytes const saved = writer.Finish();
+    binary::Reader reader(saved);
+    try
+    {
+      persist::ReadInvite(reader);
+      return true;
+    }
+    catch (binary::FormatError const &)
+    {
+      return false;
+    }
+  };
+  TEST(read(kT0 + 86400), ());
+  TEST(!read(-1), ());
+  TEST(!read(persist::kMaxTime + 1), ());
+}
+
+UNIT_TEST(Binary_AnEventFromOutsideTheStoresTimesIsRefused)
+{
+  // States and pairing steps kept for sending again, read back.
+  auto & rng = ScenarioRng();
+  nostr::Event const original = SignEvent(rng.Get<32>(), kT0, kKindStored, {{"d", ""}}, "x", rng);
+  auto const read = [&](int64_t createdAt)
+  {
+    nostr::Event event = original;
+    event.m_createdAt = createdAt;
+    binary::Writer writer;
+    persist::WriteEvent(writer, event);
+    SecretBytes const saved = writer.Finish();
+    binary::Reader reader(saved);
+    try
+    {
+      return persist::ReadEvent(reader).m_createdAt == createdAt;
+    }
+    catch (binary::FormatError const &)
+    {
+      return false;
+    }
+  };
+  TEST(read(kT0), ());
+  TEST(read(persist::kMaxTime), ());
+  TEST(!read(-1), ());
+  TEST(!read(persist::kMaxTime + 1), ());
 }
 
 std::set<ByteArray<32>> Digests(std::vector<Key> const & keys)
