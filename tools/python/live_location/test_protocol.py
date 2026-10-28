@@ -236,6 +236,44 @@ upper = wire(m0_t)
 upper.content = 5
 check(P.pairing_step(upper, invite_t, T0) is None, 'content that is not a string is refused')
 
+# §12 items 2-4, each on its own: author, kind, the d and p tags (the first of each counts), an expiration of
+# 1-10 ASCII digits in the future, and a created_at at most 300 s ahead.
+sk_r = rng(32)
+authors_r = {p.secp_xonly_pub(sk_r).hex()}
+others_r = {p.secp_xonly_pub(rng(32)).hex()}
+later_r = str(T0 + 900)
+
+
+def ev_r(tags, created_at=T0, kind=P.KIND_STORED):
+    return wire(P.sign_event(sk_r, created_at, kind, tags, 'x', rng))
+
+
+def stored_r(ev, d=''):
+    return P.check_event(ev, authors_r, P.KIND_STORED, d, T0)
+
+
+check(stored_r(ev_r([['d', ''], ['expiration', later_r]])), 'the event the others differ from passes')
+check(not P.check_event(ev_r([['d', ''], ['expiration', later_r]]), others_r, P.KIND_STORED, '', T0), 'another author')
+check(not P.check_event(ev_r([['d', ''], ['expiration', later_r]]), authors_r, P.KIND_SIGNAL, None, T0), 'another kind')
+check(not stored_r(ev_r([['d', '1'], ['expiration', later_r]])), 'another d')
+check(not stored_r(ev_r([['expiration', later_r]])), 'no d')
+check(stored_r(ev_r([['d', ''], ['d', '1'], ['expiration', later_r]])), 'the first d counts')
+check(not stored_r(ev_r([['d', '1'], ['d', ''], ['expiration', later_r]])), 'the first d counts, not a later one')
+ipk_r = 'a' * 64
+check(P.check_event(ev_r([['d', '0'], ['p', ipk_r], ['expiration', later_r]]), None, P.KIND_STORED, '0', T0, ipk_r),
+      "a joiner's step with its p tag passes")
+check(not P.check_event(ev_r([['d', '0'], ['expiration', later_r]]), None, P.KIND_STORED, '0', T0, ipk_r), 'no p')
+check(not P.check_event(ev_r([['d', '0'], ['p', 'b' * 64], ['expiration', later_r]]), None, P.KIND_STORED, '0', T0,
+                        ipk_r), 'another p')
+# Ten characters, one of them no ASCII digit, would otherwise be a time far ahead: int() reads '٩' as 9.
+for exp_r in ['', '12a', '-5', '+900', ' 123', '12345678901', '999999999x', '٩٩٩٩٩٩٩٩٩٩', str(T0), str(T0 - 1)]:
+    check(not stored_r(ev_r([['d', ''], ['expiration', exp_r]])), f'expiration {exp_r!r} is refused')
+check(not stored_r(ev_r([['d', '']])), 'no expiration')
+check(stored_r(ev_r([['d', ''], ['expiration', str(T0 + 1)]])), 'a second ahead is the future')
+check(P.check_event(ev_r([], kind=P.KIND_SIGNAL), authors_r, P.KIND_SIGNAL, None, T0), 'a signal carries no expiration')
+check(stored_r(ev_r([['d', ''], ['expiration', later_r]], T0 + P.MAX_FUTURE_SKEW)), '300 s ahead')
+check(not stored_r(ev_r([['d', ''], ['expiration', later_r]], T0 + P.MAX_FUTURE_SKEW + 1)), '301 s ahead')
+
 # Without the PSK nothing counts: a step 0 with a wrong MAC is ignored by both sides (no denial of
 # service by someone who merely sees the inviter's key on a relay).
 relay = Relay()

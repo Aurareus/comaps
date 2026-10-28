@@ -238,8 +238,15 @@ std::vector<nostr::Event> FakeRelay::Stored() const
 
 bool FakeRelay::Expired(nostr::Event const & event) const
 {
+  // NIP-40 says nothing of a malformed expiration: this relay keeps such an event, so that the receiver's own
+  // check (spec §12 item 3) is what refuses it, rather than a throw here.
   auto const expiration = event.TagValue("expiration");
-  return expiration && std::stoll(*expiration) <= m_executor.Now();
+  if (!expiration || expiration->empty() || expiration->size() > 18 ||
+      !std::all_of(expiration->begin(), expiration->end(), [](char c) { return c >= '0' && c <= '9'; }))
+  {
+    return false;
+  }
+  return std::stoll(*expiration) <= m_executor.Now();
 }
 
 void FakeRelay::SendTo(std::shared_ptr<Link> const & link, std::string text)

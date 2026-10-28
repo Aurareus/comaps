@@ -4,6 +4,7 @@
 #include "live_location/live_location_tests/test_helpers.hpp"
 
 #include "live_location/crypto/noise.hpp"
+#include "live_location/crypto/schnorr.hpp"
 #include "live_location/encoding/base64.hpp"
 #include "live_location/protocol/common.hpp"
 #include "live_location/protocol/constants.hpp"
@@ -441,6 +442,51 @@ UNIT_TEST(Events_EnvelopeTypes)
   TEST(!ParseEvent(replaced(m0.m_sig, upperSig)), ("uppercase hex in a signature is refused"));
   TEST(!ParseEvent(replaced("\"content\":\"" + m0.m_content + "\"", "\"content\":5")),
        ("content that is not a string is refused"));
+}
+
+UNIT_TEST(Events_ReceivingRulesTwoToFour)
+{
+  // §12 items 2-4, each on its own: author, kind, the d and p tags (the first of each counts), an expiration of
+  // 1-10 ASCII digits in the future, and a created_at at most 300 s ahead. A signal's age is checked where signals
+  // are read (Channels_Signals).
+  auto & rng = ScenarioRng();
+  Key const secret = rng.Get<32>();
+  std::set<std::string> const authors = {ToHex(crypto::GetXOnlyPublicKey(secret))};
+  std::set<std::string> const others = {ToHex(crypto::GetXOnlyPublicKey(rng.Get<32>()))};
+  int64_t const now = kT0;
+  std::string const later = std::to_string(now + 900);
+  auto const event = [&](int64_t createdAt, nostr::Tags tags, int64_t kind = kKindStored)
+  { return SignEvent(secret, createdAt, kind, std::move(tags), "x", rng); };
+  auto const stored = [&](nostr::Event const & e, std::string_view d = "")
+  { return CheckEvent(e, &authors, kKindStored, d, now); };
+
+  TEST(stored(event(now, {{"d", ""}, {"expiration", later}})), ("the event the others differ from passes"));
+  TEST(!CheckEvent(event(now, {{"d", ""}, {"expiration", later}}), &others, kKindStored, "", now), ("another author"));
+  TEST(!CheckEvent(event(now, {{"d", ""}, {"expiration", later}}), &authors, kKindSignal, std::nullopt, now),
+       ("another kind"));
+  TEST(!stored(event(now, {{"d", "1"}, {"expiration", later}})), ("another d"));
+  TEST(!stored(event(now, {{"expiration", later}})), ("no d"));
+  TEST(stored(event(now, {{"d", ""}, {"d", "1"}, {"expiration", later}})), ("the first d counts"));
+  TEST(!stored(event(now, {{"d", "1"}, {"d", ""}, {"expiration", later}})), ("the first d counts"));
+  std::string const ipk(64, 'a');
+  auto const step = [&](nostr::Tags tags)
+  { return CheckEvent(event(now, std::move(tags)), nullptr, kKindStored, "0", now, ipk); };
+  TEST(step({{"d", "0"}, {"p", ipk}, {"expiration", later}}), ("a joiner's step with its p tag passes"));
+  TEST(!step({{"d", "0"}, {"expiration", later}}), ("no p"));
+  TEST(!step({{"d", "0"}, {"p", std::string(64, 'b')}, {"expiration", later}}), ("another p"));
+
+  // Ten characters with one that is no digit would otherwise make a time far ahead.
+  for (std::string const & exp : std::vector<std::string>{"", "12a", "-5", "+900", " 123", "12345678901", "999999999x",
+                                                          "99999 9999", std::to_string(now)})
+    TEST(!stored(event(now, {{"d", ""}, {"expiration", exp}})), (exp));
+  TEST(!stored(event(now, {{"d", ""}})), ("no expiration"));
+  TEST(!stored(event(now, {{"d", ""}, {"expiration", std::to_string(now - 1)}})), ("past"));
+  TEST(stored(event(now, {{"d", ""}, {"expiration", std::to_string(now + 1)}})), ("a second ahead is the future"));
+  TEST(CheckEvent(event(now, {}, kKindSignal), &authors, kKindSignal, std::nullopt, now),
+       ("a signal carries no expiration"));
+
+  TEST(stored(event(now + kMaxFutureSkew, {{"d", ""}, {"expiration", later}})), ("300 s ahead"));
+  TEST(!stored(event(now + kMaxFutureSkew + 1, {{"d", ""}, {"expiration", later}})), ("301 s ahead"));
 }
 
 UNIT_TEST(Channels_ForwardSecrecy)
