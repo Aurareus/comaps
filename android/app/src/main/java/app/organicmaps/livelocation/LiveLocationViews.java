@@ -4,12 +4,17 @@ import android.graphics.Bitmap;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
+import android.widget.CheckBox;
 import android.widget.CompoundButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.Switch;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.view.AccessibilityDelegateCompat;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.accessibility.AccessibilityNodeInfoCompat;
 import androidx.core.widget.TextViewCompat;
 import app.organicmaps.R;
 import com.google.android.material.button.MaterialButton;
@@ -129,6 +134,7 @@ final class LiveLocationViews
       if (box.isEnabled())
         box.toggle();
     });
+    readAsOne(view, box, CheckBox.class);
     mContent.addView(view);
     return box;
   }
@@ -145,8 +151,29 @@ final class LiveLocationViews
     toggle.setChecked(checked);
     toggle.setOnCheckedChangeListener(onChange);
     view.setOnClickListener(v -> toggle.toggle());
+    readAsOne(view, toggle, Switch.class);
     mContent.addView(view);
     return toggle;
+  }
+
+  /**
+   * One stop for a screen reader: the row reads its texts with the button's state, and a double tap toggles it.
+   * Otherwise the button was a second stop, without a label.
+   */
+  private static void readAsOne(@NonNull View row, @NonNull CompoundButton button, @NonNull Class<?> role)
+  {
+    button.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+    ViewCompat.setAccessibilityDelegate(row, new AccessibilityDelegateCompat() {
+      @Override
+      public void onInitializeAccessibilityNodeInfo(@NonNull View host, @NonNull AccessibilityNodeInfoCompat info)
+      {
+        super.onInitializeAccessibilityNodeInfo(host, info);
+        info.setClassName(role.getName());
+        info.setCheckable(true);
+        info.setChecked(button.isChecked());
+        info.setEnabled(button.isEnabled());
+      }
+    });
   }
 
   @NonNull

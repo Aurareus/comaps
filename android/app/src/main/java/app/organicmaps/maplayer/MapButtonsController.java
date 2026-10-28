@@ -20,6 +20,7 @@ import androidx.annotation.OptIn;
 import androidx.core.content.ContextCompat;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.accessibility.AccessibilityNodeInfoCompat;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
 import androidx.lifecycle.Observer;
@@ -314,6 +315,14 @@ public class MapButtonsController extends Fragment
       return;
     final int people = count == null ? 0 : count;
     mLiveLocationIcon.setCount(people);
+    // Read out as what the icon shows, the number in the pin; a double tap is to manage the share.
+    if (people > 0)
+    {
+      button.setContentDescription(
+          button.getResources().getQuantityString(R.plurals.live_location_sharing_with_count, people, people));
+      ViewCompat.replaceAccessibilityAction(button, AccessibilityNodeInfoCompat.AccessibilityActionCompat.ACTION_CLICK,
+                                            button.getContext().getString(R.string.live_location_manage_sharing), null);
+    }
     final boolean show = people > 0;
     if (show == UiUtils.isVisible(button) && (mLiveLocationBlinking != null) == show)
       return;
