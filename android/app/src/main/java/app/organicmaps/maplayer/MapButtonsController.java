@@ -8,6 +8,7 @@ import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -19,6 +20,7 @@ import androidx.annotation.OptIn;
 import androidx.core.content.ContextCompat;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.accessibility.AccessibilityNodeInfoCompat;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
 import androidx.lifecycle.Observer;
@@ -27,6 +29,7 @@ import app.organicmaps.MwmActivity;
 import app.organicmaps.R;
 import app.organicmaps.leftbutton.LeftButton;
 import app.organicmaps.leftbutton.LeftToggleButton;
+import app.organicmaps.livelocation.LiveLocationStatusIcon;
 import app.organicmaps.sdk.Framework;
 import app.organicmaps.sdk.downloader.MapManager;
 import app.organicmaps.sdk.downloader.UpdateInfo;
@@ -36,6 +39,7 @@ import app.organicmaps.sdk.maplayer.subway.SubwayManager;
 import app.organicmaps.sdk.maplayer.traffic.TrafficManager;
 import app.organicmaps.sdk.routing.RoutingController;
 import app.organicmaps.sdk.util.Config;
+import app.organicmaps.sdk.util.Utils;
 import app.organicmaps.util.ThemeUtils;
 import app.organicmaps.util.UiUtils;
 import app.organicmaps.util.WindowInsetUtils;
@@ -60,6 +64,12 @@ public class MapButtonsController extends Fragment
   private LayersButton mToggleMapLayerButton;
   @Nullable
   FloatingActionButton mTrackRecordingStatusButton;
+  @Nullable
+  private FloatingActionButton mLiveLocationStatusButton; // Live location (NLL)
+  @Nullable
+  private LiveLocationStatusIcon mLiveLocationIcon;
+  @Nullable
+  private ObjectAnimator mLiveLocationBlinking;
 
   @Nullable
   private MyPositionButton mNavMyPosition;
@@ -83,6 +93,7 @@ public class MapButtonsController extends Fragment
     updateLeftButtonToggleState(enable);
   };
   private final Observer<Integer> mTopButtonMarginObserver = this::updateTopButtonsMargin;
+  private final Observer<Integer> mLiveLocationObserver = this::updateLiveLocationStatus; // Live location (NLL)
 
   private LeftButton mLeftButton;
 
@@ -133,6 +144,16 @@ public class MapButtonsController extends Fragment
     if (mTrackRecordingStatusButton != null)
       mTrackRecordingStatusButton.setOnClickListener(
           view -> mMapButtonClickListener.onMapButtonClick(MapButtons.trackRecordingStatus));
+    // Live location (NLL): shown while sharing, below the track recording indicator or in its place.
+    mLiveLocationStatusButton = mFrame.findViewById(R.id.live_location_status);
+    mLiveLocationIcon = null;
+    if (mLiveLocationStatusButton != null)
+    {
+      mLiveLocationStatusButton.setOnClickListener(
+          view -> mMapButtonClickListener.onMapButtonClick(MapButtons.liveLocationStatus));
+      mLiveLocationIcon = new LiveLocationStatusIcon(mLiveLocationStatusButton.getContext());
+      mLiveLocationStatusButton.setImageDrawable(mLiveLocationIcon);
+    }
 
     mSearchWheel = new SearchWheel(mFrame,
                                    (v)
@@ -245,22 +266,29 @@ public class MapButtonsController extends Fragment
     case menu: UiUtils.showIf(show, buttonView); break;
     case trackRecordingStatus:
       UiUtils.showIf(show, buttonView);
-      animateIconBlinking(show, (FloatingActionButton) buttonView);
+      animateIconBlinking(show, (FloatingActionButton) buttonView, 0xFFFF0000); // Live location (NLL): the colour
+      placeLiveLocationStatus(); // Live location (NLL): below it, or in its place
     }
   }
 
-  void animateIconBlinking(boolean show, @NonNull FloatingActionButton button)
+  // Live location (NLL): returns the animator, and takes the colour to blink to.
+  @Nullable
+  ObjectAnimator animateIconBlinking(boolean show, @NonNull FloatingActionButton button, int color)
   {
     if (show)
     {
       Drawable drawable = button.getDrawable();
-      ObjectAnimator colorAnimator = ObjectAnimator.ofArgb(drawable, "tint", 0xFF757575, 0xFFFF0000);
+      ObjectAnimator colorAnimator = ObjectAnimator.ofArgb(drawable, "tint", 0xFF757575, color);
       colorAnimator.setDuration(2500);
       colorAnimator.setEvaluator(new ArgbEvaluator());
       colorAnimator.setRepeatCount(ObjectAnimator.INFINITE);
       colorAnimator.setRepeatMode(ObjectAnimator.REVERSE);
+      // Live location (NLL): on a common clock, so that both indicators blink in step.
+      colorAnimator.setCurrentPlayTime(SystemClock.uptimeMillis() % (2 * colorAnimator.getDuration()));
       colorAnimator.start();
+      return colorAnimator;
     }
+    return null;
   }
 
   private static int dpToPx(float dp, Context context)
@@ -275,6 +303,54 @@ public class MapButtonsController extends Fragment
     ViewGroup.MarginLayoutParams params = (ViewGroup.MarginLayoutParams) mTrackRecordingStatusButton.getLayoutParams();
     params.topMargin = margin;
     mTrackRecordingStatusButton.setLayoutParams(params);
+    placeLiveLocationStatus(); // Live location (NLL)
+  }
+
+  // Live location (NLL): the indicator, with the number of people the user shares with in its pin. It
+  // blinks like the track recording one, in blue, in step with it.
+  private void updateLiveLocationStatus(@Nullable Integer count)
+  {
+    final FloatingActionButton button = mLiveLocationStatusButton;
+    if (button == null || mLiveLocationIcon == null)
+      return;
+    final int people = count == null ? 0 : count;
+    mLiveLocationIcon.setCount(people);
+    // Read out as what the icon shows, the number in the pin; a double tap is to manage the share.
+    if (people > 0)
+    {
+      button.setContentDescription(
+          button.getResources().getQuantityString(R.plurals.live_location_sharing_with_count, people, people));
+      ViewCompat.replaceAccessibilityAction(button, AccessibilityNodeInfoCompat.AccessibilityActionCompat.ACTION_CLICK,
+                                            button.getContext().getString(R.string.live_location_manage_sharing), null);
+    }
+    final boolean show = people > 0;
+    if (show == UiUtils.isVisible(button) && (mLiveLocationBlinking != null) == show)
+      return;
+    UiUtils.showIf(show, button);
+    if (mLiveLocationBlinking != null)
+      mLiveLocationBlinking.cancel();
+    mLiveLocationBlinking =
+        animateIconBlinking(show, button, ContextCompat.getColor(button.getContext(), R.color.live_location_active));
+  }
+
+  // Live location (NLL): its indicator stands where the track recording one is, or below it while that one
+  // is shown. MwmActivity moves the compass below both.
+  private void placeLiveLocationStatus()
+  {
+    if (mLiveLocationStatusButton == null || mTrackRecordingStatusButton == null)
+      return;
+    int top = ((ViewGroup.MarginLayoutParams) mTrackRecordingStatusButton.getLayoutParams()).topMargin;
+    if (UiUtils.isVisible(mTrackRecordingStatusButton))
+    {
+      final Context context = mLiveLocationStatusButton.getContext();
+      top += Utils.dimen(context, R.dimen.map_button_size) + Utils.dimen(context, R.dimen.margin_half);
+    }
+    final ViewGroup.MarginLayoutParams params =
+        (ViewGroup.MarginLayoutParams) mLiveLocationStatusButton.getLayoutParams();
+    if (params.topMargin == top)
+      return;
+    params.topMargin = top;
+    mLiveLocationStatusButton.setLayoutParams(params);
   }
 
   @OptIn(markerClass = ExperimentalBadgeUtils.class)
@@ -443,6 +519,7 @@ public class MapButtonsController extends Fragment
     mMapButtonsViewModel.getSearchOption().observe(activity, mSearchOptionObserver);
     mMapButtonsViewModel.getTrackRecorderState().observe(activity, mTrackRecorderObserver);
     mMapButtonsViewModel.getTopButtonsMarginTop().observe(activity, mTopButtonMarginObserver);
+    mMapButtonsViewModel.getLiveLocationSharing().observe(activity, mLiveLocationObserver); // Live location (NLL)
   }
 
   public void onResume()
@@ -474,10 +551,22 @@ public class MapButtonsController extends Fragment
   {
     super.onStop();
     mMapButtonsViewModel.getTopButtonsMarginTop().removeObserver(mTopButtonMarginObserver);
+    mMapButtonsViewModel.getLiveLocationSharing().removeObserver(mLiveLocationObserver); // Live location (NLL)
     mPlacePageViewModel.getPlacePageDistanceToTop().removeObserver(mPlacePageDistanceToTopObserver);
     mMapButtonsViewModel.getButtonsHidden().removeObserver(mButtonHiddenObserver);
     mMapButtonsViewModel.getMyPositionMode().removeObserver(mMyPositionModeObserver);
     mMapButtonsViewModel.getSearchOption().removeObserver(mSearchOptionObserver);
+  }
+
+  // Live location (NLL): the indicator's blinking would run on without its view, e.g. when the buttons are
+  // made again for another layout mode.
+  @Override
+  public void onDestroyView()
+  {
+    if (mLiveLocationBlinking != null)
+      mLiveLocationBlinking.cancel();
+    mLiveLocationBlinking = null;
+    super.onDestroyView();
   }
 
   public void onSearchOptionChange(@Nullable SearchWheel.SearchOption searchOption)
@@ -525,7 +614,8 @@ public class MapButtonsController extends Fragment
     bookmarks,
     menu,
     help,
-    trackRecordingStatus
+    trackRecordingStatus,
+    liveLocationStatus // Live location (NLL)
   }
 
   public interface MapButtonClickListener

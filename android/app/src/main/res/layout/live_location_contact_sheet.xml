@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Live location (NLL): the sheet of a contact's dot, a bottom sheet in the map's coordinator styled as the place
+     page. ContactSheet adds it and fills the column in code. It also gives it the system bars' room, before its
+     first layout: the behaviour's own would come only after it, too late for the sheet to open where it rests. -->
+<androidx.core.widget.NestedScrollView
+  xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:app="http://schemas.android.com/apk/res-auto"
+  style="?attr/bottomSheetStyle"
+  android:layout_width="match_parent"
+  android:layout_height="wrap_content"
+  android:elevation="0dp"
+  app:layout_behavior="@string/placepage_behavior"
+  app:marginLeftSystemWindowInsets="false"
+  app:marginRightSystemWindowInsets="false"
+  app:paddingBottomSystemWindowInsets="false"
+  app:paddingTopSystemWindowInsets="false">
+  <LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+    <include layout="@layout/bottom_sheet_handle" />
+    <LinearLayout
+      android:id="@+id/live_location_content"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:orientation="vertical"
+      android:paddingBottom="@dimen/margin_base" />
+  </LinearLayout>
+</androidx.core.widget.NestedScrollView>

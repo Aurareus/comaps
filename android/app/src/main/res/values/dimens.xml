@@ -92,7 +92,9 @@
   <dimen name="routing_transit_step_corner_radius">4dp</dimen>
   <dimen name="routing_transit_step_min_height">20dp</dimen>
   <dimen name="routing_transit_setp_min_acceptable_with">104dp</dimen>
-  <dimen name="track_recorder_status_top_margin">64dp</dimen>
+  <!-- Live location (NLL): the indicators below the route planning header (?attr/actionBarSize, 64dp in Material 3)
+       with the gap they keep from the screen's edges (nav_frame_padding), rather than touching it -->
+  <dimen name="track_recorder_status_top_margin">72dp</dimen>
 
   <!-- Bottom menu -->
   <dimen name="menu_line_height">48dp</dimen>

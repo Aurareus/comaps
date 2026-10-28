@@ -132,6 +132,8 @@ public final class CarAppSession extends Session implements DefaultLifecycleObse
       LocationState.nativeSetListener(this);
       Framework.nativePlacePageActivationListener(this);
       mCurrentCountryChangedListener.onStart(getCarContext());
+      // Live location (NLL): the car's map needs the usual pace, also while a share sets it in the background
+      MwmApplication.from(getCarContext()).getLocationHelper().setCarMapShown(true);
     }
     if (LocationUtils.checkFineLocationPermission(getCarContext()))
       mSensorsManager.onStart();
@@ -148,6 +150,7 @@ public final class CarAppSession extends Session implements DefaultLifecycleObse
   {
     Logger.d(TAG);
     mSensorsManager.onStop();
+    MwmApplication.from(getCarContext()).getLocationHelper().setCarMapShown(false); // Live location (NLL)
     if (mDisplayManager.isCarDisplayUsed())
     {
       LocationState.nativeRemoveListener();

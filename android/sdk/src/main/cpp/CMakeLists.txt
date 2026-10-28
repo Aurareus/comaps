@@ -64,6 +64,7 @@ set(SRC
   app/organicmaps/sdk/editor/ReviewEditor.cpp
   app/organicmaps/sdk/Framework.cpp
   app/organicmaps/sdk/isolines/IsolinesManager.cpp
+  app/organicmaps/sdk/livelocation/LiveLocation.cpp  # Live location (NLL)
   app/organicmaps/sdk/LocationState.cpp
   app/organicmaps/sdk/Map.cpp
   app/organicmaps/sdk/MapManager.cpp

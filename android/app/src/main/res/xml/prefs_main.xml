@@ -52,6 +52,15 @@
     app:icon="@drawable/ic_privacy"
     android:summary="@string/prefs_group_privacy_summary" />
 
+  <!-- Live location (NLL): docs/LIVE_LOCATION.md §11.5 -->
+  <PreferenceScreen
+    android:key="pref_screen_live_location"
+    android:title="@string/live_location_sharing"
+    app:fragment="app.organicmaps.livelocation.LiveLocationSettingsFragment"
+    app:icon="@drawable/ic_live_location_settings"
+    app:isPreferenceVisible="@bool/live_location_supported"
+    android:summary="@string/live_location_setting_summary" />
+
   <PreferenceScreen
     android:key="pref_screen_advanced"
     android:title="@string/prefs_group_advanced"

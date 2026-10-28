@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Live location (NLL): it needs Android 7, API 24 (docs/LIVE_LOCATION.md §10.1, D6) -->
+<resources>
+  <bool name="live_location_supported">false</bool>
+</resources>

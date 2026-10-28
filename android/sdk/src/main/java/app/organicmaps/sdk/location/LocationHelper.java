@@ -21,6 +21,7 @@ import app.organicmaps.sdk.Map;
 import app.organicmaps.sdk.bookmarks.data.FeatureId;
 import app.organicmaps.sdk.bookmarks.data.MapObject;
 import app.organicmaps.sdk.routing.JunctionInfo;
+import app.organicmaps.sdk.routing.RoutingController;
 import app.organicmaps.sdk.util.Config;
 import app.organicmaps.sdk.util.LocationUtils;
 import app.organicmaps.sdk.util.NetworkPolicy;
@@ -52,6 +53,11 @@ public class LocationHelper implements BaseLocationProvider.Listener
   @NonNull
   private BaseLocationProvider mLocationProvider;
   private long mInterval;
+  // Live location (NLL): the pace of a share in the background (docs/LIVE_LOCATION.md §10.3); 0: none. Navigation
+  // and the car's map need the usual pace, track recording its own, whenever they run.
+  private long mSharingInterval;
+  private boolean mSharingBalanced;
+  private boolean mCarMapShown;
   private boolean mInFirstRun;
   private boolean mActive;
   private Handler mHandler;
@@ -332,6 +338,7 @@ public class LocationHelper implements BaseLocationProvider.Listener
     mLocationProvider.stop();
     mLocationProvider = new AndroidNativeProvider(mContext, this);
     mActive = true;
+    mLocationProvider.setBalancedPower(isBalancedPower()); // Live location (NLL)
     mLocationProvider.start(mInterval);
   }
 
@@ -392,7 +399,61 @@ public class LocationHelper implements BaseLocationProvider.Listener
     if (TrackRecorder.nativeIsTrackRecordingEnabled())
       return INTERVAL_TRACK_RECORDING;
 
+    // Live location (NLL): a share in the background sets its own pace, unless something else needs the usual one.
+    if (mSharingInterval > 0 && !mCarMapShown && !RoutingController.get().isNavigating())
+      return mSharingInterval;
+
     return INTERVAL_MS;
+  }
+
+  // Live location (NLL): balanced accuracy only at a share's idle pace.
+  private boolean isBalancedPower()
+  {
+    return mSharingBalanced && calcLocationUpdatesInterval() == mSharingInterval;
+  }
+
+  /**
+   * Live location (NLL): the pace of a share in the background, or 0 for the usual one. Restarts the provider when
+   * the pace changes.
+   */
+  @RequiresPermission(anyOf = {ACCESS_COARSE_LOCATION, ACCESS_FINE_LOCATION})
+  public void setSharingPace(long intervalMs, boolean balanced)
+  {
+    if (intervalMs == mSharingInterval && balanced == mSharingBalanced)
+      return;
+    mSharingInterval = intervalMs;
+    mSharingBalanced = balanced;
+    if (!isActive())
+      return;
+    Logger.i(TAG, "sharing pace: interval = " + intervalMs + " balanced = " + balanced);
+    restartWithNewMode(); // the interval decides the accuracy too
+  }
+
+  /** Live location (NLL): whether a share in the background set its pace. */
+  public boolean hasSharingPace()
+  {
+    return mSharingInterval > 0;
+  }
+
+  /** Live location (NLL): the share in the background ended. The caller stops location if nothing else needs it. */
+  public void clearSharingPace()
+  {
+    mSharingInterval = 0;
+    mSharingBalanced = false;
+  }
+
+  /**
+   * Live location (NLL): whether the car's map is shown, which needs the usual pace rather than a share's. Android
+   * Auto shows it while the phone's app may be in the background.
+   */
+  @SuppressLint("MissingPermission") // restarts only a provider already running
+  public void setCarMapShown(boolean shown)
+  {
+    if (shown == mCarMapShown)
+      return;
+    mCarMapShown = shown;
+    if (isActive())
+      restartWithNewMode();
   }
 
   /**
@@ -414,6 +475,7 @@ public class LocationHelper implements BaseLocationProvider.Listener
     Logger.i(TAG, "update refresh interval: old = " + mInterval + " new = " + newInterval);
     mLocationProvider.stop();
     mInterval = newInterval;
+    mLocationProvider.setBalancedPower(isBalancedPower()); // Live location (NLL)
     mLocationProvider.start(newInterval);
   }
 
@@ -440,6 +502,7 @@ public class LocationHelper implements BaseLocationProvider.Listener
     Logger.i(TAG, "provider = " + mLocationProvider.getClass().getSimpleName() + " mInFirstRun = " + mInFirstRun
                       + " oldInterval = " + oldInterval + " interval = " + mInterval);
     mActive = true;
+    mLocationProvider.setBalancedPower(isBalancedPower()); // Live location (NLL)
     mLocationProvider.start(mInterval);
     mHandler.postDelayed(mLocationTimeoutRunnable, LOCATION_UPDATE_TIMEOUT_MS);
     subscribeToGnssStatusUpdates();

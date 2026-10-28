@@ -1,5 +1,6 @@
 """End-to-end scenario tests of the NLL v1 reference implementation (no network)."""
 
+import dataclasses
 import json
 import os
 import sys
@@ -216,6 +217,62 @@ check([o.flagged for o in online(ctx['joiner'], ctx['relay'], T0 + 41)] == [True
       'joiner flags its contact when another joiner shows up later')
 check([o.flagged for o in online(ctx['inviter'], ctx['relay'], T0 + 41)] == [True] and c_inv.flagged,
       'inviter flags its contact too')
+
+# Envelope types (§12 item 1). Python serialises the string "d0" exactly like the tag ["d", "0"], so a
+# step 0 whose first tag is that string keeps a valid id and signature; a typed parser (the C++ one)
+# refuses it, and so must the reference. Likewise uppercase hex, which bytes.fromhex() would accept.
+invite_t = P.Inviter(RELAYS_A, rng, T0).invite
+joiner_t = P.Joiner(P.Invite.from_link(invite_t.link()), 'Bob', RELAYS_B, rng, T0)
+m0_t = joiner_t.commit_event(rng, T0)
+check(P.pairing_step(wire(m0_t), invite_t, T0) == 0, 'a well-typed step 0 passes')
+odd = wire(m0_t)
+odd.tags = ['d0'] + odd.tags[1:]
+check(odd.compute_id() == m0_t.id and P.pairing_step(odd, invite_t, T0) is None,
+      'a tag given as a string is refused, although its serialisation, id and signature are unchanged')
+upper = wire(m0_t)
+upper.sig = upper.sig.upper()
+check(P.pairing_step(upper, invite_t, T0) is None, 'uppercase hex in a signature is refused')
+upper = wire(m0_t)
+upper.content = 5
+check(P.pairing_step(upper, invite_t, T0) is None, 'content that is not a string is refused')
+
+# §12 items 2-4, each on its own: author, kind, the d and p tags (the first of each counts), an expiration of
+# 1-10 ASCII digits in the future, and a created_at at most 300 s ahead.
+sk_r = rng(32)
+authors_r = {p.secp_xonly_pub(sk_r).hex()}
+others_r = {p.secp_xonly_pub(rng(32)).hex()}
+later_r = str(T0 + 900)
+
+
+def ev_r(tags, created_at=T0, kind=P.KIND_STORED):
+    return wire(P.sign_event(sk_r, created_at, kind, tags, 'x', rng))
+
+
+def stored_r(ev, d=''):
+    return P.check_event(ev, authors_r, P.KIND_STORED, d, T0)
+
+
+check(stored_r(ev_r([['d', ''], ['expiration', later_r]])), 'the event the others differ from passes')
+check(not P.check_event(ev_r([['d', ''], ['expiration', later_r]]), others_r, P.KIND_STORED, '', T0), 'another author')
+check(not P.check_event(ev_r([['d', ''], ['expiration', later_r]]), authors_r, P.KIND_SIGNAL, None, T0), 'another kind')
+check(not stored_r(ev_r([['d', '1'], ['expiration', later_r]])), 'another d')
+check(not stored_r(ev_r([['expiration', later_r]])), 'no d')
+check(stored_r(ev_r([['d', ''], ['d', '1'], ['expiration', later_r]])), 'the first d counts')
+check(not stored_r(ev_r([['d', '1'], ['d', ''], ['expiration', later_r]])), 'the first d counts, not a later one')
+ipk_r = 'a' * 64
+check(P.check_event(ev_r([['d', '0'], ['p', ipk_r], ['expiration', later_r]]), None, P.KIND_STORED, '0', T0, ipk_r),
+      "a joiner's step with its p tag passes")
+check(not P.check_event(ev_r([['d', '0'], ['expiration', later_r]]), None, P.KIND_STORED, '0', T0, ipk_r), 'no p')
+check(not P.check_event(ev_r([['d', '0'], ['p', 'b' * 64], ['expiration', later_r]]), None, P.KIND_STORED, '0', T0,
+                        ipk_r), 'another p')
+# Ten characters, one of them no ASCII digit, would otherwise be a time far ahead: int() reads '٩' as 9.
+for exp_r in ['', '12a', '-5', '+900', ' 123', '12345678901', '999999999x', '٩٩٩٩٩٩٩٩٩٩', str(T0), str(T0 - 1)]:
+    check(not stored_r(ev_r([['d', ''], ['expiration', exp_r]])), f'expiration {exp_r!r} is refused')
+check(not stored_r(ev_r([['d', '']])), 'no expiration')
+check(stored_r(ev_r([['d', ''], ['expiration', str(T0 + 1)]])), 'a second ahead is the future')
+check(P.check_event(ev_r([], kind=P.KIND_SIGNAL), authors_r, P.KIND_SIGNAL, None, T0), 'a signal carries no expiration')
+check(stored_r(ev_r([['d', ''], ['expiration', later_r]], T0 + P.MAX_FUTURE_SKEW)), '300 s ahead')
+check(not stored_r(ev_r([['d', ''], ['expiration', later_r]], T0 + P.MAX_FUTURE_SKEW + 1)), '301 s ahead')
 
 # Without the PSK nothing counts: a step 0 with a wrong MAC is ignored by both sides (no denial of
 # service by someone who merely sees the inviter's key on a relay).
@@ -501,8 +558,25 @@ check(P.read_control(a_b, wire(last), week_over - 1) is not None and not P.offer
 for url in ('wss://nos.lol', 'ws://127.0.0.1:7777', 'ws://localhost', 'ws://[::1]:7777/'):
     check(P.check_relays([url]) == [url], 'relay url accepted: ' + url)
 for url in ('ws://nos.lol', 'ws://192.168.1.2:7777', 'ws://127.0.0.1.example.com', 'ws://localhost@evil.example',
-            'http://nos.lol', 'wss://' + 'x' * 60, 'wss://', 'wss://nos .lol', 'wss://nös.lol'):
+            'http://nos.lol', 'wss://' + 'x' * 60, 'wss://', 'wss://nos .lol', 'wss://nös.lol', 'wss://nos.lol/"',
+            'wss://nos.lol\\', 'ws://localhost/"'):
     check(raises(lambda: P.check_relays([url])), 'relay url refused: ' + url)
+check(P.check_name('"' * P.MAX_NAME) and P.check_name('Zoë'), 'names: quotes and letters')
+for name in ('', 'Al\tice', 'Alice\n', '\x7f', 'a' * (P.MAX_NAME + 1)):
+    check(raises(lambda: P.check_name(name)), 'name refused: %r' % name)
+
+# The largest messages this version sends fit their padded size (spec §5).
+longest = ['wss://' + 'a' * (P.MAX_RELAY_URL - 7) + c for c in '1234']
+time10, big = 9_999_999_999, 2 ** 53 - 1
+long_float = -1.2345678901234567e-300
+largest = [(P.state_body(big, time10, longest, {'until': time10, 'pk': 'f' * 64, 'key': 'A' * 43 + '='}, 'deeppurple'),
+            P.SIZE_CONTROL),
+           ({'t': 'pair3', 'ok': True, 'name': '"' * P.MAX_NAME, 'relays': longest, 'epoch': big}, P.SIZE_CONTROL),
+           ({'t': 'pair2', 'name': '"' * P.MAX_NAME, 'relays': longest}, P.SIZE_CONTROL),
+           ({'t': 'loc', 'seq': big, 'ts': big, 'lat': long_float, 'lon': long_float, 'acc': long_float,
+             'spd': long_float, 'brg': long_float, 'alt': long_float, 'low': True}, P.SIZE_STREAM)]
+check(all(len(P.encode_plaintext(body, size)) == size for body, size in largest),
+      'the largest state, pair3, pair2 and location fit their size')
 plain = P.Invite(os.urandom(32), alice.invite.ipk, T0 + 600, ['wss://nos.lol'])
 plain.relays = ['ws://nos.lol']
 check(raises(lambda: P.Invite.from_link(plain.link())), 'invite with a ws:// relay refused')
@@ -577,6 +651,15 @@ check(raises(lambda: alice_share.extend(a_bob, now, rng, now + 8)), 'extend() re
 g = alice_share.extend(a_bob, now + 7200, rng, now + 8)
 bob_view.on_state(P.read_control(bob_a, wire(g), now + 9), now + 9)
 check(bob_view.grant['until'] == now + 7200 and alice_share.stream is stream, 'extend(): same stream, later until')
+
+# A restart: the stored contact keeps the last seq, not the grant, which was kept in memory only (stream keys
+# are never stored). The latest state is read once more, and only it; an older one stays a replay (§8).
+check(P.read_control(bob_a, wire(g), now + 10) is None, 'the latest state read again in the same run: a replay')
+bob_restarted = dataclasses.replace(bob_a, last_seq_in=dict(bob_a.last_seq_in), last_state_read=False)
+check(P.read_control(bob_restarted, g_bob, now + 11) is None, 'after a restart, an older state stays a replay')
+st = P.read_control(bob_restarted, wire(g), now + 12)
+check(st is not None and st['share']['until'] == now + 7200, 'after a restart, the latest state is read once more')
+check(P.read_control(bob_restarted, wire(g), now + 13) is None, 'once')
 
 # --- Revocation: what a removed recipient sees must not depend on whether the share goes on ---
 
@@ -702,6 +785,13 @@ def state_text(**over):
 good_share = {'until': 0, 'pk': stream.pubkey(), 'key': p.b64encode(stream.key)}
 check(P.read_control(erin_a, raw_state(state_text(share=good_share), now + 22), now + 22) is not None,
       'a well-formed state is accepted')
+# The dot colour is cosmetic. A short string is kept, whatever the name (an app ignores names it does not
+# know); one of another type or size is ignored, not the state with its grant (§8).
+for what, value, kept in [('a name', 'teal', 'teal'), ('a name of a later version', 'mauve', 'mauve'),
+                          ('32 bytes', 'x' * 32, 'x' * 32), ('33 bytes', 'x' * 33, None), ('empty', '', None),
+                          ('a number', 7, None), ('null', None, None)]:
+    body = P.decode_plaintext(state_text(share=good_share, color=value))
+    check(not raises(lambda: P.check_state(body)) and P.state_color(body) == kept, 'the dot colour: ' + what)
 bad_texts = {
     'NaN': state_text().replace(b'"ts": %d' % now, b'"ts": NaN'),
     'Infinity': state_text().replace(b'"ts": %d' % now, b'"ts": Infinity'),
