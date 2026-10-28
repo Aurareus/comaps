@@ -49,9 +49,11 @@ int64_t MillisecondsSince(std::chrono::steady_clock::time_point start)
   return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
 }
 
-// Messages of one relay connection waiting for the core's thread. Normal traffic stays far below; a
+// Messages of one relay connection waiting for the core's thread, and their bytes: messages of up to 64 KiB
+// would otherwise let one relay hold 16 MiB while the core is busy. Normal traffic stays far below both; a
 // relay that floods the app loses the excess, and the relay pool fails it for the junk it reads.
 size_t constexpr kMaxPendingMessages = 256;
+size_t constexpr kMaxPendingBytes = 1 << 20;
 
 // Made on the first nativeStart(), nativeRatchet() or nativeDeliver(), on a Java thread, where the app's class
 // loader finds the classes.
@@ -130,23 +132,30 @@ class JavaTransport : public relay::Transport
 public:
   explicit JavaTransport(Executor & executor) : m_executor(executor) {}
 
-  /// On OkHttp's thread: queues a message for the core, unless too many of this socket's wait already.
+  /// On OkHttp's thread: queues a message for the core, unless too many of this socket's, or too many bytes of
+  /// them, wait already.
   void Receive(int64_t id, std::string text)
   {
+    size_t const size = text.size();
     {
       std::lock_guard lock(m_pendingMutex);
-      size_t & pending = m_pending[id];
-      if (pending >= kMaxPendingMessages)
+      Pending & pending = m_pending[id];
+      if (pending.m_messages >= kMaxPendingMessages || pending.m_bytes + size > kMaxPendingBytes)
         return;
-      ++pending;
+      ++pending.m_messages;
+      pending.m_bytes += size;
     }
-    m_executor.Post([this, id, text = std::move(text)]
+    m_executor.Post([this, id, size, text = std::move(text)]
     {
       {
         std::lock_guard lock(m_pendingMutex);
         auto const it = m_pending.find(id);
-        if (it != m_pending.end() && --it->second == 0)
-          m_pending.erase(it);
+        if (it != m_pending.end())
+        {
+          it->second.m_bytes -= size;
+          if (--it->second.m_messages == 0)
+            m_pending.erase(it);
+        }
       }
       OnMessage(id, text);
     });
@@ -231,8 +240,13 @@ private:
   Executor & m_executor;
   int64_t m_nextId = 1;
   std::map<int64_t, relay::SocketListener *> m_listeners;
+  struct Pending
+  {
+    size_t m_messages = 0;
+    size_t m_bytes = 0;
+  };
   std::mutex m_pendingMutex;
-  std::map<int64_t, size_t> m_pending;  // per socket, messages queued for the core's thread
+  std::map<int64_t, Pending> m_pending;  // per socket, what is queued for the core's thread
 };
 
 /// The store's data key, wrapped by an Android Keystore key (KeystoreKeyWrapper.java). The Java arrays
