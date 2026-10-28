@@ -148,12 +148,14 @@ public class ManageSharingFragment extends LiveLocationFragment
       views.header(getString(R.string.live_location_currently_sharing_with));
     for (Recipient recipient : sharing.recipients)
     {
+      // A contact just deleted is still a recipient until the share's change arrives: left out, as in the names.
       final Contact contact = LiveLocation.getContact(recipient.contactId);
-      views.check(contact != null ? contact.name : "?", LiveLocationText.until(context, recipient.until), true, true,
-                  (box, checked) -> {
-                    if (!checked)
-                      remove(recipient.contactId);
-                  });
+      if (contact == null)
+        continue;
+      views.check(contact.name, LiveLocationText.until(context, recipient.until), true, true, (box, checked) -> {
+        if (!checked)
+          remove(recipient.contactId);
+      });
     }
     for (Map.Entry<String, Long> pending : mPending.entrySet())
     {
