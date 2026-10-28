@@ -1,10 +1,16 @@
 #include "testing/testing.hpp"
 
+#include "live_location/live_location_tests/scenario.hpp"
+
 #include "live_location/thread_executor.hpp"
+
+#include "base/logging.hpp"
 
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <new>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -38,5 +44,23 @@ UNIT_TEST(ThreadExecutor_RunsInOrderAndCancels)
   TEST_LESS(std::abs(now - system), 1000, ("wall-clock time"));
   executor.Shutdown();
   executor.Post([&] { order.push_back(5); });  // dropped after shutdown
+}
+
+// A task that throws does not end the thread, which would end the app: later tasks run, and RunSync returns.
+UNIT_TEST(ThreadExecutor_ATaskThatThrowsStopsNothing)
+{
+  base::ScopedLogAbortLevelChanger const logOnly(LCRITICAL);  // debug builds stop at the error otherwise
+  ThreadExecutor executor;
+  std::atomic<int> ran = 0;
+  executor.Post([] { throw std::runtime_error("posted"); });
+  executor.Post([] { throw 42; });  // not a std::exception
+  executor.PostDelayed(5, [] { throw std::logic_error("delayed"); });
+  executor.PostDelayed(10, [&] { ++ran; });
+  // A call waiting for its task gets what it threw.
+  TEST(live_location_tests::Throws<std::bad_alloc>([&] { executor.RunSync([] { throw std::bad_alloc(); }); }), ());
+  TEST(live_location_tests::Throws<int>([&] { executor.RunSync([] { throw 42; }); }), ());
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  executor.RunSync([&] { ++ran; });
+  TEST_EQUAL(ran.load(), 2, ());
 }
 }  // namespace thread_executor_tests

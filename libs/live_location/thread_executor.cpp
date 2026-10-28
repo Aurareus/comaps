@@ -1,10 +1,34 @@
 #include "live_location/thread_executor.hpp"
 
+#include "base/logging.hpp"
+
 #include <chrono>
+#include <exception>
 #include <future>
 
 namespace live_location
 {
+namespace
+{
+// A task that throws would end the thread, and the app with it (std::terminate). It is logged instead, as an
+// error that stops debug builds, and the next task runs. Whatever the task did before it threw stays done.
+void RunGuarded(Executor::Task const & task)
+{
+  try
+  {
+    task();
+  }
+  catch (std::exception const & e)
+  {
+    LOG(LERROR, ("Live location: a task failed:", e.what()));
+  }
+  catch (...)
+  {
+    LOG(LERROR, ("Live location: a task failed"));
+  }
+}
+}  // namespace
+
 ThreadExecutor::~ThreadExecutor()
 {
   Shutdown();
@@ -18,12 +42,13 @@ int64_t ThreadExecutor::NowMs() const
 
 void ThreadExecutor::Post(Task task)
 {
-  m_thread.Push(std::move(task));
+  m_thread.Push([task = std::move(task)] { RunGuarded(task); });
 }
 
 Executor::TaskId ThreadExecutor::PostDelayed(int64_t delayMs, Task task)
 {
-  auto const result = m_thread.PushDelayed(std::chrono::milliseconds(std::max<int64_t>(0, delayMs)), std::move(task));
+  auto const result = m_thread.PushDelayed(std::chrono::milliseconds(std::max<int64_t>(0, delayMs)),
+                                           [task = std::move(task)] { RunGuarded(task); });
   return result.m_isSuccess ? result.m_id : kNoTask;
 }
 
@@ -37,13 +62,22 @@ void ThreadExecutor::RunSync(Task const & task)
 {
   std::promise<void> done;
   auto finished = done.get_future();
+  // What the task throws goes back to the caller, as a call's error: defaults returned in its place could
+  // mislead (for the app's start, false reads as a store that cannot be read).
   Task run = [&task, &done]
   {
-    task();
-    done.set_value();
+    try
+    {
+      task();
+      done.set_value();
+    }
+    catch (...)
+    {
+      done.set_exception(std::current_exception());
+    }
   };
   if (m_thread.Push(std::move(run)).m_isSuccess)
-    finished.wait();
+    finished.get();
 }
 
 void ThreadExecutor::Shutdown()
