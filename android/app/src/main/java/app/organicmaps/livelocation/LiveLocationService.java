@@ -24,6 +24,8 @@ import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.app.ServiceCompat;
 import androidx.core.content.ContextCompat;
+import androidx.lifecycle.Lifecycle;
+import androidx.lifecycle.ProcessLifecycleOwner;
 import app.organicmaps.MwmApplication;
 import app.organicmaps.R;
 import app.organicmaps.sdk.livelocation.LiveLocation;
@@ -250,6 +252,10 @@ public class LiveLocationService extends Service implements LocationListener, Li
     final LocationHelper locationHelper = MwmApplication.from(this).getLocationHelper();
     locationHelper.addListener(this); // idempotent
     locationHelper.restartWithNewMode(); // starts location if the map had it off
+    // Started only after the app was reported in the background (700 ms after its screen went, or later on a
+    // busy phone), when MwmApplication did not know of the share yet: the share's pace now.
+    if (!ProcessLifecycleOwner.get().getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED))
+      useSharingPace(this);
     return START_NOT_STICKY; // after the process dies, the user decides whether to resume (§8.5)
   }
 
