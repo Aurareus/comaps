@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -32,7 +33,12 @@ using namespace live_location_tests;
 struct Recorder : public ManagerListener
 {
   void OnContacts(std::vector<ContactInfo> const & contacts) override { m_contacts = contacts; }
-  void OnPairing(PairingInfo const & pairing) override { m_pairings[pairing.m_id] = pairing; }
+  void OnPairing(PairingInfo const & pairing) override
+  {
+    m_pairings[pairing.m_id] = pairing;
+    if (m_onPairing)
+      m_onPairing(pairing);
+  }
   void OnPositions(std::vector<PositionInfo> const & positions) override
   {
     m_positions = positions;
@@ -55,6 +61,7 @@ struct Recorder : public ManagerListener
   int m_storeErrors = 0;
   int m_writeFailures = 0;
   std::vector<int64_t> m_due;  // as reported, in order
+  std::function<void(PairingInfo const &)> m_onPairing;  // a frontend that answers at once, in the core's call
 };
 
 class World;
@@ -385,6 +392,39 @@ UNIT_TEST(Manager_LiveUpdatesComeAtMostEveryThreeSecondsAndAtLeastEveryFifteen)
   TEST_GREATER_OR_EQUAL(still.size(), 3, ());
   for (size_t i = 1; i < still.size(); ++i)
     TEST(still[i] - still[i - 1] >= 15'000 && still[i] - still[i - 1] < 16'000, (i, still));
+}
+
+UNIT_TEST(Manager_TheSameContactTwiceIsRefused)
+{
+  World world;
+  Phone alice(world, "Alice");
+  Phone bob(world, "Bob");
+  Pair(world, alice, bob);
+  std::string const id = alice.Id("Bob");
+  TEST(!alice.M().StartSharing({{id, 0}, {id, 0}}), ("one grant per contact"));
+  TEST(!alice.Events().m_sharing.m_active, ());
+  TEST(alice.M().StartSharing({{id, 0}}), ());
+  TEST(!alice.M().ChangeSharing({{id, 0}, {id, kT0 + 3600}}), ());
+  TEST(alice.Events().m_sharing.m_recipients.size() == 1 && alice.Events().m_sharing.m_recipients[0].second == 0, ());
+}
+
+UNIT_TEST(Manager_InvitesThatExpireTogetherSurviveAListenerThatAnswersAtOnce)
+{
+  // Two invites expire at the same clock tick, and the frontend cancels the other as soon as it hears of the
+  // first's end, within the core's call: the clock then finds that one gone.
+  World world;
+  Phone alice(world, "Alice");
+  auto const first = alice.M().CreateInvite(false);
+  auto const second = alice.M().CreateInvite(false);
+  TEST(first && second, ());
+  alice.Events().m_onPairing = [&](PairingInfo const & pairing)
+  {
+    if (pairing.m_stage == PairingInfo::Stage::Expired)
+      alice.M().CancelPairing(pairing.m_id == first->m_id ? second->m_id : first->m_id);
+  };
+  world.Run(11 * 60'000);
+  auto const stage = [&](std::string const & id) { return alice.Events().m_pairings[id].m_stage; };
+  TEST(stage(first->m_id) == PairingInfo::Stage::Expired || stage(second->m_id) == PairingInfo::Stage::Expired, ());
 }
 
 UNIT_TEST(Manager_WorksWithTwoOfThreeRelaysDown)

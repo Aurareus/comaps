@@ -113,6 +113,8 @@ Rekey Sharer::Start(Grants grants, crypto::Rng & rng, int64_t now)
 
 Rekey Sharer::Change(Grants grants, crypto::Rng & rng, int64_t now)
 {
+  if (!m_stream)
+    throw std::logic_error("not sharing: use Start()");
   if (grants.empty())
     return Stop(rng, now);
   std::vector<ContactPtr> removed;

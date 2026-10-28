@@ -84,7 +84,7 @@ public:
   /// Hiding stops every connection made for the contact's share (design doc §11.4).
   void SetHidden(std::string const & id, bool hidden);
 
-  /// False if a recipient is unknown or flagged, or a time limit is in the past.
+  /// False if a recipient is unknown, flagged or named twice, or a time limit is in the past.
   bool StartSharing(Recipients const & recipients);
   /// A new set of recipients (re-keys the stream). Empty stops sharing.
   bool ChangeSharing(Recipients const & recipients);
@@ -232,6 +232,8 @@ private:
   ManagerListener & m_listener;
   ManagerConfig m_config;
   std::unique_ptr<relay::RelayPool> m_pool;
+  // Tasks and callbacks that outlive a call hold a weak_ptr to this, and run only while it lives. Checking it and
+  // then going on is safe because, like every call, the destructor runs on the executor's thread, between tasks.
   std::shared_ptr<int> m_alive = std::make_shared<int>(0);
 
   bool m_started = false;

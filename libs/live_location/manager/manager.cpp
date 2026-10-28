@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <set>
 
 namespace live_location
 {
@@ -34,6 +35,16 @@ int64_t constexpr kDepartedEpochs = 7;       // a deleted contact is told its sh
 // app is on screen (spec §8): a share's end still arrives once they accept again and the app is opened, and the
 // background job no longer runs for it.
 int64_t constexpr kBackgroundRetrySeconds = 7 * 86400;
+
+// The same contact twice would get two grants: two states, of which only the first counts for its end.
+bool HasDuplicates(Manager::Recipients const & recipients)
+{
+  std::set<std::string> ids;
+  for (auto const & recipient : recipients)
+    if (!ids.insert(recipient.first).second)
+      return true;
+  return false;
+}
 
 bool Contains(Relays const & relays, std::string const & url)
 {
@@ -1669,7 +1680,7 @@ Grants Manager::ToGrants(Recipients const & recipients) const
 
 bool Manager::StartSharing(Recipients const & recipients)
 {
-  if (!m_started || recipients.empty())
+  if (!m_started || recipients.empty() || HasDuplicates(recipients))
     return false;
   if (m_sharer && m_sharer->IsSharing())
     return ChangeSharing(recipients);
@@ -1710,6 +1721,8 @@ bool Manager::ChangeSharing(Recipients const & recipients)
     StopSharing();
     return true;
   }
+  if (HasDuplicates(recipients))
+    return false;
   int64_t const now = Now();
   for (auto const & [id, until] : recipients)
   {
@@ -1988,8 +2001,12 @@ void Manager::OnClock(bool deliver)
       expired.push_back(session->m_id);
   for (auto const & id : expired)
   {
-    // A finished pairing just stops watching for conflicts; an unfinished one has expired.
-    bool const connected = FindSession(id)->m_stage == PairingInfo::Stage::Connected;
+    // A finished pairing just stops watching for conflicts; an unfinished one has expired. One ended meanwhile, by a
+    // listener answering the previous one's end at once, is gone.
+    Session const * session = FindSession(id);
+    if (session == nullptr)
+      continue;
+    bool const connected = session->m_stage == PairingInfo::Stage::Connected;
     EndSession(id, connected ? PairingInfo::Stage::Connected : PairingInfo::Stage::Expired, !connected);
   }
 

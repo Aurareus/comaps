@@ -24,7 +24,9 @@ bool IsFinite(double d)
 
 namespace
 {
-size_t constexpr kMaxDepth = 512;  // plaintexts are at most 512 bytes, so 256 levels at most
+// Plaintexts are at most 512 bytes: a valid document nests at most 256 levels, but the parser recurses into each
+// "[" before it can see the input end, so 512 of them reach a depth of 512. That is the bound.
+size_t constexpr kMaxDepth = 512;
 
 char LocaleDecimalPoint()
 {

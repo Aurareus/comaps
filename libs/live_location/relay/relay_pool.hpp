@@ -190,6 +190,8 @@ private:
   crypto::Rng & m_rng;
   AllowFn m_isAllowed;
   PoolConfig m_config;
+  // Tasks and callbacks that outlive a call hold a weak_ptr to this, and run only while it lives. Checking it and
+  // then going on is safe because, like every call, the destructor runs on the executor's thread, between tasks.
   std::shared_ptr<int> m_alive = std::make_shared<int>(0);
 
   uint64_t m_nextId = 1;

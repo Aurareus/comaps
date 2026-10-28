@@ -278,6 +278,8 @@ UNIT_TEST(Sharing_TimeLimitsAndEpochs)
   Paired const carol = Pair("Alice", kRelaysA, "Carol", kRelaysB, kT0, false);
   int64_t const t = kT0 + 300;
   Sharer sharer(kRelaysA);
+  TEST(Throws<std::logic_error>([&] { sharer.Change({{bob.m_inviterSide, 0}}, rng, t); }),
+       ("a change needs a share, as an extension and a stop do"));
   Following carolView;
   Deliver(sharer.Start({{bob.m_inviterSide, 0}, {carol.m_inviterSide, t + 600}}, rng, t).m_states,
           {{carol.m_joinerSide, &carolView}}, t);
